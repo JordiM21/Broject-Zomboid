@@ -3,6 +3,7 @@ import { T, FURN_KINDS } from '../world/worldgen.js';
 import { castRay, los, opaqueAt } from '../world/world.js';
 import { hash2 } from '../rng.js';
 import { ITEMS } from '../data/items.js';
+import { iconCanvas } from '../ui/icons.js';
 import { ZT, daylight } from '../sim/sim.js';
 
 const CH = 16, CPX = CH * TILE;
@@ -256,7 +257,7 @@ export class Renderer {
     }
     for (const car of w.cars) if (car.x * TILE < vx1 && (car.x + car.w) * TILE > vx0 && car.y * TILE < vy1 && (car.y + car.h) * TILE > vy0) this.car(ctx, car, car.cid === near, car.cid >= 0 ? w.containers[car.cid] : null);
     for (const cid of s.loose) {
-      const c = w.containers[cid]; if (!c || !c.items || !c.items.length) continue;
+      const c = w.containers[cid]; if (!c || (c.searched && (!c.items || !c.items.length))) continue;
       this.loose(ctx, c, cid === near);
     }
     for (const o of s.thrown) {
@@ -442,10 +443,19 @@ export class Renderer {
     if (hl) { ctx.strokeStyle = this.hlCol; ctx.lineWidth = 2; ctx.strokeRect(X + 2, Y + 2, W - 4, H - 4); }
   }
   loose(ctx, c, hl) {
+    if (c.type === 'zombie') {
+      if (!c.searched) { const t = (this.time * 1.5 + c.id * 0.37) % 2; if (t < 0.5) { ctx.fillStyle = `rgba(255,240,180,${0.8 * Math.sin(t * Math.PI * 2)})`; ctx.beginPath(); ctx.arc(c.px + 4, c.py - 4, 2, 0, 7); ctx.fill(); } }
+      else { ctx.fillStyle = '#8a7a5a'; ctx.fillRect(c.px - 4, c.py - 3, 8, 6); }
+      if (hl) { ctx.strokeStyle = this.hlCol; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(c.px, c.py, 16, 0, 7); ctx.stroke(); }
+      return;
+    }
     if (c.type === 'body') {
       ctx.fillStyle = '#2a2a30'; ctx.beginPath(); ctx.ellipse(c.px, c.py, 14, 8, 0.3, 0, 7); ctx.fill();
       ctx.fillStyle = '#ffd25a'; ctx.fillRect(c.px - 2, c.py - 2, 4, 4);
-    } else { ctx.fillStyle = '#8a7a5a'; ctx.fillRect(c.px - 7, c.py - 5, 14, 10); ctx.fillStyle = '#6a5a3a'; ctx.fillRect(c.px - 7, c.py - 1, 14, 2); }
+    } else {
+      const n = Math.min(3, c.items.length);
+      for (let k = 0; k < n; k++) { const ic = iconCanvas(c.items[k].id); ctx.drawImage(ic, c.px - 10 + k * 5 - (n - 1) * 2, c.py - 10 - k * 2, 20, 20); }
+    }
     if (hl) { ctx.strokeStyle = this.hlCol; ctx.lineWidth = 2; ctx.strokeRect(c.px - 14, c.py - 12, 28, 24); }
   }
   garden(ctx, X, Y) {
@@ -460,25 +470,41 @@ export class Renderer {
     const zt = ZT[z.type], r = zt.r;
     ctx.save(); ctx.translate(z.x, z.y);
     ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(2, 3, r + 2, r, 0, 0, 7); ctx.fill();
-    const down = z.down > 0;
-    ctx.rotate(z.ang + (z.stagger > 0 && !down ? Math.sin(this.time * 30) * 0.25 : 0));
-    if (down) ctx.scale(1.2, 0.7);
-    const moving = !down && z.atk <= 0 && z.state !== 'idle';
+    ctx.rotate(z.ang);
+    // hit recoil in local space (pushed away from the hit direction)
+    const k = z.hitT > 0 ? Math.sin((z.hitT / 0.28) * Math.PI) : 0;
+    const rel = (z.hitDir || 0) - z.ang, hx = Math.cos(rel) * k, hy = Math.sin(rel) * k;
+    const moving = z.atk <= 0 && z.state !== 'idle';
     const ph = this.time * (z.type === 'runner' ? 16 : 8) + z.id;
     if (moving) { ctx.fillStyle = '#2a2a24'; const f = Math.sin(ph) * 4; ctx.beginPath(); ctx.ellipse(f, -r * 0.4, 3.5, 2.5, 0, 0, 7); ctx.ellipse(-f, r * 0.4, 3.5, 2.5, 0, 0, 7); ctx.fill(); }
     const sway = Math.sin(this.time * 6 + z.id) * 2;
     const reach = z.atk > 0 ? 8 * (1 - z.atk / 0.45) : 0;
+    const flail = k * 5;
     ctx.strokeStyle = SKIN[z.skin]; ctx.lineWidth = z.type === 'brute' ? 6 : 4; ctx.lineCap = 'round';
-    if (down) { ctx.beginPath(); ctx.moveTo(0, -r * 0.7); ctx.lineTo(-r, -r); ctx.moveTo(0, r * 0.7); ctx.lineTo(-r, r); ctx.stroke(); }
-    else { ctx.beginPath(); ctx.moveTo(2, -r * 0.7); ctx.lineTo(r + 6 + reach, -r * 0.6 + sway); ctx.moveTo(2, r * 0.7); ctx.lineTo(r + 6 + reach, r * 0.6 - sway); ctx.stroke(); }
+    ctx.beginPath();
+    ctx.moveTo(2 + hx * 2, -r * 0.7 + hy * 2); ctx.lineTo(r + 6 + reach - flail, -r * 0.6 + sway - flail);
+    ctx.moveTo(2 + hx * 2, r * 0.7 + hy * 2); ctx.lineTo(r + 6 + reach - flail * 0.6, r * 0.6 - sway + flail);
+    ctx.stroke();
     ctx.fillStyle = z.type === 'brute' ? '#3a3530' : SHIRT[z.id % SHIRT.length];
-    ctx.beginPath(); ctx.ellipse(0, 0, r * 0.75, r, 0, 0, 7); ctx.fill();
-    ctx.fillStyle = 'rgba(90,10,10,0.6)'; ctx.fillRect(-3, -3, 4, 5);
-    ctx.fillStyle = SKIN[z.skin]; ctx.beginPath(); ctx.arc(2, 0, r * 0.55, 0, 7); ctx.fill();
-    if (z.type === 'runner' || z.state === 'chase') { ctx.fillStyle = z.type === 'runner' ? '#ff4a3a' : '#c0c060'; ctx.fillRect(r * 0.35, -3, 2, 2); ctx.fillRect(r * 0.35, 1, 2, 2); }
-    if (z.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${z.flash * 7})`; ctx.beginPath(); ctx.ellipse(0, 0, r, r * 1.05, 0, 0, 7); ctx.fill(); }
+    ctx.beginPath(); ctx.ellipse(hx * 1.5, hy * 1.5, r * 0.75, r, 0, 0, 7); ctx.fill();
+    // wounds accumulate with hits
+    const wn = z.wounds || 0;
+    for (let i = 0; i < wn + 1; i++) { const a = hash2(z.id, i, 3) * 6.28, d = hash2(i, z.id, 9) * r * 0.6; ctx.fillStyle = i === 0 ? 'rgba(90,10,10,0.6)' : 'rgba(120,8,8,0.85)'; ctx.beginPath(); ctx.arc(Math.cos(a) * d * 0.7, Math.sin(a) * d, i === 0 ? 2.5 : 1.6 + hash2(z.id, i, 1) * 1.6, 0, 7); ctx.fill(); }
+    // head snaps back on hit
+    const hX = 2 + hx * 4, hY = hy * 4;
+    ctx.fillStyle = SKIN[z.skin]; ctx.beginPath(); ctx.arc(hX, hY, r * 0.55, 0, 7); ctx.fill();
+    if (wn >= 3) { ctx.fillStyle = 'rgba(110,10,10,0.8)'; ctx.fillRect(hX - 2, hY - 3, 3, 2); }
+    if (z.type === 'runner' || z.state === 'chase') { ctx.fillStyle = z.type === 'runner' ? '#ff4a3a' : '#c0c060'; ctx.fillRect(hX + r * 0.33, hY - 3, 2, 2); ctx.fillRect(hX + r * 0.33, hY + 1, 2, 2); }
+    if (z.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${Math.min(0.7, z.flash * 7)})`; ctx.beginPath(); ctx.ellipse(hx * 1.5, hy * 1.5, r, r * 1.05, 0, 0, 7); ctx.fill(); }
     ctx.restore();
-    if (down) { ctx.fillStyle = 'rgba(255,220,120,0.8)'; ctx.font = 'bold 9px system-ui'; ctx.textAlign = 'center'; ctx.fillText('DOWN', z.x, z.y - r - 8); }
+    // health bar (shown briefly after taking damage)
+    if (z.hitAge !== undefined && z.hitAge < 3 && z.hp < zt.hp) {
+      const a = Math.min(1, (3 - z.hitAge) * 2), w = r * 2.6, f = Math.max(0, z.hp / zt.hp);
+      ctx.globalAlpha *= a;
+      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(z.x - w / 2 - 1, z.y - r - 11, w + 2, 5);
+      ctx.fillStyle = f > 0.5 ? '#c9d04a' : f > 0.25 ? '#e0903a' : '#e03a3a'; ctx.fillRect(z.x - w / 2, z.y - r - 10, w * f, 3);
+      ctx.globalAlpha /= a;
+    }
   }
   player(ctx, p) {
     ctx.save(); ctx.translate(p.x, p.y);

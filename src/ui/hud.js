@@ -1,6 +1,7 @@
 import { TILE } from '../config.js';
 import { T } from '../world/worldgen.js';
 import { ITEMS, OBJECTIVES, CAT_COLOR } from '../data/items.js';
+import { iconCanvas } from './icons.js';
 import { hourOf, dayOf, daylight, weaponList, capacity, carried } from '../sim/sim.js';
 
 const MM_COL = {
@@ -107,7 +108,7 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
     const d = it ? ITEMS[it.id] : null;
     ctx.fillStyle = '#eee'; ctx.textAlign = 'center'; ctx.font = `600 ${small ? 9 : 10}px system-ui, sans-serif`;
     const nm = it ? d.name.split(' ').slice(-1)[0] : 'Fists';
-    ctx.fillText(nm, x + slot / 2, hy + slot / 2 + 4);
+    if (it) ctx.drawImage(iconCanvas(it.id), x + slot * 0.14, hy + slot * 0.06, slot * 0.72, slot * 0.72); else ctx.fillText(nm, x + slot / 2, hy + slot / 2 + 4);
     if (it && d.dur) { ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(x + 4, hy + slot - 8, slot - 8, 4); const f = it.dur / d.dur; ctx.fillStyle = f > 0.5 ? '#7ad07a' : f > 0.2 ? '#d0c04a' : '#d05a4a'; ctx.fillRect(x + 4, hy + slot - 8, (slot - 8) * f, 4); }
     if (it && d.cat === 'gun') { const res = p.inv.filter((i) => i.id === d.ammo).reduce((a, b) => a + b.n, 0); ctx.fillStyle = it.mag ? '#ffd27a' : '#ff6a6a'; ctx.fillText(`${it.mag}/${res}`, x + slot / 2, hy + slot - 6); }
     ctx.restore();

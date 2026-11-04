@@ -1,7 +1,7 @@
 // Authoritative simulation. Pure state + inputs -> state + events.
 // Netcode-ready: every player action arrives as an input frame or a command object.
 import { TILE, DAY_LENGTH, START_HOUR, PLAYER_R, BASE_CARRY } from '../config.js';
-import { ITEMS, FISTS, UPGRADES, STASH_CAP, RECIPES, TRADE_COST, TRADE_POOL, OBJECTIVES, CONTAINER_LABEL } from '../data/items.js';
+import { CAT_ORDER, ITEMS, FISTS, UPGRADES, STASH_CAP, RECIPES, TRADE_COST, TRADE_POOL, OBJECTIVES, CONTAINER_LABEL } from '../data/items.js';
 import { generateWorld, T, SOLID } from '../world/worldgen.js';
 import { solidAt, collide, los, castRay, bulletBlock, isSafe, FlowField } from '../world/world.js';
 import { makeItem, addItem, countItem, removeItem, invWeight, rollLoot } from './inventory.js';
@@ -11,7 +11,7 @@ export const ZT = {
   runner: { hp: 45, spd: 80, dmg: 7, sight: 9, r: 9 },
   brute: { hp: 240, spd: 30, dmg: 20, sight: 6, r: 14 },
 };
-const SEARCH_TIME = { car: 1.4, locker: 1.2, crate: 1.2, body: 0.6, pile: 0.3 };
+const SEARCH_TIME = { zombie: 0.7, car: 1.4, locker: 1.2, crate: 1.2, body: 0.6, pile: 0.3 };
 const rnd = Math.random;
 const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return Math.abs(d); };
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -116,7 +116,7 @@ function onDawn(s) {
   const ps = Object.values(s.players);
   let n = 0;
   for (const c of s.world.containers) {
-    if (!c.searched || ['stash', 'bench', 'bed', 'radio', 'body', 'pile'].includes(c.type)) continue;
+    if (!c || !c.searched || ['stash', 'bench', 'bed', 'radio', 'body', 'pile'].includes(c.type)) continue;
     const pos = contPos(c);
     if (ps.some((p) => dist(p, pos) < 25 * TILE)) continue;
     if (rnd() < 0.12) { c.items = null; c.searched = false; c.salt = (c.salt || 0) + 1; n++; }
@@ -148,7 +148,7 @@ export function getInteract(s, p) {
   }
   for (const cid of s.loose) {
     const c = w.containers[cid];
-    if (!c || (c.items && !c.items.length && c.searched)) continue;
+    if (!c || (c.searched && (!c.items || !c.items.length))) continue;
     const d = Math.hypot(c.px - ax, c.py - ay);
     if (Math.hypot(c.px - p.x, c.py - p.y) < 44 && d < bd) { bd = d; best = { kind: 'cont', cid, label: contAction(s, c) }; }
   }
@@ -397,27 +397,23 @@ function shove(s, p) {
     if (d > 14 && angDiff(a, p.ang) > 1.2) continue;
     const res = z.type === 'brute' ? 0.3 : 1;
     z.vx += Math.cos(a) * 280 * res; z.vy += Math.sin(a) * 280 * res; z.stagger = Math.max(z.stagger, 1.1 * res); z.atk = 0;
-    if (z.type !== 'brute') { z.down = 1.1; ev(s, { type: 'zdown', x: z.x, y: z.y }); }
+    z.hitT = 0.28; z.hitDir = a; z.flash = 0.06;
   }
 }
 
 function damageZombie(s, z, dmg, kx, ky, knock, p, crit, melee = false) {
-  const downed = z.down > 0;
-  if (downed) dmg *= 2;
-  z.hp -= dmg; z.flash = 0.1;
+  z.hp -= dmg; z.flash = 0.1; z.hitT = 0.28; z.hitDir = Math.atan2(ky, kx); z.hitAge = 0; z.wounds = Math.min(6, (z.wounds || 0) + 1);
   const res = z.type === 'brute' ? 0.35 : 1;
   z.vx += kx * knock * res; z.vy += ky * knock * res; z.stagger = Math.max(z.stagger, 0.3 * res); z.atk = 0;
   if (p) { z.state = 'chase'; z.pid = p.id; z.lx = p.x; z.ly = p.y; z.lost = 0; }
-  ev(s, { type: 'zhit', x: z.x, y: z.y, kx, ky, crit: crit || downed, dmg: Math.round(dmg), melee, pid: p ? p.id : null });
+  ev(s, { type: 'zhit', x: z.x, y: z.y, kx, ky, crit, dmg: Math.round(dmg), melee, pid: p ? p.id : null });
   if (z.hp <= 0) {
     ev(s, { type: 'zdie', x: z.x, y: z.y, ztype: z.type, ang: Math.atan2(ky, kx) });
     s.stats.kills++; completeObjective(s, 'kill');
-    if (rnd() < (z.type === 'brute' ? 0.6 : 0.12)) {
-      const pool = [['cash', 3], ['bandage', 2], ['ammo9', 2], ['rag', 2], ['watch', 1], ['painkillers', 1], ['shells', 1], ['electronics', 1]];
-      let t = 0; for (const e of pool) t += e[1]; let r = rnd() * t; let id = pool[0][0];
-      for (const e of pool) { r -= e[1]; if (r <= 0) { id = e[0]; break; } }
-      const d = ITEMS[id]; makeLoose(s, z.x, z.y, 'pile', [makeItem(id, d.roll ? d.roll[0] + ((rnd() * (d.roll[1] - d.roll[0] + 1)) | 0) : 1)]).label = 'Zombie Remains';
-    }
+    const corpse = makeLoose(s, z.x, z.y, 'zombie', null); corpse.searched = false;
+    if (z.type === 'brute') corpse.salt = 7;
+    const corpses = s.loose.filter((id) => s.world.containers[id] && s.world.containers[id].type === 'zombie');
+    if (corpses.length > 120) { const old = corpses[0]; s.world.containers[old] = null; s.loose = s.loose.filter((id) => id !== old); }
   }
 }
 
@@ -583,7 +579,8 @@ function updateZombies(s, dt) {
   for (const z of s.zombies) {
     if (z.hp <= 0) continue;
     if (z.flash > 0) z.flash -= dt;
-    if (z.down > 0) z.down -= dt;
+    if (z.hitT > 0) z.hitT -= dt;
+    z.hitAge = (z.hitAge ?? 99) + dt;
     const zt = ZT[z.type];
     let p = null, d = 1e9;
     for (const q of players) { const dq = dist(z, q); if (dq < d) { d = dq; p = q; } }
@@ -794,6 +791,15 @@ export function command(s, pid, c) {
       let pile = s.loose.map((id) => w.containers[id]).find((k) => k.type === 'pile' && Math.hypot(k.px - p.x, k.py - p.y) < 40);
       if (!pile) pile = makeLoose(s, p.x, p.y, 'pile', []);
       addItem(pile.items, it);
+      break;
+    }
+    case 'sort': {
+      const list = c.which === 'cont' ? (contOk ? cont.items : null) : p.inv;
+      if (!list) return;
+      const ord = (it) => CAT_ORDER.indexOf(ITEMS[it.id].cat) * 1000 + ITEMS[it.id].name.charCodeAt(0);
+      const sorted = [...list].sort((a2, b2) => ord(a2) - ord(b2) || ITEMS[a2.id].name.localeCompare(ITEMS[b2.id].name));
+      list.length = 0; for (const it of sorted) { if (it === p.wpn) list.push(it); else addItem(list, it); }
+      ev(s, { type: 'click' });
       break;
     }
     case 'upgrade': {

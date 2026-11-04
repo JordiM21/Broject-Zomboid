@@ -14,7 +14,8 @@ export function saveGame(s, explored) {
   const w = s.world;
   const cont = [];
   w.containers.forEach((c, i) => {
-    if (i >= s.baseConts) cont.push([i, c.items, 1, 0, c.px, c.py, c.type, c.label || null]);
+    if (!c) return;
+    if (i >= s.baseConts) cont.push([i, c.items, c.searched ? 1 : 0, c.salt || 0, c.px, c.py, c.type, c.label || null]);
     else if (c.items !== null || c.searched) cont.push([i, c.items, c.searched ? 1 : 0, c.salt || 0]);
   });
   const doors = Object.entries(w.doors).map(([i, d]) => [+i, d.open ? 1 : 0, d.hp, d.broken ? 1 : 0, d.bar || 0]);
@@ -41,10 +42,12 @@ export function loadGame(spawnZombie, newPlayer) {
   for (const c of d.cont) {
     const [i, items, searched, salt, px, py, type, label] = c;
     if (i >= s.baseConts) {
-      w.containers[i] = { id: i, x: Math.floor(px / 32), y: Math.floor(py / 32), px, py, type, items, searched: true };
+      w.containers[i] = { id: i, x: Math.floor(px / 32), y: Math.floor(py / 32), px, py, type, items, searched: !!searched, salt };
       if (label) w.containers[i].label = label;
     } else { const k = w.containers[i]; k.items = items; k.searched = !!searched; k.salt = salt; }
   }
+  for (let i = 0; i < w.containers.length; i++) if (w.containers[i] === undefined) w.containers[i] = null;
+  s.loose = s.loose.filter((id) => w.containers[id]);
   for (const [i, o, hp, b, bar] of d.doors) if (w.doors[i]) Object.assign(w.doors[i], { open: !!o, hp, broken: !!b, bar: bar || 0 });
   for (const pp of d.players) {
     const p = newPlayer(s, pp.id, 'none');

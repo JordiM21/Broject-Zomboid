@@ -57,3 +57,39 @@ h2 { color: var(--acc); }
 .item, button, .card { transition: background 0.12s, border-color 0.12s, transform 0.08s; }
 button:active:not(:disabled) { transform: scale(0.96); }
 .item:active { transform: scale(0.985); }
+
+/* inventory grid */
+.panel#inv { width: min(900px, calc(100vw - 24px)); }
+.zone { border-radius: 8px; transition: background 0.12s, box-shadow 0.12s; }
+.zone.over, .eslot.over { background: rgba(255,210,122,0.08); box-shadow: inset 0 0 0 2px rgba(255,210,122,0.5); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; max-height: 40vh; overflow: auto; padding: 2px; min-height: 76px; }
+.tile { position: relative; aspect-ratio: 1; background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(0,0,0,0.15)); border: 1px solid rgba(255,255,255,0.08); border-bottom: 2px solid var(--cat); border-radius: 7px; cursor: grab; display: flex; align-items: center; justify-content: center; transition: transform 0.1s, border-color 0.1s, background 0.1s; user-select: none; }
+.tile:hover { transform: translateY(-2px); border-color: rgba(255,210,122,0.6); background: rgba(255,210,122,0.08); }
+.tile:active { cursor: grabbing; transform: scale(0.96); }
+.tile.dragging { opacity: 0.35; }
+.tile.eq { box-shadow: inset 0 0 0 2px rgba(255,210,122,0.6); }
+.tile img { width: 72%; height: 72%; image-rendering: auto; pointer-events: none; }
+.tile .nm { position: absolute; left: 3px; right: 3px; top: 2px; font-size: 8.5px; line-height: 1.1; color: rgba(255,255,255,0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.tile .cnt { position: absolute; right: 4px; bottom: 3px; font-size: 12px; font-weight: 700; color: var(--acc); text-shadow: 0 1px 2px #000; }
+.tile .mag { position: absolute; right: 4px; bottom: 3px; font-size: 10px; font-weight: 700; color: #cfe0ff; text-shadow: 0 1px 2px #000; }
+.tile .eqb { position: absolute; left: 4px; bottom: 3px; font-size: 9px; font-weight: 800; color: #111; background: var(--acc); border-radius: 3px; padding: 0 3px; }
+.tile .dur { position: absolute; left: 6px; right: 6px; bottom: 5px; height: 3px; background: rgba(0,0,0,0.6); border-radius: 2px; }
+.tile .dur i { display: block; height: 100%; border-radius: 2px; }
+.wbar { position: relative; height: 16px; background: rgba(0,0,0,0.45); border-radius: 4px; margin-bottom: 8px; overflow: hidden; }
+.wbar i { position: absolute; inset: 0 auto 0 0; transition: width 0.3s ease; }
+.wbar span { position: relative; font-size: 11px; padding-left: 6px; line-height: 16px; font-weight: 600; }
+.equip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
+.eslot { position: relative; height: 56px; border: 1px dashed rgba(255,255,255,0.18); border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+.eslot img { width: 38px; height: 38px; }
+.eslot .elbl { position: absolute; bottom: 2px; left: 4px; right: 4px; font-size: 9px; color: var(--dim); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.eslot .x { position: absolute; top: 2px; right: 2px; padding: 0 5px; font-size: 12px; line-height: 16px; }
+.ground { min-height: 140px; display: flex; align-items: center; justify-content: center; text-align: center; border: 2px dashed rgba(255,255,255,0.12); color: var(--dim); }
+.details { display: flex; gap: 12px; align-items: flex-start; margin-top: 10px; padding: 10px; border-top: 1px solid var(--line); min-height: 92px; }
+.details img { width: 64px; height: 64px; flex: none; background: rgba(255,255,255,0.04); border-radius: 8px; }
+.dInfo { flex: 1; } .dName { font-weight: 700; font-size: 15px; } .dDesc { font-size: 13px; margin: 2px 0 6px; color: #cfcac0; }
+.dStats { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 2px 14px; font-size: 12px; }
+.dStats div { display: flex; justify-content: space-between; border-bottom: 1px dotted rgba(255,255,255,0.08); } .dStats span { color: var(--dim); }
+.dBtns { display: flex; gap: 6px; margin-top: 8px; }
+.cost img { width: 16px; height: 16px; vertical-align: -4px; margin-right: 3px; }
+.cimg { width: 44px; height: 44px; flex: none; } .grow { flex: 1; }
+@media (max-height: 500px) { .grid { max-height: 34vh; } .details { min-height: 0; } .details img { width: 44px; height: 44px; } }

@@ -1,54 +1,105 @@
-// DOM panels: inventory/container transfer, base (upgrades, crafting, radio), menus.
-import { ITEMS, CAT_COLOR, UPGRADES, RECIPES, STASH_CAP, TRADE_COST } from '../data/items.js';
+// DOM panels: inventory/container grid with drag & drop, base (upgrades, crafting, radio).
+import { ITEMS, CAT_COLOR, UPGRADES, RECIPES, STASH_CAP, TRADE_COST, DESC, itemStats } from '../data/items.js';
 import { getCont, contCap, contLabel, capacity, carried, costStatus, dayOf } from '../sim/sim.js';
+import { iconURL } from './icons.js';
 
 const $ = (id) => document.getElementById(id);
-const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const USE_LABEL = { food: 'Eat / Drink', med: 'Use', melee: 'Equip', gun: 'Equip', bag: 'Wear', armor: 'Wear', throw: 'How to use' };
 
-function itemRow(it, idx, side, p) {
+function tile(it, idx, side, p) {
   const d = ITEMS[it.id];
-  const eq = it === p.wpn ? '<span class="tag">EQUIPPED</span>' : '';
-  let meta = '';
-  if (d.dur && it.dur !== undefined) meta = `${Math.round((it.dur / d.dur) * 100)}%`;
-  if (d.cat === 'gun') meta = `${it.mag}/${d.mag}`;
-  const use = side === 'inv' && it !== p.wpn ? ({ food: 'Eat', med: 'Use', melee: 'Equip', gun: 'Equip', bag: 'Wear', armor: 'Wear' }[d.cat] || '') : '';
-  return `<div class="item" data-act="${side === 'inv' ? 'put' : 'take'}" data-idx="${idx}" title="${esc(d.name)} — ${d.w} kg each">
-    <span class="sw" style="background:${CAT_COLOR[d.cat]}"></span>
-    <span class="nm">${esc(d.name)} ${eq}</span>
-    <span class="ct">${it.n > 1 ? 'x' + it.n : ''}</span><span class="meta">${meta}</span>
-    ${use ? `<button class="mini" data-act="use" data-idx="${idx}">${use}</button>` : ''}
-    ${side === 'inv' ? `<button class="mini ghost" data-act="drop" data-idx="${idx}">Drop</button>` : ''}
-  </div>`;
+  let bar = '';
+  if (d.dur && it.dur !== undefined) { const f = it.dur / d.dur; bar = `<div class="dur"><i style="width:${Math.round(f * 100)}%;background:${f > 0.5 ? '#7ad07a' : f > 0.2 ? '#d0c04a' : '#d05a4a'}"></i></div>`; }
+  if (d.cat === 'gun') bar = `<span class="mag">${it.mag}/${d.mag}</span>`;
+  return `<div class="tile${it === p.wpn ? ' eq' : ''}" draggable="true" data-side="${side}" data-idx="${idx}" style="--cat:${CAT_COLOR[d.cat]}">
+    <img src="${iconURL(it.id)}" alt="" draggable="false"><span class="nm">${esc(d.name)}</span>${it.n > 1 ? `<span class="cnt">${it.n}</span>` : ''}${bar}${it === p.wpn ? '<span class="eqb">E</span>' : ''}</div>`;
 }
 
 export class Panels {
   constructor(handlers) {
-    this.h = handlers; this.open = null; this.baseTab = 'upgrades';
+    this.h = handlers; this.open = null; this.baseTab = 'upgrades'; this.sel = null; this.drag = null;
     for (const id of ['inv', 'base']) {
-      $(id).addEventListener('click', (e) => this.click(e));
-      $(id).addEventListener('mousedown', (e) => e.stopPropagation());
+      const el = $(id);
+      el.addEventListener('click', (e) => this.click(e));
+      el.addEventListener('mousedown', (e) => e.stopPropagation());
     }
+    const inv = $('inv');
+    inv.addEventListener('dblclick', (e) => { const t = e.target.closest('.tile'); if (t) this.useTile(t); });
+    inv.addEventListener('contextmenu', (e) => { const t = e.target.closest('.tile'); if (t) { e.preventDefault(); this.useTile(t); } });
+    inv.addEventListener('mouseover', (e) => { const t = e.target.closest('.tile'); if (t) this.showDetails(t.dataset.side, +t.dataset.idx); });
+    inv.addEventListener('dragstart', (e) => {
+      const t = e.target.closest('.tile'); if (!t) return;
+      this.drag = { side: t.dataset.side, idx: +t.dataset.idx };
+      e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'item');
+      const img = t.querySelector('img'); if (img) e.dataTransfer.setDragImage(img, 24, 24);
+      t.classList.add('dragging');
+    });
+    inv.addEventListener('dragend', () => { this.drag = null; inv.querySelectorAll('.over,.dragging').forEach((n) => n.classList.remove('over', 'dragging')); });
+    inv.addEventListener('dragover', (e) => { const z = e.target.closest('[data-drop]'); if (z && this.drag) { e.preventDefault(); inv.querySelectorAll('.over').forEach((n) => n !== z && n.classList.remove('over')); z.classList.add('over'); } });
+    inv.addEventListener('dragleave', (e) => { const z = e.target.closest('[data-drop]'); if (z && !z.contains(e.relatedTarget)) z.classList.remove('over'); });
+    inv.addEventListener('drop', (e) => {
+      const z = e.target.closest('[data-drop]'); if (!z || !this.drag) return;
+      e.preventDefault(); z.classList.remove('over');
+      this.dropOn(z.dataset.drop, this.drag); this.drag = null;
+    });
   }
   get isOpen() { return !!this.open; }
   show(name, tab) {
-    this.close(); this.open = name; if (tab) this.baseTab = tab;
-    $(name).classList.remove('hidden'); this.refresh();
+    if (this.open !== name) { this.close(); this.open = name; this._inv = this._base = null; $(name).classList.remove('hidden'); }
+    if (tab) this.baseTab = tab;
+    this.refresh();
   }
-  close() { if (this.open) $(this.open).classList.add('hidden'); this.open = null; }
+  close() { if (this.open) $(this.open).classList.add('hidden'); this.open = null; this.sel = null; }
   toggleInv() { if (this.open === 'inv') this.close(); else this.show('inv'); }
+
+  item(side, idx) {
+    const s = this.h.state(), p = this.h.player();
+    if (side === 'inv') return p.inv[idx];
+    const c = p.openCid >= 0 ? getCont(s, p.openCid) : null;
+    return c && c.items ? c.items[idx] : null;
+  }
+  useTile(t) {
+    const side = t.dataset.side, idx = +t.dataset.idx, p = this.h.player();
+    if (side === 'inv') this.h.cmd({ t: 'use', idx });
+    else { this.h.cmd({ t: 'take', cid: p.openCid, idx }); }
+    this.refresh();
+  }
+  dropOn(zone, drag) {
+    const p = this.h.player(), cid = p.openCid;
+    if (drag.side === 'inv') {
+      if (zone === 'cont' && cid >= 0) this.h.cmd({ t: 'put', cid, idx: drag.idx });
+      else if (zone === 'ground') this.h.cmd({ t: 'drop', idx: drag.idx });
+      else if (zone === 'equip') this.h.cmd({ t: 'use', idx: drag.idx });
+    } else if (zone === 'inv' || zone === 'equip') {
+      const it = this.item('cont', drag.idx);
+      this.h.cmd({ t: 'take', cid, idx: drag.idx });
+      if (zone === 'equip' && it) { const i = p.inv.indexOf(it); const j = i >= 0 ? i : p.inv.findIndex((x) => x.id === it.id); if (j >= 0) this.h.cmd({ t: 'use', idx: j }); }
+    }
+    this.sel = null; this.refresh();
+  }
   click(e) {
+    const t = e.target.closest('.tile');
+    const p = this.h.player(), cid = p.openCid;
+    if (t && !e.target.closest('[data-act]')) {
+      const side = t.dataset.side, idx = +t.dataset.idx;
+      if (e.shiftKey && side === 'inv') this.h.cmd({ t: 'drop', idx });
+      else if (cid >= 0) { this.h.cmd({ t: side === 'inv' ? 'put' : 'take', cid, idx }); this.sel = null; }
+      else { this.sel = { side, idx }; this.showDetails(side, idx); }
+      this.refresh(); return;
+    }
     const b = e.target.closest('[data-act]'); if (!b) return;
     e.stopPropagation();
     const act = b.dataset.act, idx = +b.dataset.idx;
-    const s = this.h.state(), p = this.h.player(), cid = p.openCid;
     switch (act) {
       case 'close': this.close(); break;
-      case 'take': this.h.cmd({ t: 'take', cid, idx }); break;
-      case 'put': if (cid >= 0) this.h.cmd({ t: 'put', cid, idx }); break;
       case 'takeAll': this.h.cmd({ t: 'takeAll', cid }); break;
       case 'putAll': this.h.cmd({ t: 'putAll', cid }); break;
+      case 'sortInv': this.h.cmd({ t: 'sort', which: 'inv' }); break;
+      case 'sortCont': this.h.cmd({ t: 'sort', which: 'cont', cid }); break;
       case 'use': this.h.cmd({ t: 'use', idx }); break;
-      case 'drop': this.h.cmd({ t: 'drop', idx }); break;
+      case 'drop': this.h.cmd({ t: 'drop', idx }); this.sel = null; break;
+      case 'take': this.h.cmd({ t: 'take', cid, idx }); this.sel = null; break;
       case 'unequip': this.h.cmd({ t: 'unequip', slot: b.dataset.slot }); break;
       case 'tab': this.baseTab = b.dataset.tab; break;
       case 'upgrade': this.h.cmd({ t: 'upgrade', id: b.dataset.id }); break;
@@ -57,7 +108,21 @@ export class Panels {
       case 'trade': this.h.cmd({ t: 'trade' }); break;
       case 'sleep': this.h.cmd({ t: 'sleep' }); break;
     }
-    void s; this.refresh();
+    this.refresh();
+  }
+  showDetails(side, idx) {
+    const el = $('invDetails'); if (!el) return;
+    const it = this.item(side, idx), p = this.h.player();
+    if (!it) { el.innerHTML = '<div class="dim">Hover an item to inspect it. Drag items between panels, onto your equipment slots, or onto the ground.</div>'; return; }
+    const d = ITEMS[it.id];
+    const stats = itemStats(it).map(([k, v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join('');
+    let btns = '';
+    if (side === 'inv') {
+      if (it !== p.wpn && USE_LABEL[d.cat] && d.cat !== 'throw') btns += `<button data-act="use" data-idx="${idx}">${USE_LABEL[d.cat]}</button>`;
+      btns += `<button class="ghost" data-act="drop" data-idx="${idx}">Drop on ground</button>`;
+    } else btns += `<button data-act="take" data-idx="${idx}">Take</button>`;
+    el.innerHTML = `<img src="${iconURL(it.id)}" alt=""><div class="dInfo"><div class="dName" style="color:${CAT_COLOR[d.cat]}">${esc(d.name)}${it.n > 1 ? ` <span class="dim">x${it.n}</span>` : ''}</div>
+      <div class="dDesc">${esc(DESC[it.id] || '')}</div><div class="dStats">${stats}</div><div class="dBtns">${btns}</div></div>`;
   }
   refresh() {
     if (!this.open) return;
@@ -65,26 +130,31 @@ export class Panels {
     if (this.open === 'inv') this.renderInv(s, p); else this.renderBase(s, p);
   }
   renderInv(s, p) {
-    const wt = carried(p), cap = capacity(p);
-    const slot = (name, it, key) => `<div class="slot"><span class="lbl">${name}</span>${it ? `<span>${esc(ITEMS[it.id].name)}</span><button class="mini ghost" data-act="unequip" data-slot="${key}">Remove</button>` : '<span class="dim">—</span>'}</div>`;
-    let html = `<div class="cols"><div class="col"><div class="hdr"><b>Inventory</b><span class="${wt > cap ? 'warn' : 'dim'}">${wt.toFixed(1)} / ${cap} kg</span></div>
-      <div class="slots">${slot('Weapon', p.wpn, 'wpn')}${slot('Bag', p.bag, 'bag')}${slot('Armor', p.armor, 'armor')}</div>
-      <div class="list">${p.inv.length ? p.inv.map((it, i) => itemRow(it, i, 'inv', p)).join('') : '<div class="dim pad">Empty. Search containers with [E].</div>'}</div>`;
+    const wt = carried(p), cap = capacity(p), f = Math.min(1, wt / cap);
+    const slot = (name, it, key) => `<div class="eslot" data-drop="equip" title="${name}">${it ? `<img src="${iconURL(it.id)}" alt=""><button class="x" data-act="unequip" data-slot="${key}" title="Unequip">×</button>` : `<span class="dim">${name}</span>`}<span class="elbl">${it ? esc(ITEMS[it.id].name) : ''}</span></div>`;
     const c = p.openCid >= 0 ? getCont(s, p.openCid) : null;
+    let html = `<div class="cols"><div class="col zone" data-drop="inv">
+      <div class="hdr"><b>Inventory</b><button class="mini ghost" data-act="sortInv">Sort</button></div>
+      <div class="wbar"><i style="width:${f * 100}%;background:${wt > cap ? '#e0603a' : f > 0.8 ? '#d0b040' : '#7ab07a'}"></i><span>${wt.toFixed(1)} / ${cap} kg${wt > cap ? ' · overloaded' : ''}</span></div>
+      <div class="equip">${slot('Weapon', p.wpn, 'wpn')}${slot('Bag', p.bag, 'bag')}${slot('Armor', p.armor, 'armor')}</div>
+      <div class="grid">${p.inv.map((it, i) => tile(it, i, 'inv', p)).join('') || '<div class="dim pad">Empty. Search containers with [E].</div>'}</div>`;
     if (c && c.items) {
       html += `<div class="foot"><button data-act="putAll">Put all ▸</button></div></div>`;
       const ccap = contCap(s, c);
-      html += `<div class="col"><div class="hdr"><b>${esc(contLabel(c))}</b><span class="dim">${c.type === 'stash' ? `${c.items.length} / ${ccap} slots` : ''}</span></div>
-        <div class="list">${c.items.length ? c.items.map((it, i) => itemRow(it, i, 'cont', p)).join('') : '<div class="dim pad">Nothing here.</div>'}</div>
+      html += `<div class="col zone" data-drop="cont"><div class="hdr"><b>${esc(contLabel(c))}</b><span>${c.type === 'stash' ? `<span class="dim">${c.items.length}/${ccap}</span> ` : ''}<button class="mini ghost" data-act="sortCont">Sort</button></span></div>
+        <div class="grid">${c.items.map((it, i) => tile(it, i, 'cont', p)).join('') || '<div class="dim pad">Nothing here.</div>'}</div>
         <div class="foot"><button data-act="takeAll">◂ Take all</button></div></div>`;
-    } else html += `</div>`;
-    html += `</div><div class="hint">Click an item to move it between your inventory and the open container. [Tab] closes.</div>`;
-    if (this._inv !== html) { this._inv = html; $('invBody').innerHTML = html; }
+    } else html += `</div><div class="col"><div class="hdr"><b>Ground</b></div><div class="ground zone" data-drop="ground"><span>Drag items here to drop them<br><span class="dim small">or Shift+Click an item</span></span></div></div>`;
+    html += `</div><div class="hint">Click: move · Double/right-click: use or equip · Drag: move, equip or drop · Shift+Click: drop · [Tab] close</div>`;
+    if (this._inv !== html) {
+      this._inv = html; $('invBody').innerHTML = html;
+      if (this.sel) this.showDetails(this.sel.side, this.sel.idx); else this.showDetails('inv', -1);
+    }
   }
   renderBase(s, p) {
     const tabs = [['upgrades', 'Upgrades'], ['craft', 'Crafting'], ['radio', 'Radio'], ['stats', 'Record']];
     let html = `<div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${this.baseTab === k ? 'on' : ''}" data-act="tab" data-tab="${k}">${n}</button>`).join('')}</div>`;
-    const cost = (c) => costStatus(s, p, c).map((x) => `<span class="cost ${x.have >= x.n ? 'ok' : 'no'}">${esc(ITEMS[x.id].name)} ${Math.min(x.have, x.n)}/${x.n}</span>`).join(' ');
+    const cost = (c) => costStatus(s, p, c).map((x) => `<span class="cost ${x.have >= x.n ? 'ok' : 'no'}"><img src="${iconURL(x.id)}" alt="">${esc(ITEMS[x.id].name)} ${Math.min(x.have, x.n)}/${x.n}</span>`).join(' ');
     const can = (c) => costStatus(s, p, c).every((x) => x.have >= x.n);
     if (this.baseTab === 'upgrades') {
       html += `<div class="dim pad">Materials are taken from the Stash first, then your inventory.</div>`;
@@ -97,7 +167,7 @@ export class Panels {
       if (!s.upgrades.bench) html += `<div class="pad warn">Build the Workbench to unlock crafting.</div>`;
       else for (const r of RECIPES) {
         const locked = r.needs && !s.upgrades[r.needs];
-        html += `<div class="card"><div><b>${ITEMS[r.out[0]].name}${r.out[1] > 1 ? ' x' + r.out[1] : ''}</b>${locked ? ' <span class="warn">needs Armory Locker</span>' : ''}<div>${cost(r.cost)}</div></div>
+        html += `<div class="card"><img class="cimg" src="${iconURL(r.out[0])}" alt=""><div class="grow"><b>${ITEMS[r.out[0]].name}${r.out[1] > 1 ? ' x' + r.out[1] : ''}</b>${locked ? ' <span class="warn">needs Armory Locker</span>' : ''}<div class="dim small">${esc(DESC[r.out[0]] || '')}</div><div>${cost(r.cost)}</div></div>
           <button data-act="craft" data-id="${r.id}" ${!locked && can(r.cost) ? '' : 'disabled'}>Craft</button></div>`;
       }
     } else if (this.baseTab === 'radio') {

@@ -115,3 +115,51 @@ export const OBJECTIVES = [
   { id: 'night', text: 'Survive until dawn' },
   { id: 'all', text: 'Build every base upgrade' },
 ];
+
+export const DESC = {
+  beans: 'Heavy but filling. Your main food source.', chips: 'Light snack. Makes you a little thirsty.', apple: 'Fresh fruit. A bit of food and water.',
+  mre: 'Military ration. Fills you up for a long time.', water: 'Clean water. Thirst kills faster than hunger.', soda: 'Sugary drink. Decent for thirst.',
+  rag: 'Improvised dressing. May fail to stop bleeding.', bandage: 'Always stops bleeding and heals a little. Craft from 2 Cloth.',
+  painkillers: 'Heals slowly over time. Take before a fight.', antibiotics: 'Cures zombie infection. Carry one if you get bitten.',
+  medkit: 'Stops bleeding and heals a lot. Slow to apply, so get clear first.',
+  scrap: 'Base upgrades, ammo and pipe bombs.', plank: 'Base upgrades and door barricades.', nails: 'Upgrades, barricades and the Spiked Bat.',
+  cloth: 'Craft Bandages. Also used for the bed and garden.', tape: 'Crafting staple for gadgets and repairs.', electronics: 'Noise Makers, Pipe Bombs and the Ham Radio.',
+  knife: 'Fast and quiet. Short reach: shove first, then stab.', bat: 'Wide swing that knocks groups back. Good all-rounder.',
+  spikedbat: 'A bat with nails. Hits much harder.', crowbar: 'Very durable. Lasts a long time.',
+  machete: 'Fast, deadly blade with good reach.', axe: 'Huge damage but slow and tiring. Kills most zombies in one hit.',
+  pistol: 'Reliable, but every shot is heard 22 tiles away.', shotgun: 'Devastating up close. Very loud.',
+  rifle: 'Pierces through lines of zombies. Extremely loud.', ammo9: 'Ammo for the Pistol.', shells: 'Ammo for the Shotgun.', ammo308: 'Ammo for the Hunting Rifle.',
+  schoolbag: 'Wear to carry more.', hikingbag: 'Wear to carry a lot more.', milbag: 'The best bag. Haul everything home.',
+  jacket: 'Cuts damage and protects against bites.', vest: 'Heavy protection. Bites rarely get through.',
+  noisemaker: 'Throw [G] to lure zombies away for 10 s.', pipebomb: 'Throw [X]. Explodes after 2 s. Lure a crowd first.',
+  watch: 'Valuable. Trade over the Ham Radio.', jewelry: 'Valuable. Trade over the Ham Radio.', cash: 'Valuable. Trade over the Ham Radio.',
+};
+
+// Returns [label, value] pairs describing what an item does.
+export function itemStats(it) {
+  const d = ITEMS[it.id], s = [];
+  if (d.cat === 'melee') {
+    s.push(['Damage', d.dmg], ['Speed', (1 / d.cd).toFixed(1) + '/s'], ['Reach', d.range < 40 ? 'Short' : d.range < 49 ? 'Medium' : 'Long'], ['Knockback', d.knock >= 130 ? 'High' : d.knock >= 80 ? 'Medium' : 'Low']);
+    if (it.dur !== undefined) s.push(['Durability', `${it.dur}/${d.dur}`]);
+  } else if (d.cat === 'gun') {
+    s.push(['Damage', d.pellets > 1 ? `${d.dmg}×${d.pellets}` : d.dmg], ['Magazine', `${it.mag ?? 0}/${d.mag}`], ['Ammo', ITEMS[d.ammo].name], ['Noise', `${d.noise} tiles`]);
+    if (d.pierce > 1) s.push(['Pierce', d.pierce]);
+  } else if (d.cat === 'food') {
+    if (d.hunger) s.push(['Food', (d.hunger > 0 ? '+' : '') + d.hunger]);
+    if (d.thirst) s.push(['Water', (d.thirst > 0 ? '+' : '') + d.thirst]);
+  } else if (d.cat === 'med') {
+    if (d.heal) s.push(['Heal', '+' + d.heal]);
+    if (d.stopBleed) s.push(['Stops bleeding', d.stopBleed >= 1 ? 'Always' : Math.round(d.stopBleed * 100) + '%']);
+    if (d.regen) s.push(['Heal over time', '+' + d.regen]);
+    if (d.cure) s.push(['Cures', 'Infection']);
+  } else if (d.cat === 'bag') s.push(['Carry', '+' + d.cap + ' kg']);
+  else if (d.cat === 'armor') s.push(['Damage taken', '-' + Math.round(d.armor * 100) + '%'], ['Bite protection', Math.round(d.biteProt * 100) + '%']);
+  else if (d.cat === 'val') s.push(['Trade value', d.val]);
+  s.push(['Weight', d.w + ' kg']);
+  return s;
+}
+
+export const CAT_ORDER = ['gun', 'melee', 'ammo', 'med', 'food', 'throw', 'bag', 'armor', 'mat', 'val'];
+
+LOOT.zombie = { rolls: [0, 2], t: [['cash', 3], ['rag', 3], ['cloth', 2], ['bandage', 1.5], ['ammo9', 1.2], ['chips', 1], ['water', 1], ['watch', 0.8], ['painkillers', 0.8], ['shells', 0.5], ['jewelry', 0.4], ['tape', 0.5]] };
+CONTAINER_LABEL.zombie = 'Zombie Corpse';
