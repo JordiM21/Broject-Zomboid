@@ -2,6 +2,10 @@ import './style.css';
 import { SIM_DT } from './config.js';
 import { daylight, createState, addPlayer, step, command, getInteract, spawnZombie, newPlayer, dayOf, weaponList } from './sim/sim.js';
 import { Renderer } from './render/renderer.js';
+import { assetsReady } from './render/assets.js';
+import { playerFrame, zombieFrame, P_ANIMS, Z_ANIMS, prewarm } from './render/sprites.js';
+const spritesReady = assetsReady.then(() => prewarm());
+window.__sprites = { playerFrame, zombieFrame, P_ANIMS, Z_ANIMS };
 import { los } from './world/world.js';
 import { TILE } from './config.js';
 import { Sfx } from './audio.js';
@@ -159,8 +163,8 @@ if (matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window) {
 }
 
 // ---------- menus ----------
-$('btnNew').onclick = () => { if (hasSave() && !confirm('Start a new world? Your current save will be overwritten.')) return; sfx.init(); newGame(); };
-$('btnContinue').onclick = () => { sfx.init(); const r = loadGame(spawnZombie, newPlayer); if (r) begin(r.state, r.explored); else newGame(); };
+$('btnNew').onclick = async () => { await spritesReady; if (hasSave() && !confirm('Start a new world? Your current save will be overwritten.')) return; sfx.init(); newGame(); };
+$('btnContinue').onclick = async () => { await spritesReady; sfx.init(); const r = loadGame(spawnZombie, newPlayer); if (r) begin(r.state, r.explored); else newGame(); };
 $('btnHelp').onclick = () => $('help').classList.remove('hidden');
 $('btnPauseHelp').onclick = () => $('help').classList.remove('hidden');
 $('btnHelpClose').onclick = () => $('help').classList.add('hidden');

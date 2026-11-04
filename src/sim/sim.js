@@ -321,7 +321,7 @@ function selectWeapon(s, p, n) {
 function attack(s, p) {
   const wd = p.wpn ? ITEMS[p.wpn.id] : FISTS;
   if (wd.cat === 'gun') return fire(s, p, wd);
-  p.atkCd = wd.cd; p.swing = 0.2;
+  p.atkCd = wd.cd; p.swing = p.swingDur = Math.max(0.22, Math.min(0.55, wd.cd * 0.9)); p.act = 'attack';
   p.x += Math.cos(p.ang) * 3; p.y += Math.sin(p.ang) * 3; collide(p, PLAYER_R, (tx, ty) => solidAt(s.world, tx, ty));
   let mult = 1;
   if (p.stamina < wd.stam) { mult = 0.5; p.atkCd *= 1.5; }
@@ -362,7 +362,7 @@ function fire(s, p, wd) {
     if (countItem(p.inv, wd.ammo) > 0) startReload(s, p); else { ev(s, { type: 'empty', x: p.x, y: p.y }); msg(s, 'Out of ammo.', '#aaa', p.id); }
     return;
   }
-  p.wpn.mag--; p.atkCd = wd.cd; p.muzzle = 0.06;
+  p.wpn.mag--; p.atkCd = wd.cd; p.muzzle = 0.06; p.swing = p.swingDur = 0.18; p.act = 'attack';
   const spread = wd.spread * (p.sneak ? 0.6 : 1) * (p.moving ? 1.5 : 1);
   const ox = p.x + Math.cos(p.ang) * 16, oy = p.y + Math.sin(p.ang) * 16;
   for (let k = 0; k < wd.pellets; k++) {
@@ -404,7 +404,7 @@ function finishReload(s, p) {
 
 function shove(s, p) {
   if (p.stamina < 8 || p.atkCd > 0) return;
-  p.stamina -= 12; p.atkCd = 0.45; p.swing = 0.15;
+  p.stamina -= 12; p.atkCd = 0.45; p.swing = p.swingDur = 0.3; p.act = 'shove';
   ev(s, { type: 'shove', x: p.x, y: p.y, ang: p.ang });
   for (const z of s.zombies) {
     if (z.hp <= 0) continue;
@@ -424,7 +424,7 @@ function damageZombie(s, z, dmg, kx, ky, knock, p, crit, melee = false, silent =
   if (p) { z.state = 'chase'; z.pid = p.id; z.lx = p.x; z.ly = p.y; z.lost = 0; }
   ev(s, { type: 'zhit', silent, w: melee ? (p && p.wpn ? p.wpn.id : 'fists') : 'gun', x: z.x, y: z.y, kx, ky, crit, dmg: Math.round(dmg), melee, pid: p ? p.id : null });
   if (z.hp <= 0) {
-    ev(s, { type: 'zdie', x: z.x, y: z.y, ztype: z.type, ang: Math.atan2(ky, kx) });
+    ev(s, { type: 'zdie', zid: z.id, face: z.ang, x: z.x, y: z.y, ztype: z.type, ang: Math.atan2(ky, kx) });
     s.stats.kills++; completeObjective(s, 'kill');
     const corpse = makeLoose(s, z.x, z.y, z.type === 'soldier' ? 'zsoldier' : 'zombie', null); corpse.searched = false;
     if (z.type === 'brute') corpse.salt = 7;

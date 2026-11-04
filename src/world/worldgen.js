@@ -426,6 +426,7 @@ export function generateWorld(seed) {
     for (let k = 0; k < 2; k++) { const n = world.cars.length; addCar(b.x + b.w - 4 - k * 3, b.y + 3, true); if (world.cars.length > n) { world.cars[n].color = '#4a5230'; world.cars[n].military = true; } }
     prop(b.x + 1.2, b.y + 1.2, 1.6, 1.6, 'tower'); prop(b.x + b.w - 2.8, b.y + b.h - 2.8, 1.6, 1.6, 'tower');
     barrel(b.x + b.w - 3, b.y + b.h - 5);
+    { const tx3 = b.x + b.w - 9, ty3 = b.y + b.h - 5; prop(tx3, ty3, 2, 2.2, 'tank'); for (let yy = ty3; yy < ty3 + 2; yy++) for (let xx = tx3; xx < tx3 + 2; xx++) if (!SOLID[tile(xx, yy)] && tile(xx, yy) !== T.GATE) obj(xx, yy, T.CAR); }
     world.lamps.push({ x: (b.x + 2) * 32, y: (b.y + 2) * 32, flood: true, ph: 0 }, { x: (b.x + b.w - 2) * 32, y: (b.y + b.h - 2) * 32, flood: true, ph: 0 });
     world.zones.push({ x: (b.x + b.w / 2) * 32, y: (b.y + b.h / 2) * 32, r: 16 * 32, kind: 'military', name: 'Military Zone' });
   }
