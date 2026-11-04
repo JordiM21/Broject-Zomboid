@@ -63,6 +63,9 @@ export const ITEMS = {
   energy: { name: 'Energy Drink', cat: 'buff', w: 0.3, stack: 5, buff: 'energy', time: 90, thirst: 15 },
   reviver: { name: 'Self-Revive Kit', cat: 'perk', w: 0.8, stack: 1 },
 
+  silencer: { name: 'Silencer', cat: 'mod', w: 0.3 },
+  extmag: { name: 'Extended Mag', cat: 'mod', w: 0.2 },
+
   noisemaker: { name: 'Noise Maker', cat: 'throw', w: 0.4, stack: 5 },
   pipebomb: { name: 'Pipe Bomb', cat: 'throw', w: 0.6, stack: 3 },
 
@@ -71,8 +74,29 @@ export const ITEMS = {
   cash: { name: 'Cash Bundle', cat: 'val', w: 0.05, stack: 20, val: 3, roll: [1, 3] },
 };
 
+// Weapon mods. A gun carries at most one of each, listed in its `mods` array.
+// noise: multiplies how far a shot is heard. alert: chance a zombie in earshot reacts. mag: multiplies magazine size.
+export const MODS = {
+  silencer: { short: 'S', color: '#5ad0c8', noise: 0.3, alert: 0.4, not: ['crossbow'] },
+  extmag: { short: 'M', color: '#f0a040', mag: 1.5, not: ['crossbow'] },
+};
+export const modFits = (gunId, modId) => ITEMS[gunId].cat === 'gun' && !MODS[modId].not.includes(gunId);
+// A gun's stats with its mods applied. Use this instead of ITEMS for anything mods can change.
+export function gunStats(it) {
+  const g = { ...ITEMS[it.id], alert: 1 };
+  for (const id of it.mods || []) {
+    const m = MODS[id];
+    if (m.noise) g.noise = Math.round(g.noise * m.noise);
+    if (m.alert) g.alert = m.alert;
+    if (m.mag) g.mag = Math.round(g.mag * m.mag);
+  }
+  return g;
+}
+export const itemWeight = (it) => ITEMS[it.id].w + (it.mods || []).reduce((w, id) => w + ITEMS[id].w, 0);
+export const MOD_STASH_ITEMS = ['silencer', 'silencer', 'silencer', 'silencer', 'extmag', 'extmag', 'extmag', 'extmag'];
+
 export const CAT_COLOR = {
-  food: '#e0a050', med: '#e05a5a', mat: '#9aa3ad', melee: '#c9c9c9', gun: '#6f8fb0',
+  food: '#e0a050', med: '#e05a5a', mat: '#9aa3ad', melee: '#c9c9c9', gun: '#6f8fb0', mod: '#5ad0c8',
   ammo: '#d9c26b', buff: '#5ad0c8', perk: '#ff6ab0', bag: '#8d6e4b', armor: '#5d7a5a', throw: '#c77ad6', val: '#f2d14a',
 };
 
@@ -143,9 +167,10 @@ export const OBJECTIVES = [
 
 export const DESC_NEW = 1;
 export const DESC = {
+  silencer: 'Attach to a gun. Shots are heard much less far, and zombies in earshot often ignore them.', extmag: 'Attach to a gun. Holds 50% more rounds.',
   katana: 'Fast, long and silent. Kills unaware zombies in one cut, even without sneaking.', sledge: 'Slow and exhausting, but stuns everything it hits and sends zombies flying.',
   spear: 'Longest reach of any melee weapon. Narrow thrust: keep zombies at a distance.', crossbow: 'Near-silent and pierces two zombies. One shot per reload.', carbine: 'Accurate semi-auto rifle. The all-rounder for medium range.', ammomed: 'Medium ammo for carbines and crossbows.',
-  smg: 'Hold the trigger to empty 30 rounds fast. Inaccurate and very loud.', bolt: 'Ammo for the Crossbow.',
+  smg: 'Hold the trigger to empty the magazine fast. Inaccurate.', bolt: 'Ammo for the Crossbow.',
   riotgear: 'Best protection in the game, but heavy: 10% slower.', ghillie: 'Camouflage: zombies have a much harder time seeing you.',
   adrenaline: 'For 20 s: +30% speed, +25% damage, no stamina drain.', energy: 'For 90 s: stamina recovers twice as fast. Also quenches thirst.',
   helmet: 'Protects your head from bites and blows.', milhelmet: 'Sturdy helmet. Solid bite protection.',
@@ -163,8 +188,8 @@ export const DESC = {
   knife: 'Fast and quiet. Short reach: shove first, then stab.', bat: 'Wide swing that knocks groups back. Good all-rounder.',
   spikedbat: 'A bat with nails. Hits much harder.', crowbar: 'Very durable. Lasts a long time.',
   machete: 'Fast, deadly blade with good reach.', axe: 'Huge damage but slow and tiring. Kills most zombies in one hit.',
-  pistol: 'Reliable, but every shot is heard 22 tiles away.', shotgun: 'Devastating up close. Very loud.',
-  rifle: 'Pierces through lines of zombies. Extremely loud.', ammo9: 'Light ammo for pistols and SMGs.', shells: 'Shotgun ammo.', ammo308: 'Heavy ammo for the hunting rifle.',
+  pistol: 'Reliable and light. Watch the Noise stat: shots draw zombies.', shotgun: 'Devastating up close, weak at range.',
+  rifle: 'Pierces through lines of zombies. Slow to cycle.', ammo9: 'Light ammo for pistols and SMGs.', shells: 'Shotgun ammo.', ammo308: 'Heavy ammo for the hunting rifle.',
   schoolbag: 'Wear to carry more.', hikingbag: 'Wear to carry a lot more.', milbag: 'The best bag. Haul everything home.',
   jacket: 'Cuts damage and protects against bites.', vest: 'Heavy protection. Bites rarely get through.',
   noisemaker: 'Throw [G] to lure zombies away for 10 s.', pipebomb: 'Throw [X]. Explodes after 2 s. Lure a crowd first.',
@@ -178,8 +203,17 @@ export function itemStats(it) {
     s.push(['Damage', d.dmg], ['Speed', (1 / d.cd).toFixed(1) + '/s'], ['Reach', d.range < 40 ? 'Short' : d.range < 49 ? 'Medium' : 'Long'], ['Knockback', d.knock >= 130 ? 'High' : d.knock >= 80 ? 'Medium' : 'Low']);
     if (it.dur !== undefined) s.push(['Durability', `${it.dur}/${d.dur}`]);
   } else if (d.cat === 'gun') {
-    s.push(['Ammo type', ITEMS[d.ammo].name], ['Damage', d.pellets > 1 ? `${d.dmg}×${d.pellets}` : d.dmg], ['Magazine', `${it.mag ?? 0}/${d.mag}`], ['Noise', `${d.noise} tiles`]);
+    const g = gunStats(it);
+    s.push(['Ammo type', ITEMS[d.ammo].name], ['Damage', d.pellets > 1 ? `${d.dmg}×${d.pellets}` : d.dmg], ['Magazine', `${it.mag ?? 0}/${g.mag}`], ['Noise', `${g.noise} tiles`]);
+    if (g.alert < 1) s.push(['Zombies alerted', Math.round(g.alert * 100) + '%']);
     if (d.pierce > 1) s.push(['Pierce', d.pierce]);
+    s.push(['Mods', (it.mods || []).map((id) => ITEMS[id].name).join(', ') || 'None']);
+  } else if (d.cat === 'mod') {
+    const m = MODS[it.id];
+    if (m.noise) s.push(['Noise', '-' + Math.round((1 - m.noise) * 100) + '%']);
+    if (m.alert) s.push(['Zombies alerted', Math.round(m.alert * 100) + '%']);
+    if (m.mag) s.push(['Magazine', '+' + Math.round((m.mag - 1) * 100) + '%']);
+    s.push(['Not for', m.not.map((id) => ITEMS[id].name).join(', ')]);
   } else if (d.cat === 'food') {
     if (d.hunger) s.push(['Food', (d.hunger > 0 ? '+' : '') + d.hunger]);
     if (d.thirst) s.push(['Water', (d.thirst > 0 ? '+' : '') + d.thirst]);
@@ -196,12 +230,12 @@ export function itemStats(it) {
   if (d.stun) s.push(['Stun', d.stun + ' s']);
   else if (d.cat === 'val') s.push(['Trade value', d.val]);
   else if (d.cat === 'ammo') s.push(['Used by', Object.values(ITEMS).filter((g) => g.ammo === it.id).map((g) => g.name).join(', ') || '—']);
-  s.push(['Weight', d.w + ' kg']);
+  s.push(['Weight', +itemWeight(it).toFixed(2) + ' kg']);
   return s;
 }
 
 export const PERK_NAME = { nvg: 'Night vision', headlamp: 'Head light', quiet: 'Quiet steps', glassproof: 'Glass-proof', sprinter: 'Sprinter' };
-export const CAT_ORDER = ['gun', 'melee', 'ammo', 'perk', 'buff', 'med', 'food', 'throw', 'bag', 'armor', 'mat', 'val'];
+export const CAT_ORDER = ['gun', 'melee', 'mod', 'ammo', 'perk', 'buff', 'med', 'food', 'throw', 'bag', 'armor', 'mat', 'val'];
 
 LOOT.medcab = { rolls: [1, 3], t: [['adrenaline', 0.5], ['reviver', 0.08], ['bandage', 5], ['painkillers', 4], ['antibiotics', 3], ['medkit', 1.6], ['rag', 2], ['water', 1]] };
 LOOT.milcrate = { rolls: [1, 3], t: [['carbine', 0.6], ['ammomed', 2], ['milhelmet', 0.6], ['nvg', 0.3], ['kevlarpants', 0.35], ['boots', 0.5], ['smg', 0.5], ['riotgear', 0.3], ['crossbow', 0.3], ['ammomed', 1], ['adrenaline', 0.5], ['reviver', 0.12], ['ammo9', 4], ['ammo308', 3], ['shells', 3], ['mre', 3], ['pistol', 1], ['shotgun', 0.8], ['rifle', 0.8], ['vest', 1], ['milbag', 0.6], ['pipebomb', 1], ['machete', 0.8], ['bandage', 1]] };
@@ -214,7 +248,7 @@ LOOT.bookshelf = { rolls: [0, 1], t: [['tape', 1], ['cash', 1], ['electronics', 
 LOOT.tvstand = { rolls: [0, 2], t: [['electronics', 4], ['tape', 1], ['noisemaker', 0.4]] };
 LOOT.desk = { rolls: [0, 2], t: [['tape', 2], ['electronics', 2], ['cash', 1.5], ['nails', 1], ['painkillers', 0.6]] };
 LOOT.filing = { rolls: [0, 2], t: [['cash', 1], ['tape', 1], ['electronics', 1], ['ammo9', 0.5], ['bandage', 0.5]] };
-Object.assign(CONTAINER_LABEL, { rack: 'Weapon Rack (test)',  stove: 'Stove', sink: 'Sink Cabinet', nightstand: 'Nightstand', bookshelf: 'Bookshelf', tvstand: 'TV Stand', desk: 'Desk', filing: 'Filing Cabinet' });
+Object.assign(CONTAINER_LABEL, { rack: 'Weapon Rack (test)', modstash: 'Mod Stash (test)', stove: 'Stove', sink: 'Sink Cabinet', nightstand: 'Nightstand', bookshelf: 'Bookshelf', tvstand: 'TV Stand', desk: 'Desk', filing: 'Filing Cabinet' });
 LOOT.zombie = { rolls: [0, 2], t: [['cash', 3], ['rag', 3], ['cloth', 2], ['bandage', 1.5], ['ammo9', 1.2], ['chips', 1], ['water', 1], ['watch', 0.8], ['painkillers', 0.8], ['shells', 0.5], ['jewelry', 0.4], ['tape', 0.5]] };
 CONTAINER_LABEL.zombie = 'Zombie Corpse';
 

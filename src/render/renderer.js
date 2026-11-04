@@ -1,11 +1,11 @@
 import { TILE } from '../config.js';
 import { T, FURN_KINDS } from '../world/worldgen.js';
-import { castRay, los, opaqueAt } from '../world/world.js';
+import { castRay, los, opaqueAt, peekCone, peekOpaque, peekSees, PEEK_RANGE } from '../world/world.js';
 import { hash2 } from '../rng.js';
 import { ITEMS } from '../data/items.js';
 import { iconCanvas } from '../ui/icons.js';
 import { ZT, daylight, hourOf } from '../sim/sim.js';
-import { playerFrame, zombieFrame, muzzleTip, FRAME_SIZE } from './sprites.js';
+import { playerFrame, legsFrame, zombieFrame, muzzleTip, FRAME_SIZE, P_FRAME } from './sprites.js';
 import { IMG } from './assets.js';
 
 const CH = 16, CPX = CH * TILE;
@@ -24,7 +24,7 @@ export class Renderer {
     this.canvas = canvas; this.ctx = canvas.getContext('2d');
     this.fog = document.createElement('canvas'); this.night = document.createElement('canvas');
     this.chunks = new Map(); this.parts = []; this.floaters = []; this.flashes = []; this.tracers = [];
-    this.cam = { x: 0, y: 0, zoom: 1.5 }; this.doorAnim = new Map(); this.dying = []; this.booms = []; this.kick = { x: 0, y: 0 }; this.rings2 = []; this.bolts = []; this.animSt = new WeakMap(); this.trails = []; this.rings = []; this.glow = []; this.dt = 0.016; this.hlCol = '#fff'; this.shake = 0; this.dpr = 1; this.world = null; this.time = 0;
+    this.cam = { x: 0, y: 0, zoom: 1.5 }; this.doorAnim = new Map(); this.dying = []; this.booms = []; this.kick = { x: 0, y: 0 }; this.rings2 = []; this.bolts = []; this.animSt = new WeakMap(); this.trails = []; this.rings = []; this.glow = []; this.dt = 0.016; this.rot = 0; this.peekI = -1; this.peekView = null; this.hlCol = '#fff'; this.shake = 0; this.dpr = 1; this.world = null; this.time = 0;
   }
   setWorld(w) { this.world = w; this.chunks.clear(); this.doorAnim = new Map(); this.dying = []; this.roofs = new Map(); }
   resize() {
@@ -33,8 +33,15 @@ export class Renderer {
     for (const c of [this.canvas, this.fog, this.night]) { c.width = W; c.height = H; }
     this.cam.zoom = Math.max(1, Math.min(2.4, Math.min(window.innerWidth, window.innerHeight) / (17 * TILE)));
   }
-  worldToScreen(x, y) { return { x: (x - this.cam.x) * this.cam.zoom + window.innerWidth / 2, y: (y - this.cam.y) * this.cam.zoom + window.innerHeight / 2 }; }
-  screenToWorld(x, y) { return { x: (x - window.innerWidth / 2) / this.cam.zoom + this.cam.x, y: (y - window.innerHeight / 2) / this.cam.zoom + this.cam.y }; }
+  worldToScreen(x, y) { const z = this.cam.zoom, c = Math.cos(this.rot), n = Math.sin(this.rot), dx = x - this.cam.x, dy = y - this.cam.y; return { x: (c * dx - n * dy) * z + window.innerWidth / 2, y: (n * dx + c * dy) * z + window.innerHeight / 2 }; }
+  screenToWorld(x, y) { const z = this.cam.zoom, c = Math.cos(this.rot), n = Math.sin(this.rot), rx = (x - window.innerWidth / 2) / z, ry = (y - window.innerHeight / 2) / z; return { x: c * rx + n * ry + this.cam.x, y: -n * rx + c * ry + this.cam.y }; }
+  // world space to the screen, around the camera, turned by the view rotation
+  toWorld(g, camX, camY) {
+    const z = this.cam.zoom * this.dpr, c = Math.cos(this.rot), n = Math.sin(this.rot), hw = (window.innerWidth / 2) * this.dpr, hh = (window.innerHeight / 2) * this.dpr;
+    g.setTransform(z * c, z * n, -z * n, z * c, hw - z * (c * camX - n * camY), hh - z * (n * camX + c * camY));
+  }
+  // draw something at a world point that stays upright on screen whatever the view rotation
+  upright(ctx, x, y, fn) { ctx.save(); ctx.translate(x, y); ctx.rotate(-this.rot); fn(); ctx.restore(); }
 
   // ---------- chunk cache ----------
   chunk(cx, cy) {
@@ -267,7 +274,7 @@ export class Renderer {
       case 'tracer': if (e.gun === 'crossbow') { this.bolts.push({ ...e, t: 0 }); break; } this.tracers.push({ ...e, t: 0.07 }); if (e.wall) for (let k = 0; k < 4; k++) P.push({ x: e.x1, y: e.y1, vx: (Math.random() - 0.5) * 160, vy: (Math.random() - 0.5) * 160, life: 0.25, max: 0.25, c: '#ffd890', s: 2 }); break;
       case 'gunshot':
         if (e.gun === 'crossbow') break;
-        this.flashes.push({ x: e.x, y: e.y, t: e.gun === 'shotgun' || e.gun === 'rifle' ? 0.09 : 0.06, r: e.gun === 'shotgun' ? 330 : e.gun === 'smg' ? 200 : 260 });
+        if (!e.silenced) this.flashes.push({ x: e.x, y: e.y, t: e.gun === 'shotgun' || e.gun === 'rifle' ? 0.09 : 0.06, r: e.gun === 'shotgun' ? 330 : e.gun === 'smg' ? 200 : 260 });
         P.push({ x: e.x, y: e.y, vx: Math.cos(e.ang + 1.6) * 90, vy: Math.sin(e.ang + 1.6) * 90, life: 0.5, max: 0.5, c: '#d9b35a', s: 2 });
         for (let k = 0; k < 3; k++) P.push({ x: e.x, y: e.y, vx: Math.cos(e.ang) * 60 + (Math.random() - 0.5) * 30, vy: Math.sin(e.ang) * 60 + (Math.random() - 0.5) * 30, life: 0.6, max: 0.6, c: 'rgba(180,180,180,0.4)', s: 5, smoke: true });
         if (e.pid === localId) { this.shake = Math.max(this.shake, e.gun === 'shotgun' ? 7 : e.gun === 'rifle' ? 6 : 3); const K = { carbine: 6, pistol: 5, smg: 2.5, shotgun: 11, rifle: 13, crossbow: 3 }[e.gun] || 4; this.kick.x -= Math.cos(e.ang) * K; this.kick.y -= Math.sin(e.ang) * K; }
@@ -294,10 +301,12 @@ export class Renderer {
     this.hlCol = `rgba(255,230,140,${0.55 + 0.45 * Math.sin(this.time * 6)})`;
     const SW = window.innerWidth, SH = window.innerHeight;
     // camera
+    this.rot = ui.rotate && p ? -(p.ang + Math.PI / 2) : 0; // the character always faces up the screen
     if (p) {
       const lead = 0.18;
       const ld = ui.panelOpen || ui.bigMap ? 0 : lead;
-      const tx = p.x + (ui.mouseWorld.x - p.x) * ld, ty = p.y + (ui.mouseWorld.y - p.y) * ld;
+      const fwd = ui.rotate ? 90 : 0; // rotating view: see further ahead than behind
+      const tx = ui.rotate ? p.x + Math.cos(p.ang) * fwd : p.x + (ui.mouseWorld.x - p.x) * ld, ty = ui.rotate ? p.y + Math.sin(p.ang) * fwd : p.y + (ui.mouseWorld.y - p.y) * ld;
       this.cam.x += (tx - this.cam.x) * Math.min(1, dt * 8); this.cam.y += (ty - this.cam.y) * Math.min(1, dt * 8);
     }
     this.shake = Math.max(0, this.shake - dt * 40);
@@ -307,12 +316,22 @@ export class Renderer {
     const camX = this.cam.x + sx / z + this.kick.x, camY = this.cam.y + sy / z + this.kick.y;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#0b0d10'; ctx.fillRect(0, 0, SW, SH);
-    ctx.setTransform(z * dpr, 0, 0, z * dpr, (SW / 2 - camX * z) * dpr, (SH / 2 - camY * z) * dpr);
-    const vx0 = camX - SW / 2 / z, vy0 = camY - SH / 2 / z, vx1 = camX + SW / 2 / z, vy1 = camY + SH / 2 / z;
-    // chunks
+    this.toWorld(ctx, camX, camY);
+    const halfW = (this.rot ? Math.hypot(SW, SH) : SW) / 2 / z, halfH = (this.rot ? Math.hypot(SW, SH) : SH) / 2 / z; // a turned screen covers more of the world
+    const vx0 = camX - halfW, vy0 = camY - halfH, vx1 = camX + halfW, vy1 = camY + halfH;
+    // chunks (overlapped by a pixel when rotated, or antialiased edges show as seams)
+    const seam = this.rot ? 1 : 0;
     for (let cy = Math.floor(vy0 / CPX); cy <= Math.floor(vy1 / CPX); cy++) for (let cx = Math.floor(vx0 / CPX); cx <= Math.floor(vx1 / CPX); cx++) {
       if (cx < 0 || cy < 0 || cx * CH >= w.w || cy * CH >= w.h) continue;
-      ctx.drawImage(this.chunk(cx, cy), cx * CPX, cy * CPX);
+      ctx.drawImage(this.chunk(cx, cy), cx * CPX, cy * CPX, CPX + seam, CPX + seam);
+    }
+    // peeking: the slit of view through a cracked door or window
+    this.peekI = p && p.peek && !p.dead ? p.peek.i : -1; this.peekView = null;
+    if (this.peekI >= 0) {
+      const { a, half } = peekCone(p, p.peek), blk = peekOpaque(p.peek.i), pts = [p.x, p.y];
+      for (let k = 0; k <= 24; k++) { const an = a - half + (2 * half * k) / 24, d = castRay(w, p.x, p.y, an, PEEK_RANGE, blk), e = d < PEEK_RANGE ? d + 8 : d; pts.push(p.x + Math.cos(an) * e, p.y + Math.sin(an) * e); }
+      const bi = Math.floor((p.peek.ty + 0.5 + Math.sin(a)) * 1) * w.w + Math.floor(p.peek.tx + 0.5 + Math.cos(a)); // the tile just past the gap
+      this.peekView = { pts, bld: w.bld[bi] };
     }
     const tx0 = Math.max(0, Math.floor(vx0 / TILE) - 1), ty0 = Math.max(0, Math.floor(vy0 / TILE) - 1);
     const tx1 = Math.min(w.w - 1, Math.floor(vx1 / TILE) + 1), ty1 = Math.min(w.h - 1, Math.floor(vy1 / TILE) + 1);
@@ -333,7 +352,7 @@ export class Renderer {
       const i = ty * w.w + tx, t = w.tiles[i];
       if (i === nearTile) { ctx.fillStyle = 'rgba(255,230,140,0.18)'; ctx.fillRect(tx * TILE, ty * TILE, TILE, TILE); }
       if (t === T.DOOR) this.door(ctx, tx, ty, w.doors[i]);
-      else if (t === T.WINDOW) { const wi = w.windows && w.windows[i]; if (wi && (wi.open || wi.broken)) this.windowState(ctx, tx, ty, wi); }
+      else if (t === T.WINDOW) { const wi = w.windows && w.windows[i]; if (wi && (wi.open || wi.broken || i === this.peekI)) this.windowState(ctx, tx, ty, wi); }
       if (i === nearTile) { ctx.strokeStyle = this.hlCol; ctx.lineWidth = 2; ctx.strokeRect(tx * TILE + 1, ty * TILE + 1, TILE - 2, TILE - 2); }
       else if (t === T.FURN) {
         const cid = w.contAt[i]; const c = cid >= 0 ? w.containers[cid] : null;
@@ -364,6 +383,7 @@ export class Renderer {
     const lit = (x, y) => {
       if (!p || p.dead) return 1;
       const d = Math.hypot(x - p.x, y - p.y);
+      if (p.peek && peekSees(w, p, p.peek, x, y)) return Math.max(dl, 0.7);
       if (d > R || !los(w, p.x, p.y, x, y)) return 0;
       if (dl > 0.6) return 1;
       let l = Math.max(dl, 0.22);
@@ -446,7 +466,7 @@ export class Renderer {
       ctx.stroke();
     }
     // roofs drawn over the fog so buildings read clearly from outside
-    ctx.setTransform(z * dpr, 0, 0, z * dpr, (SW / 2 - camX * z) * dpr, (SH / 2 - camY * z) * dpr);
+    this.toWorld(ctx, camX, camY);
     const inB = p ? w.bld[Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE)] : -1;
     const roofDim = `rgba(4,6,12,${0.15 + (1 - dl) * 0.45})`;
     for (const b of w.buildings) {
@@ -454,12 +474,17 @@ export class Renderer {
       if ((b.x + b.w) * TILE < vx0 || b.x * TILE > vx1 || (b.y + b.h) * TILE < vy0 || b.y * TILE > vy1) continue;
       // roof sits inside the outer walls so doors and windows stay readable from the street
       const rx = (b.x + 1) * TILE - 5, ry = (b.y + 1) * TILE - 5, rw = (b.w - 2) * TILE + 10, rh = (b.h - 2) * TILE + 10;
+      const pv = this.peekView && this.peekView.bld === b.id ? this.peekView.pts : null;
+      if (pv) { // cut the view slit out of the roof
+        ctx.save(); ctx.beginPath(); ctx.rect(rx, ry, rw, rh); ctx.moveTo(pv[0], pv[1]); for (let k = 2; k < pv.length; k += 2) ctx.lineTo(pv[k], pv[k + 1]); ctx.closePath(); ctx.clip('evenodd');
+      }
       ctx.drawImage(this.roof(b), rx, ry, rw, rh);
       ctx.fillStyle = roofDim; ctx.fillRect(rx, ry, rw, rh);
+      if (pv) ctx.restore();
     }
     // floaters
     ctx.textAlign = 'center'; ctx.font = 'bold 11px system-ui, sans-serif';
-    for (const f of this.floaters) { f.t -= dt; f.y -= dt * 20; ctx.globalAlpha = Math.max(0, Math.min(1, f.t * 2)); ctx.fillStyle = f.c; ctx.fillText(f.text, f.x, f.y); }
+    for (const f of this.floaters) { f.t -= dt; f.y -= dt * 20; ctx.globalAlpha = Math.max(0, Math.min(1, f.t * 2)); ctx.fillStyle = f.c; this.upright(ctx, f.x, f.y, () => ctx.fillText(f.text, 0, 0)); }
     ctx.globalAlpha = 1; this.floaters = this.floaters.filter((f) => f.t > 0);
     for (const f of this.flashes) f.t -= dt; this.flashes = this.flashes.filter((f) => f.t > 0);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -467,7 +492,8 @@ export class Renderer {
 
   lighting(s, p, camX, camY, dl, R) {
     const w = s.world, dpr = this.dpr, z = this.cam.zoom, SW = window.innerWidth, SH = window.innerHeight;
-    const toWorld = (g) => g.setTransform(z * dpr, 0, 0, z * dpr, (SW / 2 - camX * z) * dpr, (SH / 2 - camY * z) * dpr);
+    const toWorld = (g) => this.toWorld(g, camX, camY);
+    const fillPeek = (g, style) => { const pv = this.peekView && this.peekView.pts; if (!pv) return; g.fillStyle = style; g.beginPath(); g.moveTo(pv[0], pv[1]); for (let k = 2; k < pv.length; k += 2) g.lineTo(pv[k], pv[k + 1]); g.closePath(); g.fill(); };
     // visibility polygon
     const N = 300, pts = [];
     for (let k = 0; k < N; k++) {
@@ -492,8 +518,9 @@ export class Renderer {
         g.fillStyle = gr; g.beginPath(); g.moveTo(p.x, p.y); g.arc(p.x, p.y, 400, p.ang - 0.45, p.ang + 0.45); g.closePath(); g.fill();
       }
       for (const f of this.flashes) light(f.x, f.y, f.r, Math.min(1, f.t * 12));
+      fillPeek(g, 'rgba(0,0,0,0.65)');
       if (w.safeCenter) light(w.safeCenter.x, w.safeCenter.y, 260, 0.7);
-      const hw = SW / 2 / z + 160, hh = SH / 2 / z + 160;
+      const hw = (this.rot ? Math.hypot(SW, SH) : SW) / 2 / z + 160, hh = (this.rot ? Math.hypot(SW, SH) : SH) / 2 / z + 160;
       const near = (o) => Math.abs(o.x - camX) < hw && Math.abs(o.y - camY) < hh;
       const glow = [];
       for (const l of w.lamps) {
@@ -518,6 +545,7 @@ export class Renderer {
     toWorld(g); g.globalCompositeOperation = 'destination-out';
     const gr = g.createRadialGradient(p.x, p.y, R * 0.6, p.x, p.y, R); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = gr; g.beginPath(); g.moveTo(pts[0], pts[1]); for (let k = 2; k < pts.length; k += 2) g.lineTo(pts[k], pts[k + 1]); g.closePath(); g.fill();
+    fillPeek(g, 'rgba(0,0,0,1)');
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(this.fog, 0, 0);
     this.atmosphere(s, camX, camY, dl);
   }
@@ -564,7 +592,7 @@ export class Renderer {
     const horiz = lw === T.WALL || rw === T.WALL || lw === T.WINDOW || rw === T.WINDOW || lw === T.DOOR || rw === T.DOOR;
     if (d.broken) { ctx.fillStyle = '#4a3220'; for (let k = 0; k < 4; k++) ctx.fillRect(X + 4 + k * 7, Y + 12 + (k % 2) * 6, 5, 3); return; }
     // smooth swing animation
-    let a = this.doorAnim.get(i); const target = d.open ? 1 : 0;
+    let a = this.doorAnim.get(i); const target = d.open ? 1 : i === this.peekI ? 0.2 : 0;
     if (a === undefined) a = target;
     a += (target - a) * Math.min(1, this.dt * 14); if (Math.abs(target - a) < 0.01) a = target;
     this.doorAnim.set(i, a);
@@ -592,7 +620,7 @@ export class Renderer {
     // furniture faces away from the wall it stands against
     const wall = (dx, dy) => { const t = w.tiles[(ty + dy) * w.w + tx + dx]; return t === T.WALL || t === T.WINDOW; };
     const rot = wall(0, -1) ? 0 : wall(0, 1) ? Math.PI : wall(-1, 0) ? -Math.PI / 2 : wall(1, 0) ? Math.PI / 2 : 0;
-    const opened = !!(c && c.searched && !['stash', 'bench', 'bed', 'radio', 'rack'].includes(c.type));
+    const opened = !!(c && c.searched && !['stash', 'bench', 'bed', 'radio', 'rack', 'modstash'].includes(c.type));
     ctx.save(); ctx.translate(X + 16, Y + 16); ctx.rotate(rot);
     ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(-12, -12, 28, 28);
     this.drawFurn(ctx, kind, opened, s, c);
@@ -653,6 +681,7 @@ export class Renderer {
       case 'bench': box(-15, -15, 30, 26, '#9a7a4a'); ctx.fillStyle = '#ccc'; ctx.fillRect(-10, -9, 9, 3); ctx.fillStyle = '#b03a2a'; ctx.fillRect(3, -6, 7, 6); ctx.fillStyle = '#6a5232'; ctx.fillRect(-15, 4, 30, 2); break;
       case 'bed': if (!s.upgrades.bed) { box(-14, -14, 28, 26, '#5a4a3a'); ctx.fillStyle = 'rgba(0,0,0,0.3)'; for (let k = 0; k < 3; k++) ctx.fillRect(-12, -10 + k * 8, 24, 2); } else { box(-14, -15, 28, 29, '#4a6a8a'); box(-12, -13, 24, 8, '#e8e8e0'); } break;
       case 'radio': box(-12, -12, 24, 18, '#2e2e2e'); ctx.fillStyle = s.upgrades.radio ? (this.time % 1 < 0.5 ? '#7ae07a' : '#3a6a3a') : '#444'; ctx.fillRect(-8, -8, 5, 5); ctx.fillStyle = '#888'; ctx.fillRect(2, -9, 7, 2); ctx.fillRect(2, -5, 7, 2); break;
+      case 'modstash': box(-14, -13, 28, 26, '#2c3640'); ctx.fillStyle = '#5ad0c8'; ctx.fillRect(-10, -8, 20, 5); ctx.fillStyle = '#f0a040'; ctx.fillRect(-10, 2, 20, 5); ctx.fillStyle = '#ffd27a'; ctx.fillRect(-14, -13, 28, 2); break;
       case 'rack': box(-15, -15, 30, 12, '#4a3a2a'); for (let k = 0; k < 4; k++) { ctx.fillStyle = ['#c8ccd0', '#b4834a', '#3a3f46', '#c0302a'][k]; ctx.fillRect(-13 + k * 7, -13, 3, 24); } ctx.fillStyle = '#ffd27a'; ctx.fillRect(-15, -15, 30, 2); break;
       default: box(-14, -14, 28, 28, '#777');
     }
@@ -738,28 +767,33 @@ export class Renderer {
     const wn = z.wounds || 0;
     for (let i = 0; i < wn; i++) { const a = hash2(z.id, i, 3) * 6.28, d = hash2(i, z.id, 9) * r * 0.55; ctx.fillStyle = 'rgba(130,8,8,0.85)'; ctx.beginPath(); ctx.arc(Math.cos(a) * d * 0.7, Math.sin(a) * d, 1.4 + hash2(z.id, i, 1) * 1.4, 0, 7); ctx.fill(); }
     ctx.restore();
-    if (z.state !== 'chase' && z.sus > 0.12) { ctx.fillStyle = `rgba(255,${Math.round(220 - z.sus * 120)},80,${Math.min(1, z.sus + 0.2)})`; ctx.font = `bold ${10 + z.sus * 6}px system-ui`; ctx.textAlign = 'center'; ctx.fillText('?', z.x, z.y - r - 8); }
+    if (z.state !== 'chase' && z.sus > 0.12) { ctx.fillStyle = `rgba(255,${Math.round(220 - z.sus * 120)},80,${Math.min(1, z.sus + 0.2)})`; ctx.font = `bold ${10 + z.sus * 6}px system-ui`; ctx.textAlign = 'center'; this.upright(ctx, z.x, z.y, () => ctx.fillText('?', 0, -r - 8)); }
     if (z.hitAge !== undefined && z.hitAge < 3 && z.hp < zt.hp) {
       const a = Math.min(1, (3 - z.hitAge) * 2), w = r * 2.6, f = Math.max(0, z.hp / zt.hp);
       ctx.globalAlpha *= a;
-      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(z.x - w / 2 - 1, z.y - r - 13, w + 2, 5);
-      ctx.fillStyle = f > 0.5 ? '#c9d04a' : f > 0.25 ? '#e0903a' : '#e03a3a'; ctx.fillRect(z.x - w / 2, z.y - r - 12, w * f, 3);
+      this.upright(ctx, z.x, z.y, () => {
+        ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(-w / 2 - 1, -r - 13, w + 2, 5);
+        ctx.fillStyle = f > 0.5 ? '#c9d04a' : f > 0.25 ? '#e0903a' : '#e03a3a'; ctx.fillRect(-w / 2, -r - 12, w * f, 3);
+      });
       ctx.globalAlpha /= a;
     }
   }
   player(ctx, p) {
     const st = this.anim(p), wd = p.wpn ? ITEMS[p.wpn.id] : null;
+    const gait = p.sprinting ? 'run' : 'walk', stride = st.d / (p.sprinting ? 125 : 70);
     let anim = 'idle', t = (this.time * 0.9) % 1;
     if (p.channel) { anim = 'heal'; t = (this.time * 1.6) % 1; }
     else if (p.reload > 0 && wd && wd.cat === 'gun') { anim = 'reload'; t = 1 - p.reload / wd.reload; }
     else if (p.swing > 0) { anim = p.act === 'shove' ? 'shove' : 'attack'; t = 1 - p.swing / (p.swingDur || 0.2); }
-    else if (p.moving) { anim = 'walk'; t = st.d / 70; }
+    else if (p.moving) { anim = gait; t = stride; }
     const G = p.gear || {};
-    const fr = playerFrame(p.wpn ? p.wpn.id : 'fists', G.body && G.body.id, p.bag && p.bag.id, anim, t, G.head && G.head.id, G.feet && G.feet.id);
+    const acting = p.moving && anim !== 'idle' && anim !== gait; // keep the legs walking under a reload or swing
+    const fr = playerFrame(p.wpn ? p.wpn.id : 'fists', G.body && G.body.id, p.bag && p.bag.id, anim, t, G.head && G.head.id, G.feet && G.feet.id, (p.wpn && p.wpn.mods) || [], acting);
     ctx.save(); ctx.translate(p.x, p.y);
     ctx.fillStyle = 'rgba(0,0,0,0.32)'; ctx.beginPath(); ctx.ellipse(2, 3, 12, 10, 0, 0, 7); ctx.fill();
     ctx.rotate(p.ang);
-    ctx.drawImage(fr, -FRAME_SIZE / 2, -FRAME_SIZE / 2, FRAME_SIZE, FRAME_SIZE);
+    if (acting) ctx.drawImage(legsFrame(G.feet && G.feet.id, gait, stride), -P_FRAME / 2, -P_FRAME / 2, P_FRAME, P_FRAME);
+    ctx.drawImage(fr, -P_FRAME / 2, -P_FRAME / 2, P_FRAME, P_FRAME);
     if (p.muzzle > 0 && wd && wd.cat === 'gun') {
       const m = muzzleTip(p.wpn.id);
       if (m) { ctx.fillStyle = '#fff2b0'; ctx.beginPath(); ctx.moveTo(m[0], m[1] - 4); ctx.lineTo(m[0] + 12, m[1]); ctx.lineTo(m[0], m[1] + 4); ctx.fill(); ctx.fillStyle = '#ffb040'; ctx.beginPath(); ctx.arc(m[0] + 2, m[1], 3.5, 0, 7); ctx.fill(); }

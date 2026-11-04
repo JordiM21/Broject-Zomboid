@@ -1,19 +1,21 @@
 // DOM panels: inventory/container grid with drag & drop, base (upgrades, crafting, radio).
-import { PERK_NAME, ITEMS, CAT_COLOR, UPGRADES, RECIPES, STASH_CAP, TRADE_COST, DESC, itemStats } from '../data/items.js';
-import { getCont, contCap, contLabel, capacity, carried, costStatus, dayOf, gearStats } from '../sim/sim.js';
+import { PERK_NAME, ITEMS, MODS, modFits, gunStats, CAT_COLOR, UPGRADES, RECIPES, STASH_CAP, TRADE_COST, DESC, itemStats } from '../data/items.js';
+import { getCont, contCap, contLabel, capacity, carried, costStatus, dayOf, gearStats, resolveHot } from '../sim/sim.js';
 import { iconURL } from './icons.js';
+import { hotSlot } from './hotbar.js';
 import { playerFrame } from '../render/sprites.js';
 const dolls = new Map();
 function dollURL(p) {
-  const G = p.gear || {}, id = (x) => (x ? x.id : undefined);
-  const k = `${p.wpn ? p.wpn.id : 'fists'}|${id(G.body)}|${id(p.bag)}|${id(G.head)}|${id(G.feet)}`;
-  if (!dolls.has(k)) dolls.set(k, playerFrame(p.wpn ? p.wpn.id : 'fists', id(G.body), id(p.bag), 'idle', 0.1, id(G.head), id(G.feet)).toDataURL());
+  const G = p.gear || {}, id = (x) => (x ? x.id : undefined), mods = (p.wpn && p.wpn.mods) || [];
+  const k = `${p.wpn ? p.wpn.id : 'fists'}|${mods.join()}|${id(G.body)}|${id(p.bag)}|${id(G.head)}|${id(G.feet)}`;
+  if (!dolls.has(k)) dolls.set(k, playerFrame(p.wpn ? p.wpn.id : 'fists', id(G.body), id(p.bag), 'idle', 0.1, id(G.head), id(G.feet), mods).toDataURL());
   return dolls.get(k);
 }
 
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const USE_LABEL = { med: 'Use', melee: 'Equip', gun: 'Equip', bag: 'Wear', armor: 'Wear' };
+const USE_LABEL = { med: 'Use', melee: 'Equip', gun: 'Equip', bag: 'Wear', armor: 'Wear', mod: 'Attach' };
+const fullName = (it) => [ITEMS[it.id].name, ...(it.mods || []).map((id) => ITEMS[id].name)].join(' + ');
 const useLabel = (d) => (d.cat === 'food' ? ((d.thirst || 0) > (d.hunger || 0) ? 'Drink' : 'Eat') : USE_LABEL[d.cat] || null);
 const kbd = (k) => `<kbd>${k}</kbd>`;
 
@@ -21,16 +23,16 @@ function tile(it, idx, side, p) {
   const d = ITEMS[it.id];
   let bar = '';
   if (d.dur && it.dur !== undefined) { const f = it.dur / d.dur; bar = `<div class="dur"><i style="width:${Math.round(f * 100)}%;background:${f > 0.5 ? '#7ad07a' : f > 0.2 ? '#d0c04a' : '#d05a4a'}"></i></div>`; }
-  if (d.cat === 'gun') bar = `<span class="mag">${it.mag}/${d.mag}</span>`;
+  if (d.cat === 'gun') bar = `<span class="mag">${it.mag}/${gunStats(it).mag}</span>`;
   const hk = p.hotbar ? p.hotbar.findIndex((h) => h && (h.ref === it || (!p.inv.includes(h.ref) && h.id === it.id))) : -1;
   if (side === 'inv' && hk >= 0) bar += `<span class="hk">${hk + 1}</span>`;
-  return `<div class="tile${it === p.wpn ? ' eq' : ''}" draggable="true" data-side="${side}" data-idx="${idx}" style="--cat:${CAT_COLOR[d.cat]}">
-    <img src="${iconURL(it.id)}" alt="" draggable="false"><span class="nm">${esc(d.name)}</span>${it.n > 1 ? `<span class="cnt">${it.n}</span>` : ''}${bar}${it === p.wpn ? '<span class="eqb">E</span>' : ''}</div>`;
+  return `<div class="tile${it === p.wpn ? ' eq' : ''}" draggable="true" data-side="${side}" data-idx="${idx}" title="${esc(fullName(it))}" style="--cat:${CAT_COLOR[d.cat]}">
+    <img src="${iconURL(it.id, it.mods)}" alt="" draggable="false"><span class="nm">${esc(d.name)}</span>${it.n > 1 ? `<span class="cnt">${it.n}</span>` : ''}${bar}</div>`;
 }
 
 export class Panels {
   constructor(handlers) {
-    this.h = handlers; this.open = null; this.baseTab = 'upgrades'; this.sel = null; this.drag = null;
+    this.h = handlers; this.open = null; this.baseTab = 'upgrades'; this.sel = null; this.drag = null; this.hotDrag = null;
     for (const id of ['inv', 'base']) {
       const el = $(id);
       el.addEventListener('click', (e) => this.click(e));
@@ -45,22 +47,49 @@ export class Panels {
     // dragging an item out of the window drops it on the ground
     window.addEventListener('dragover', (e) => { if (this.drag && !inv.contains(e.target)) { e.preventDefault(); document.body.classList.add('dropping'); } else document.body.classList.remove('dropping'); });
     window.addEventListener('drop', (e) => { document.body.classList.remove('dropping'); if (this.drag && !inv.contains(e.target)) { e.preventDefault(); if (this.drag.side === 'inv') this.h.cmd({ t: 'drop', idx: this.drag.idx }); this.drag = null; this.refresh(); } });
-    inv.addEventListener('dblclick', (e) => { const t = e.target.closest('.tile'); if (t) this.useTile(t); });
-    inv.addEventListener('contextmenu', (e) => { const t = e.target.closest('.tile'); e.preventDefault(); if (t) this.showMenu(t.dataset.side, +t.dataset.idx, e.clientX, e.clientY); });
-    inv.addEventListener('mouseover', (e) => { const t = e.target.closest('.tile'); if (t) { this.hover = { side: t.dataset.side, idx: +t.dataset.idx }; this.showDetails(t.dataset.side, +t.dataset.idx); } });
+    // with a container open a click already moves the item, so a double-click would act on whatever slid into its place
+    inv.addEventListener('dblclick', (e) => { const t = e.target.closest('.tile'); if (t && this.h.player().openCid < 0) this.useTile(t); });
+    inv.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const hs = e.target.closest('.hs'); if (hs) { this.h.cmd({ t: 'hotbar', slot: +hs.dataset.k, idx: null }); this.refresh(); return; }
+      const t = e.target.closest('.tile'); if (t) this.showMenu(t.dataset.side, +t.dataset.idx, e.clientX, e.clientY);
+    });
+    inv.addEventListener('mouseover', (e) => {
+      const hs = e.target.closest('.hs');
+      if (hs) { const p = this.h.player(), idx = p.inv.indexOf(resolveHot(p, +hs.dataset.k)); if (idx >= 0) { this.hover = { side: 'inv', idx }; this.showDetails('inv', idx); } return; }
+      const t = e.target.closest('.tile'); if (t) { this.hover = { side: t.dataset.side, idx: +t.dataset.idx }; this.showDetails(t.dataset.side, +t.dataset.idx); }
+    });
     inv.addEventListener('dragstart', (e) => {
+      const hs = e.target.closest('.hs');
+      if (hs) { this.hotDrag = +hs.dataset.k; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'hot'); return; }
       const t = e.target.closest('.tile'); if (!t) return;
       this.drag = { side: t.dataset.side, idx: +t.dataset.idx };
       e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'item');
       const img = t.querySelector('img'); if (img) e.dataTransfer.setDragImage(img, 24, 24);
       t.classList.add('dragging');
     });
-    inv.addEventListener('dragend', () => { this.drag = null; inv.querySelectorAll('.over,.dragging').forEach((n) => n.classList.remove('over', 'dragging')); });
-    inv.addEventListener('dragover', (e) => { const z = e.target.closest('[data-drop]'); if (z && this.drag) { e.preventDefault(); inv.querySelectorAll('.over').forEach((n) => n !== z && n.classList.remove('over')); z.classList.add('over'); } });
+    inv.addEventListener('dragend', (e) => {
+      if (this.hotDrag !== null && e.dataTransfer.dropEffect === 'none') { this.h.cmd({ t: 'hotbar', slot: this.hotDrag, idx: null }); this.refresh(); } // dragged off: clear the slot
+      this.drag = null; this.hotDrag = null; inv.querySelectorAll('.over,.dragging').forEach((n) => n.classList.remove('over', 'dragging'));
+    });
+    inv.addEventListener('dragover', (e) => {
+      const hs = e.target.closest('.hs');
+      if (hs && (this.drag || this.hotDrag !== null)) { e.preventDefault(); inv.querySelectorAll('.over').forEach((n) => n !== hs && n.classList.remove('over')); hs.classList.add('over'); return; }
+      const z = e.target.closest('[data-drop]'); if (z && this.drag) { e.preventDefault(); inv.querySelectorAll('.over').forEach((n) => n !== z && n.classList.remove('over')); z.classList.add('over'); }
+    });
     inv.addEventListener('dragleave', (e) => { const z = e.target.closest('[data-drop]'); if (z && !z.contains(e.relatedTarget)) z.classList.remove('over'); });
     inv.addEventListener('drop', (e) => {
+      const hs = e.target.closest('.hs');
+      if (hs) {
+        e.preventDefault(); e.stopPropagation(); hs.classList.remove('over'); const k = +hs.dataset.k;
+        if (this.hotDrag !== null) { if (this.hotDrag !== k) this.h.cmd({ t: 'hotswap', a: this.hotDrag, b: k }); this.hotDrag = null; }
+        else if (this.drag) { this.h.assign(k, this.drag); this.drag = null; }
+        this.refresh(); return;
+      }
       const z = e.target.closest('[data-drop]'); if (!z || !this.drag) return;
       e.preventDefault(); z.classList.remove('over');
+      const gunTile = e.target.closest('.tile[data-side="inv"]');
+      if (gunTile && this.dropModOnGun(this.drag, +gunTile.dataset.idx)) { this.drag = null; return; }
       this.dropOn(z.dataset.drop, this.drag); this.drag = null;
     });
   }
@@ -81,6 +110,8 @@ export class Panels {
       if (ul && it !== p.wpn) opts.push(['use', ul, 'E']);
       if (d.cat === 'throw') opts.push(['none', `Throw with ${it.id === 'noisemaker' ? 'G' : 'X'}`, '']);
       if (it === p.wpn) opts.push(['unequip', 'Unequip', '']);
+      if (MODS[it.id]) p.inv.forEach((g, i) => { if (modFits(g.id, it.id) && !(g.mods || []).includes(it.id)) opts.push([`attach:${i}`, `Attach to ${esc(fullName(g))}`, '']); });
+      for (const id of it.mods || []) opts.push([`detach:${id}`, `Remove ${ITEMS[id].name}`, '']);
       if (cont) opts.push(['move', 'Put in container', 'T']);
       opts.push(['drop', 'Drop', 'Q']);
     } else {
@@ -88,7 +119,7 @@ export class Panels {
       if (ul) opts.push(['use', `Take & ${ul}`, 'E']);
     }
     this.menuFor = { side, idx };
-    this.menu.innerHTML = `<div class="mh"><img src="${iconURL(it.id)}" alt="">${esc(d.name)}${it.n > 1 ? ' ×' + it.n : ''}</div>` + opts.map(([a, l, k]) => `<button data-m="${a}">${l}${k ? kbd(k) : ''}</button>`).join('');
+    this.menu.innerHTML = `<div class="mh"><img src="${iconURL(it.id, it.mods)}" alt="">${esc(fullName(it))}${it.n > 1 ? ' ×' + it.n : ''}</div>` + opts.map(([a, l, k]) => `<button data-m="${a}">${l}${k ? kbd(k) : ''}</button>`).join('');
     this.menu.classList.remove('hidden');
     const r = this.menu.getBoundingClientRect();
     this.menu.style.left = Math.min(x, innerWidth - r.width - 8) + 'px'; this.menu.style.top = Math.min(y, innerHeight - r.height - 8) + 'px';
@@ -100,6 +131,8 @@ export class Panels {
     else if (a === 'drop') { if (side !== 'inv') return false; this.h.cmd({ t: 'drop', idx }); }
     else if (a === 'move') { if (cid < 0) return false; this.h.cmd({ t: side === 'inv' ? 'put' : 'take', cid, idx }); }
     else if (a === 'unequip') this.h.cmd({ t: 'unequip', slot: 'wpn' });
+    else if (a.startsWith('attach:')) this.h.cmd({ t: 'attachMod', idx, gun: +a.slice(7) });
+    else if (a.startsWith('detach:')) this.h.cmd({ t: 'detachMod', idx, mod: a.slice(7) });
     else return false;
     this.hover = null; this.sel = null; this.refresh(); return true;
   }
@@ -129,6 +162,15 @@ export class Panels {
     else { this.h.cmd({ t: 'take', cid: p.openCid, idx }); }
     this.refresh();
   }
+  // dragging a mod onto a gun in the inventory attaches it; returns false for any other drag
+  dropModOnGun(drag, gunIdx) {
+    const p = this.h.player(), it = this.item(drag.side, drag.idx), gun = p.inv[gunIdx];
+    if (!it || !MODS[it.id] || !gun || ITEMS[gun.id].cat !== 'gun') return false;
+    let idx = drag.idx;
+    if (drag.side !== 'inv') { this.h.cmd({ t: 'take', cid: p.openCid, idx }); idx = p.inv.findLastIndex((x) => x.id === it.id); }
+    this.h.cmd({ t: 'attachMod', idx, gun: gunIdx });
+    this.sel = null; this.refresh(); return true;
+  }
   dropOn(zone, drag) {
     const p = this.h.player(), cid = p.openCid;
     if (drag.side === 'inv') {
@@ -143,13 +185,15 @@ export class Panels {
     this.sel = null; this.refresh();
   }
   click(e) {
+    const hs = e.target.closest('.hs'); if (hs) { this.h.use(+hs.dataset.k); return; }
     const t = e.target.closest('.tile');
     const p = this.h.player(), cid = p.openCid;
     if (t && !e.target.closest('[data-act]')) {
+      if (cid >= 0 && e.detail > 1) return; // the next item has slid under the cursor: a double-click still moves just one
       const side = t.dataset.side, idx = +t.dataset.idx;
       if (e.shiftKey && side === 'inv') this.h.cmd({ t: 'drop', idx });
       else if (e.ctrlKey || e.metaKey) this.act('use', side, idx);
-      else if (cid >= 0) { this.h.cmd({ t: side === 'inv' ? 'put' : 'take', cid, idx }); this.sel = null; }
+      else if (cid >= 0) { this.h.cmd({ t: side === 'inv' ? 'put' : 'take', cid, idx }); this.sel = null; this.hover = null; }
       else { this.sel = { side, idx }; this.showDetails(side, idx); }
       this.refresh(); return;
     }
@@ -168,6 +212,7 @@ export class Panels {
       case 'put': this.h.cmd({ t: 'put', cid, idx }); this.sel = null; break;
       case 'takeuse': this.act('use', 'cont', idx); break;
       case 'unequip': this.h.cmd({ t: 'unequip', slot: b.dataset.slot }); break;
+      case 'detach': this.h.cmd({ t: 'detachMod', idx, mod: b.dataset.mod }); this.sel = { side: 'inv', idx }; break;
       case 'tab': this.baseTab = b.dataset.tab; break;
       case 'upgrade': this.h.cmd({ t: 'upgrade', id: b.dataset.id }); break;
       case 'craft': this.h.cmd({ t: 'craft', id: b.dataset.id }); break;
@@ -180,19 +225,20 @@ export class Panels {
   showDetails(side, idx) {
     const el = $('invDetails'); if (!el) return;
     const it = this.item(side, idx), p = this.h.player();
-    if (!it) { el.innerHTML = '<div class="dim">Hover an item to inspect it. Drag items between panels or onto your gear slots; drag them out of this window to drop them.</div>'; return; }
+    if (!it) { el.innerHTML = `<div class="dim">Hover an item for details. Right-click for actions. Drag it anywhere.${p.openCid >= 0 ? ' Click to move it across.' : ''}</div>`; return; }
     const d = ITEMS[it.id];
     const stats = itemStats(it).map(([k, v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join('');
     let btns = '';
     if (side === 'inv') {
       const ul = useLabel(d);
       if (it !== p.wpn && ul) btns += `<button data-act="use" data-idx="${idx}">${ul} ${kbd('E')}</button>`;
-      if (d.cat === 'throw') btns += `<span class="dim small">Throw with ${kbd(it.id === 'noisemaker' ? 'G' : 'X')} while aiming</span>`;
+      if (d.cat === 'throw') btns += `<span class="dim small">Throw with ${kbd(it.id === 'noisemaker' ? 'G' : 'X')}</span>`;
+      for (const id of it.mods || []) btns += `<button class="ghost" data-act="detach" data-idx="${idx}" data-mod="${id}">Remove ${ITEMS[id].name}</button>`;
       if (p.openCid >= 0) btns += `<button class="ghost" data-act="put" data-idx="${idx}">Put ${kbd('T')}</button>`;
       btns += `<button class="ghost" data-act="drop" data-idx="${idx}">Drop ${kbd('Q')}</button>`;
     } else { btns += `<button data-act="take" data-idx="${idx}">Take ${kbd('T')}</button>`; const ul = useLabel(d); if (ul) btns += `<button class="ghost" data-act="takeuse" data-idx="${idx}">Take & ${ul} ${kbd('E')}</button>`; }
-    el.innerHTML = `<img src="${iconURL(it.id)}" alt=""><div class="dInfo"><div class="dName" style="color:${CAT_COLOR[d.cat]}">${esc(d.name)}${it.n > 1 ? ` <span class="dim">x${it.n}</span>` : ''}</div>
-      <div class="dDesc">${esc(DESC[it.id] || '')}</div><div class="dStats">${stats}</div><div class="dBtns">${btns}</div></div>`;
+    el.innerHTML = `<img src="${iconURL(it.id, it.mods)}" alt=""><div class="dInfo"><div class="dName" style="color:${CAT_COLOR[d.cat]}">${esc(fullName(it))}${it.n > 1 ? ` <span class="dim">x${it.n}</span>` : ''}</div>
+      <div class="dDesc">${esc(DESC[it.id] || '')}</div><div class="dStats">${stats}</div></div><div class="dBtns">${btns}</div>`;
   }
   refresh() {
     if (!this.open) return;
@@ -202,28 +248,33 @@ export class Panels {
   renderInv(s, p) {
     const wt = carried(p), cap = capacity(p), f = Math.min(1, wt / cap);
     const G = p.gear || {};
-    const slot = (name, it, key) => `<div class="eslot" data-drop="equip" title="${name}">${it ? `<img src="${iconURL(it.id)}" alt=""><button class="x" data-act="unequip" data-slot="${key}" title="Unequip">×</button>` : key === 'wpn' ? `<img src="${iconURL('fists')}" alt="" style="opacity:.45">` : `<span class="dim">${name}</span>`}<span class="elbl">${it ? esc(ITEMS[it.id].name) : ''}</span></div>`;
+    const slot = (name, it, key) => `<div class="eslot" data-drop="equip" title="${esc(it ? fullName(it) : name)}">${it ? `<img src="${iconURL(it.id, it.mods)}" alt=""><button class="x" data-act="unequip" data-slot="${key}" title="Unequip">×</button>` : `<span class="dim">${name}</span>`}</div>`;
     const c = p.openCid >= 0 ? getCont(s, p.openCid) : null;
-    const equip = `${slot('Weapon', p.wpn, 'wpn')}${slot('Back', p.bag, 'bag')}${slot('Head', G.head, 'head')}${slot('Body', G.body, 'body')}${slot('Legs', G.legs, 'legs')}${slot('Feet', G.feet, 'feet')}`;
     let html = `<div class="cols"><div class="col zone" data-drop="inv">
       <div class="hdr"><b>Inventory</b><button class="mini ghost" data-act="sortInv">Sort</button></div>
       <div class="wbar"><i style="width:${f * 100}%;background:${wt > cap ? '#e0603a' : f > 0.8 ? '#d0b040' : '#7ab07a'}"></i><span>${wt.toFixed(1)} / ${cap} kg${wt > cap ? ' · overloaded' : ''}</span></div>
-      ${c && c.items ? `<div class="equip">${equip}</div>` : ''}
-      <div class="grid">${p.inv.map((it, i) => tile(it, i, 'inv', p)).join('') || '<div class="dim pad">Empty. Search containers with [E].</div>'}</div>`;
+      <div class="hrow">${[0, 1, 2, 3, 4, 5].map((k) => hotSlot(p, k)).join('')}</div>
+      <div class="grid">${p.inv.map((it, i) => tile(it, i, 'inv', p)).join('') || '<div class="dim pad">Empty.</div>'}</div>`;
     if (c && c.items) {
       html += `<div class="foot"><button data-act="putAll">Put all ▸ ${kbd('Shift+R')}</button></div></div>`;
       const ccap = contCap(s, c);
-      html += `<div class="col zone" data-drop="cont"><div class="hdr"><b>${esc(contLabel(c))}</b><span>${c.type === 'stash' ? `<span class="dim">${c.items.length}/${ccap}</span> ` : ''}<button class="mini ghost" data-act="sortCont">Sort</button></span></div>
+      html += `<div class="col zone" data-drop="cont"><div class="hdr"><b>${esc(contLabel(c))}</b>${c.type === 'stash' ? `<span class="dim small">${c.items.length}/${ccap}</span>` : ''}<button class="mini ghost" data-act="sortCont">Sort</button></div>
         <div class="grid">${c.items.map((it, i) => tile(it, i, 'cont', p)).join('') || '<div class="dim pad">Nothing here.</div>'}</div>
         <div class="foot"><button data-act="takeAll">◂ Take all ${kbd('R')}</button></div></div>`;
-    } else html += `</div><div class="col char"><div class="hdr"><b>Survivor</b><span class="dim">Day ${dayOf(s)}</span></div>
-      <div class="charTop"><div class="doll"><img src="${dollURL(p)}" alt=""></div><div class="equip v">${equip}</div></div>
-      <div id="charStats"></div>
-      <div class="keys mini"><span>${kbd('E')} Use</span><span>${kbd('Q')} Drop</span><span>${kbd('T')} Move</span><span>${kbd('R')} Take all</span><span>${kbd('Right-click')} Menu</span><span>${kbd('Drag out')} Drop</span><span>${kbd('1-6')} / drag to hotbar: Assign</span></div></div>`;
-    html += `</div><div class="hint">Click: move · Double-click or ${kbd('E')}: use · ${kbd('Q')}: drop · Right-click: menu · Drag outside the window: drop</div>`;
+    } else html += `</div><div class="col char"><div class="hdr"><b>Survivor</b><span class="dim small">Day ${dayOf(s)}</span></div>
+      <div class="charTop">
+        <div class="gearcol">${slot('Head', G.head, 'head')}${slot('Body', G.body, 'body')}${slot('Legs', G.legs, 'legs')}${slot('Feet', G.feet, 'feet')}</div>
+        <div class="doll"><img src="${dollURL(p)}" alt=""></div>
+        <div class="gearcol">${slot('Back', p.bag, 'bag')}${slot('Weapon', p.wpn, 'wpn')}</div>
+      </div>
+      <div id="charStats"></div></div>`;
+    html += `</div>`;
     if (this._inv !== html) {
-      this._inv = html; $('invBody').innerHTML = html;
-      if (this.sel) this.showDetails(this.sel.side, this.sel.idx); else this.showDetails('inv', -1);
+      const body = $('invBody'), keep = this._inv ? [...body.querySelectorAll('.grid')].map((g) => g.scrollTop) : [];
+      this._inv = html; this._stats = null; body.innerHTML = html;
+      body.querySelectorAll('.grid').forEach((g, i) => { g.scrollTop = keep[i] || 0; });
+      const d = this.sel || this.hover;
+      this.showDetails(d ? d.side : 'inv', d ? d.idx : -1);
     }
     this.updateStats(s, p);
   }
@@ -242,17 +293,17 @@ export class Panels {
     if (gs.carry) chips.push([`+${gs.carry} kg carry`, '#d0c080']);
     if (!chips.length) chips.push(['Healthy', '#7ad07a']);
     const html = bar('Health', p.hp, '#c94a4a') + bar('Food', p.hunger, '#d08a3a') + bar('Water', p.thirst, '#3a8ad0') + bar('Stamina', p.stamina, '#c9c04a') +
-      `<div class="prot"><div><span>Damage taken</span><b>-${Math.round(gs.armor * 100)}%</b></div><div><span>Bite protection</span><b>${Math.round(gs.bite * 100)}%</b></div><div><span>Visibility</span><b>${Math.round((p.vis ?? 1) * 100)}%</b></div><div><span>Stance</span><b>${stance}</b></div></div>` +
+      `<div class="prot"><div><span>Damage taken</span><b>${gs.armor ? '-' : ''}${Math.round(gs.armor * 100)}%</b></div><div><span>Bite protection</span><b>${Math.round(gs.bite * 100)}%</b></div><div><span>Visibility</span><b>${Math.round((p.vis ?? 1) * 100)}%</b></div><div><span>Stance</span><b>${stance}</b></div></div>` +
       `<div class="chips">${chips.map(([t, col]) => `<span style="color:${col};border-color:${col}">${t}</span>`).join('')}</div>`;
     if (this._stats !== html) { this._stats = html; el.innerHTML = html; }
   }
   renderBase(s, p) {
     const tabs = [['upgrades', 'Upgrades'], ['craft', 'Crafting'], ['radio', 'Radio'], ['stats', 'Record']];
-    let html = `<div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${this.baseTab === k ? 'on' : ''}" data-act="tab" data-tab="${k}">${n}</button>`).join('')}</div>`;
+    let html = `<div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${this.baseTab === k ? 'on' : ''}" data-act="tab" data-tab="${k}">${n}</button>`).join('')}</div><div class="scroll">`;
     const cost = (c) => costStatus(s, p, c).map((x) => `<span class="cost ${x.have >= x.n ? 'ok' : 'no'}"><img src="${iconURL(x.id)}" alt="">${esc(ITEMS[x.id].name)} ${Math.min(x.have, x.n)}/${x.n}</span>`).join(' ');
     const can = (c) => costStatus(s, p, c).every((x) => x.have >= x.n);
     if (this.baseTab === 'upgrades') {
-      html += `<div class="dim pad">Materials are taken from the Stash first, then your inventory.</div>`;
+      html += `<div class="dim pad">Materials come from the Stash first, then your inventory.</div>`;
       for (const u of UPGRADES) {
         const lvl = s.upgrades[u.id], max = u.levels.length, c = u.levels[lvl];
         html += `<div class="card"><div><b>${u.name}</b> <span class="dim">${max > 1 ? `Lv ${lvl}/${max}` : lvl ? 'Built' : ''}</span><div class="dim">${u.desc}${u.id === 'stash' ? ` Now: ${STASH_CAP[lvl]} slots.` : ''}</div>${c ? `<div>${cost(c)}</div>` : ''}</div>
@@ -274,7 +325,11 @@ export class Panels {
       const st = s.stats;
       html += `<div class="pad stats"><div>Day <b>${dayOf(s)}</b></div><div>Zombies killed <b>${st.kills}</b></div><div>Items hauled to stash <b>${st.hauled}</b></div><div>Deaths <b>${st.deaths}</b></div><div>Best day reached <b>${st.bestDay}</b></div></div>`;
     }
-    html += `<div class="foot"><button data-act="sleep">Sleep (bed)</button><button class="ghost" data-act="close">Close</button></div>`;
-    if (this._base !== html) { this._base = html; $('baseBody').innerHTML = html; }
+    html += `</div><div class="foot"><button data-act="sleep" ${s.upgrades.bed ? '' : 'disabled title="Build the Proper Bed first"'}>Sleep</button></div>`;
+    if (this._base !== html) {
+      const body = $('baseBody'), old = body.querySelector('.scroll'), keep = old && this._baseTab === this.baseTab ? old.scrollTop : 0;
+      this._base = html; this._baseTab = this.baseTab; body.innerHTML = html;
+      body.querySelector('.scroll').scrollTop = keep;
+    }
   }
 }

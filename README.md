@@ -14,7 +14,7 @@ npm run build    # single-file build in dist/index.html (open directly or host a
 
 Inventory: hover an item and press E use/eat/drink/equip · Q drop · T move · R take all · Shift+R put all · right-click for the item menu · drag out of the window to drop.
 
-WASD move · Shift sprint · Mouse aim · Click attack · Space shove · E search/open · Tab inventory · 1–6 / wheel weapons · R reload · H quick heal · C sneak · F flashlight · G noise maker · X pipe bomb · M map · Esc pause
+WASD move · Shift sprint · Mouse aim · Click attack · Hold right-click aim down sights · Space shove · E search/open · Tab inventory · 1–6 / wheel weapons · R reload · H quick heal · C sneak · F flashlight · G noise maker · X pipe bomb · M map · Esc pause
 
 ## World
 
@@ -51,6 +51,20 @@ Four types only: **Light** (Pistol, SMG), **Medium** (Carbine, Crossbow), **Heav
 - Buffs: Adrenaline Shot (20 s speed, damage, no stamina drain), Energy Drink (90 s double stamina regen). Perk: Self-Revive Kit (carry it; revives you once and blasts zombies away).
 - Test Weapon Rack in the safehouse holds one of everything.
 
+## View and peeking
+
+- **View setting** (main menu or pause): Fixed, or Follows character. Following turns the world so you always face up the screen: W walks forward, A/D strafe, S backs up, and the mouse steers. It captures the mouse; Esc pauses and frees it.
+- **Peek**: hold Q facing a closed door or window to crack it. It makes no noise and you see a narrow slit of the room, up to 8 tiles. The door stays shut to zombies. Locked or barricaded doors can't be peeked; you walk at half speed while peeking.
+
+## Weapon mods
+
+- `MODS` in `src/data/items.js` is the mod table. **Silencer**: shots are heard 70% less far, only 40% of zombies in earshot react, and there is no muzzle flash. **Extended Mag**: 50% more rounds. Neither fits the Crossbow.
+- Mods belong to the individual gun, so two pistols can differ. The icon shows the parts and S/M tags; the details panel lists them and shows the changed stats.
+- Attach: drag a mod onto a gun, press E on it, or right-click it. Remove: right-click the gun or use the details panel. Rounds that no longer fit go back to your inventory.
+- Test Mod Stash in the safehouse holds 4 of each.
+- Hold right-click with a gun to aim down sights: spread drops to 40% and the crosshair tightens.
+- Silenced guns sound different by ammo (`SUPPRESSED` in `src/audio.js`): Light is a soft "pft", Medium a sharp "tsst" with a crack, Heavy a deep "thoomp" with a crack, Shotgun a wide "fwump". Each gun adds its own action (`SILENCED_ACTION`), like the rifle's hand-worked bolt or the shotgun's pump.
+
 ## Doors, windows and interiors
 
 - Rooms are furnished by type (kitchen, bedroom, bathroom, living room) with fridges, stoves, sinks, counters, wardrobes, dressers, nightstands, bookshelves, TV stands, desks and filing cabinets, each with its own loot. Searched furniture shows open doors and pulled drawers.
@@ -83,4 +97,4 @@ Four types only: **Light** (Pistol, SMG), **Medium** (Carbine, Crossbow), **Heav
 - `src/ui/` HUD (canvas) and DOM panels (inventory, base).
 - `src/save.js` saves to localStorage as seed + deltas.
 
-Tests: `node tests/sim.test.mjs` (headless sim), `tests/smoke*.mjs` (Playwright, needs `npm run build`).
+Tests: `node tests/sim.test.mjs` (headless sim), `node tests/mods.test.mjs` (mods and ADS), `tests/ui_audit.js` (paste in the browser console: panel stability and overflow), `tests/smoke*.mjs` (Playwright, needs `npm run build`).

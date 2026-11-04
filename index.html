@@ -14,8 +14,8 @@
     <p class="tag">Scavenge the dead town. Haul it home. Don't die with it on you.</p>
     <button id="btnContinue" class="big hidden">Continue</button>
     <button id="btnNew" class="big">New World</button>
+    <button class="btnView big ghost"></button>
     <button id="btnHelp" class="big ghost">How to Play</button>
-    <p class="dim small">v0.1 · single-player · progress saves in this browser</p>
   </div>
 </div>
 
@@ -23,23 +23,14 @@
   <div class="menuBox wide">
     <h2>How to Play</h2>
     <div class="helpGrid">
-      <div><b>WASD</b> move</div><div><b>Shift</b> sprint (loud)</div>
-      <div><b>Mouse</b> aim · <b>Click</b> attack</div><div><b>Space</b> shove zombies back</div>
-      <div><b>E</b> search / open / use</div><div><b>Tab</b> or <b>I</b> inventory</div>
-      <div><b>1–6</b> use hotbar slot (weapons equip / holster, items get used) · <b>wheel</b> cycle weapons</div><div><b>R</b> reload</div>
-      <div><b>H</b> quick heal</div><div><b>C</b> sneak: quieter, harder to see. Hit unaware zombies from behind for a silent kill</div>
-      <div><b>F</b> flashlight</div><div><b>M</b> map</div>
-      <div><b>G</b> throw Noise Maker</div><div><b>X</b> throw Pipe Bomb</div>
-      <div><b>B</b> barricade a closed door (plank + 3 nails)</div>
-      <div><b>E</b> on a window: open it quietly, then climb through</div><div><b>Attack</b> a door or window to smash it (loud)</div>
-      <div>Locked doors: pry with a <b>Crowbar</b> or smash them</div><div>Climbing through broken glass can cut you</div>
-      <div><b>Inventory</b>: hover an item, then <b>E</b> use · <b>Q</b> drop · <b>T</b> move</div><div><b>R</b> take all · <b>Shift+R</b> put all · <b>Right-click</b> item menu</div>
-      <div>Drag an item out of the inventory window to drop it</div><div><b>Hotbar</b>: drag items onto it, drag slots to reorder, right-click or drag off to clear. In the inventory, hover an item and press <b>1–6</b> to assign</div><div>Doors and windows glow when you can use them</div><div><b>Esc</b> pause</div>
+      <div><b>WASD</b> move · <b>Shift</b> sprint</div><div><b>C</b> sneak · <b>Space</b> shove</div>
+      <div><b>Click</b> attack · <b>Right-click</b> hold to aim</div><div><b>R</b> reload · <b>H</b> quick heal</div>
+      <div><b>E</b> search, open, use</div><div><b>Tab</b> inventory · <b>M</b> map · <b>Esc</b> pause</div>
+      <div><b>1–6</b> hotbar · <b>Wheel</b> weapons</div><div><b>F</b> flashlight · <b>B</b> barricade door</div>
+      <div><b>G</b> Noise Maker · <b>X</b> Pipe Bomb</div><div><b>Q</b> hold at a door or window to peek, silently</div>
     </div>
-    <p>Your <b>Safehouse</b> is the fenced compound in the middle of town. Zombies can't enter it. Everything else is theirs.</p>
-    <p>Loot houses, stores, cars and the police station. Bring materials back and put them in the <b>Stash</b> to build upgrades at the <b>Workbench</b>.</p>
-    <p>If you die, everything you carried stays on your body, marked ✕ on the map. Go get it back.</p>
-    <p>Noise draws zombies. Gunshots carry far. Closed doors slow them down. Nights are darker and deadlier, and hordes roam from Day 2.</p>
+    <p>In the inventory, hover an item for details, right-click it for actions, and drag it anywhere: onto a gun, a gear slot, the hotbar, or outside the window to drop it.</p>
+    <p>Bring loot to the <b>Stash</b> in the fenced <b>Safehouse</b> and build upgrades at the <b>Workbench</b>. Zombies can't get in. Noise draws them. If you die, your gear stays on your body, marked on the map.</p>
     <button id="btnHelpClose" class="big">Got it</button>
   </div>
 </div>
@@ -48,6 +39,7 @@
   <div class="menuBox">
     <h2>Paused</h2>
     <button id="btnResume" class="big">Resume</button>
+    <button class="btnView big ghost"></button>
     <button id="btnPauseHelp" class="big ghost">Controls</button>
     <label class="vol">Volume <input id="vol" type="range" min="0" max="1" step="0.05" value="0.6" /></label>
     <button id="btnQuit" class="big ghost">Save &amp; Quit to Menu</button>
@@ -63,8 +55,8 @@
 </div>
 
 <div id="hotbar" class="hidden"></div>
-<div id="inv" class="panel hidden"><div id="invBody"></div><div id="invDetails" class="details"></div></div>
-<div id="base" class="panel hidden"><h3>Safehouse</h3><div id="baseBody"></div></div>
+<div id="inv" class="panel hidden"><button class="panelX" data-act="close" title="Close">×</button><div id="invBody"></div><div id="invDetails" class="details"></div></div>
+<div id="base" class="panel hidden"><button class="panelX" data-act="close" title="Close">×</button><h3>Safehouse</h3><div id="baseBody"></div></div>
 
 <div id="touch" class="hidden">
   <div class="tbtns">

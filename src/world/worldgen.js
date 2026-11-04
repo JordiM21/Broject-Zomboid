@@ -9,7 +9,7 @@ export const SOLID = new Uint8Array(32);
 [T.WALL, T.WINDOW, T.TREE, T.FENCE, T.CAR, T.FURN].forEach((t) => (SOLID[t] = 1));
 
 export const FURN_KINDS = ['none', 'fridge', 'counter', 'cabinet', 'wardrobe', 'dresser', 'shelf', 'toolbox',
-  'grocery', 'pharmacy', 'hardware', 'register', 'locker', 'crate', 'stash', 'bench', 'bed', 'radio', 'medcab', 'milcrate', 'stove', 'sink', 'nightstand', 'bookshelf', 'tvstand', 'desk', 'filing', 'rack'];
+  'grocery', 'pharmacy', 'hardware', 'register', 'locker', 'crate', 'stash', 'bench', 'bed', 'radio', 'medcab', 'milcrate', 'stove', 'sink', 'nightstand', 'bookshelf', 'tvstand', 'desk', 'filing', 'rack', 'modstash'];
 const FK = Object.fromEntries(FURN_KINDS.map((k, i) => [k, i]));
 
 const CAR_COLORS = ['#7a2e2e', '#2e4a7a', '#5d6066', '#8a7a3a', '#3f6b4a', '#a8a8a8', '#4a3a5a'];
@@ -462,6 +462,7 @@ export function generateWorld(seed) {
     world.fixtures.bed = addCont(x + 1, y + h - 2, 'bed');
     world.fixtures.rack = addCont(x + w - 2, y + 3, 'rack');
     obj(x + w - 2, y + 4, T.FURN); world.furn[I(x + w - 2, y + 4)] = FK.rack; world.contAt[I(x + w - 2, y + 4)] = world.fixtures.rack;
+    world.fixtures.modstash = addCont(x + w - 2, y + 6, 'modstash');
     prop(x + 4, y + 3, 4, 3, 'rug'); prop(x + 5, y + 4, 2, 1, 'table');
     windows(x, y, w, h, 0.5);
     world.spawn = { x: (x + Math.floor(w / 2) + 0.5) * 32, y: (y + h / 2 + 1) * 32 };

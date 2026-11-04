@@ -1,4 +1,5 @@
 // Procedural item icons drawn on a 64x64 canvas. Cached as canvases and data URLs.
+import { MODS } from '../data/items.js';
 const cache = new Map(), urls = new Map();
 
 const R = (g, x, y, w, h, c) => { g.fillStyle = c; g.fillRect(x, y, w, h); };
@@ -78,6 +79,8 @@ const DRAW = {
   milbag: (g) => bag(g, '#5a6040', '#3e4228', true),
   jacket: (g) => { P(g, [20, 12, 44, 12, 56, 24, 50, 30, 46, 26, 46, 54, 18, 54, 18, 26, 14, 30, 8, 24], '#5a3820'); L(g, [32, 12, 32, 54], '#3a2412', 2); P(g, [26, 12, 32, 22, 38, 12], '#3a2412'); },
   vest: (g) => { P(g, [20, 12, 28, 12, 32, 20, 36, 12, 44, 12, 48, 24, 48, 54, 16, 54, 16, 24], '#26324a'); R(g, 20, 34, 24, 8, '#e0e0e0'); R(g, 22, 36, 20, 4, '#26324a'); },
+  silencer: (g) => diag(g, () => { RR(g, -24, -8, 48, 16, 3, '#8a929a'); R(g, -24, -8, 48, 4, '#b4bcc4'); R(g, -12, -8, 5, 16, MODS.silencer.color); R(g, 2, -8, 5, 16, MODS.silencer.color); R(g, 24, -4, 5, 8, '#7a8088'); }),
+  extmag: (g) => { P(g, [22, 8, 40, 8, 44, 56, 26, 56], '#2a2d31'); P(g, [22, 8, 27, 8, 31, 56, 26, 56], '#4a5058'); R(g, 24, 42, 20, 14, MODS.extmag.color); for (let k = 0; k < 3; k++) R(g, 28, 14 + k * 8, 10, 3, '#d0a040'); },
   noisemaker: (g) => { C(g, 32, 36, 16, '#8a4aa0'); C(g, 32, 36, 12, '#f0e8f0'); L(g, [32, 36, 32, 28], '#222', 2); L(g, [32, 36, 38, 38], '#222', 2); C(g, 20, 20, 6, '#c8a030'); C(g, 44, 20, 6, '#c8a030'); },
   pipebomb: (g) => diag(g, () => { R(g, -18, -7, 34, 14, '#6a7076'); R(g, -22, -9, 6, 18, '#4a4f55'); R(g, 14, -9, 6, 18, '#4a4f55'); R(g, -10, -7, 4, 14, '#9a8a40'); L(g, [20, 0, 26, -6, 24, -12], '#a08060', 2); C(g, 24, -12, 3, '#ffb040'); }),
   watch: (g) => { R(g, 26, 8, 12, 48, '#5a3a20'); C(g, 32, 32, 13, '#d8b040'); C(g, 32, 32, 10, '#f0f0e8'); L(g, [32, 32, 32, 25], '#222', 2); L(g, [32, 32, 37, 34], '#222', 2); },
@@ -85,15 +88,50 @@ const DRAW = {
   cash: (g) => { for (let k = 0; k < 3; k++) { RR(g, 10 + k * 3, 22 + k * 5, 42, 20, 2, k === 2 ? '#5a9a5a' : '#3e7a3e'); } C(g, 34, 42, 5, '#2e5e2e'); R(g, 24, 32, 3, 20, '#c0b060'); },
 };
 
-export function iconCanvas(id) {
-  let c = cache.get(id); if (c) return c;
+// Where mods sit on each gun drawing. muzzle: barrel tip, dir: which way it points, cx: centre of the
+// gun plus silencer, used to shrink it into the icon. mag: rectangle for the part an Extended Mag adds.
+const SILENCER_LEN = 14;
+const MOUNT = {
+  pistol: { muzzle: [52, 26], dir: 1, cx: 39, mag: [20, 45, 8, 11] },
+  smg: { muzzle: [54, 28], dir: 1, cx: 37, mag: [26, 48, 6, 11] },
+  carbine: { muzzle: [56, 30.5], dir: 1, cx: 37, mag: [26, 46, 6, 12] },
+  shotgun: { muzzle: [6, 29], dir: -1, cx: 26, mag: [8, 33, 16, 4] },
+  rifle: { muzzle: [4, 30.5], dir: -1, cx: 25, mag: [29, 38, 5, 10] },
+};
+function drawMounted(g, id, mods) {
+  const m = MOUNT[id];
+  if (mods.includes('extmag')) { const [x, y, w, h] = m.mag; RR(g, x, y, w, h, 1, MODS.extmag.color); }
+  if (mods.includes('silencer')) {
+    const x = m.dir > 0 ? m.muzzle[0] : m.muzzle[0] - SILENCER_LEN, y = m.muzzle[1] - 4.5;
+    RR(g, x, y, SILENCER_LEN, 9, 2, '#8a929a'); R(g, x, y, SILENCER_LEN, 2, '#b4bcc4'); R(g, x + 3, y, 3, 9, MODS.silencer.color); R(g, x + 8, y, 3, 9, MODS.silencer.color);
+  }
+}
+// small lettered tags so mods read at hotbar size even at a glance
+function drawTags(g, mods) {
+  Object.keys(MODS).filter((id) => mods.includes(id)).forEach((id, k) => {
+    RR(g, 17 + k * 16, 3, 14, 14, 3, MODS[id].color); // starts past the corner, where the hotbar draws its slot number
+    g.fillStyle = '#10141a'; g.font = '800 11px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(MODS[id].short, 24 + k * 16, 10.5);
+  });
+}
+
+export function iconCanvas(id, mods = []) {
+  const key = id + '|' + mods.join();
+  let c = cache.get(key); if (c) return c;
   c = document.createElement('canvas'); c.width = c.height = 64;
   const g = c.getContext('2d');
   const fn = DRAW[id];
-  if (fn) { g.save(); g.shadowColor = 'rgba(0,0,0,0.5)'; g.shadowOffsetY = 2; g.shadowBlur = 3; fn(g); g.restore(); }
-  else { C(g, 32, 32, 14, '#888'); }
-  cache.set(id, c); return c;
+  if (fn) {
+    g.save(); g.shadowColor = 'rgba(0,0,0,0.5)'; g.shadowOffsetY = 2; g.shadowBlur = 3;
+    const mounted = mods.length > 0 && MOUNT[id];
+    if (mounted && mods.includes('silencer')) { g.translate(32, 32); g.scale(0.84, 0.84); g.translate(-mounted.cx, -32); }
+    fn(g);
+    if (mounted) drawMounted(g, id, mods);
+    g.restore();
+    if (mods.length) drawTags(g, mods);
+  } else { C(g, 32, 32, 14, '#888'); }
+  cache.set(key, c); return c;
 }
-export function iconURL(id) {
-  let u = urls.get(id); if (!u) { u = iconCanvas(id).toDataURL(); urls.set(id, u); } return u;
+export function iconURL(id, mods = []) {
+  const key = id + '|' + mods.join();
+  let u = urls.get(key); if (!u) { u = iconCanvas(id, mods).toDataURL(); urls.set(key, u); } return u;
 }

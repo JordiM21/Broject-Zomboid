@@ -87,6 +87,22 @@ export function castRay(w, x0, y0, ang, maxD, blockFn = opaqueAt) {
   return maxD;
 }
 
+// ---------- peeking through a closed door or window ----------
+export const PEEK_RANGE = 8 * TILE;
+export const peekOpaque = (i) => (w, tx, ty) => (ty * w.w + tx === i ? false : opaqueAt(w, tx, ty));
+// The slit of view through the gap: narrower than the opening, so you only see part of the room.
+export function peekCone(p, pk) {
+  const cx = (pk.tx + 0.5) * TILE, cy = (pk.ty + 0.5) * TILE, d = Math.hypot(cx - p.x, cy - p.y);
+  return { a: Math.atan2(cy - p.y, cx - p.x), half: Math.max(0.2, Math.atan2(TILE * 0.35, Math.max(1, d))) };
+}
+export function peekSees(w, p, pk, x, y) {
+  if (Math.hypot(x - p.x, y - p.y) > PEEK_RANGE) return false;
+  const { a, half } = peekCone(p, pk);
+  let d = Math.atan2(y - p.y, x - p.x) - a;
+  while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
+  return Math.abs(d) <= half && los(w, p.x, p.y, x, y, peekOpaque(pk.i));
+}
+
 // BFS distance field from a target tile, for zombie navigation
 export class FlowField {
   constructor(w) {

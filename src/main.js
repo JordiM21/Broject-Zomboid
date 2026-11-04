@@ -21,28 +21,52 @@ const rend = new Renderer($('game'));
 const sfx = new Sfx();
 let s = null, mm = null, running = false, paused = false;
 const keys = new Set(), pressed = new Set();
-const mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false };
+const mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, aim: false };
 const ui = { pings: [], messages: [], mouse, mouseWorld: { x: 0, y: 0 }, interact: null, bigMap: false, panelOpen: false, dt: 0 };
 const PING = { groan: 1, alert: 2, bash: 2, doorbreak: 2, zattack: 2, explode: 2, gunshot: 1 };
 const zSteps = new WeakMap();
 let hotEquipPending = -1, selPending = -1, hitStop = 0;
 
+const assignHot = (k, d) => {
+  const p = s.players[LOCAL];
+  if (d.side === 'inv') command(s, LOCAL, { t: 'hotbar', slot: k, idx: d.idx });
+  else { const it = panels.item('cont', d.idx); if (!it) return; command(s, LOCAL, { t: 'take', cid: p.openCid, idx: d.idx }); const j = p.inv.findLastIndex((x) => x.id === it.id); if (j >= 0) command(s, LOCAL, { t: 'hotbar', slot: k, idx: j }); }
+  drain(); panels.refresh();
+};
 const panels = new Panels({
   state: () => s, player: () => s && s.players[LOCAL],
   cmd: (c) => { command(s, LOCAL, c); drain(); },
+  use: (k) => { selPending = k; }, assign: assignHot,
 });
 const hotbar = new HotbarUI($('hotbar'), {
   use: (k) => { selPending = k; },
   holster: () => { if (s) { s.players[LOCAL].wpn = null; } },
   cmd: (c) => { command(s, LOCAL, c); drain(); },
   invDrag: () => panels.drag,
-  assign: (k, d) => {
-    const p = s.players[LOCAL];
-    if (d.side === 'inv') command(s, LOCAL, { t: 'hotbar', slot: k, idx: d.idx });
-    else { const it = panels.item('cont', d.idx); if (!it) return; command(s, LOCAL, { t: 'take', cid: p.openCid, idx: d.idx }); const j = p.inv.findLastIndex((x) => x.id === it.id); if (j >= 0) command(s, LOCAL, { t: 'hotbar', slot: k, idx: j }); }
-    drain(); panels.refresh();
-  },
+  assign: assignHot,
 });
+
+// ---------- rotating view (optional): the world turns so the character always faces up the screen ----------
+const SETTINGS_KEY = 'lasthaul_settings';
+const TURN_SPEED = 0.0035; // radians per pixel of mouse movement
+const AIM_DIST = 240; // how far ahead the aim point sits, in world px
+const settings = (() => { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch { return {}; } })();
+let aimAng = -Math.PI / 2;
+const rotating = () => !!settings.rotate && !ui.touch;
+const inPlay = () => running && !paused && !panels.isOpen && !ui.bigMap && !!s && !s.players[LOCAL].dead;
+const wantLock = () => rotating() && inPlay();
+function syncLock() {
+  if (wantLock() && !document.pointerLockElement) { const r = $('game').requestPointerLock(); if (r && r.catch) r.catch(() => {}); }
+  else if (!wantLock() && document.pointerLockElement) document.exitPointerLock();
+}
+function showViewSetting() { document.querySelectorAll('.btnView').forEach((b) => { b.textContent = `View: ${settings.rotate ? 'Follows character' : 'Fixed'}`; }); }
+document.querySelectorAll('.btnView').forEach((b) => {
+  b.title = 'Follows character: the view turns with you. W walks forward, the mouse steers.';
+  b.onclick = () => { settings.rotate = !settings.rotate; try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* stays on for this session */ } showViewSetting(); };
+});
+// the browser drops the lock on Esc or when the window loses focus: that should pause, like Esc does
+document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && wantLock()) togglePause(); });
+addEventListener('click', syncLock);
 const addMsg = (text, color = '#ddd') => { ui.messages.push({ text, color, t: 7 }); if (ui.messages.length > 30) ui.messages.shift(); };
 
 function drain() {
@@ -80,7 +104,9 @@ function begin(state, explored) {
   mm = new Minimap(s.world, explored);
   running = true; paused = false; ui.messages = [];
   ['menu', 'death', 'pause', 'help'].forEach((id) => $(id).classList.add('hidden'));
+  aimAng = p.ang;
   if (p.dead) showDeath();
+  syncLock();
 }
 function newGame() {
   const st = createState((Math.random() * 2 ** 31) | 0);
@@ -99,6 +125,7 @@ addEventListener('keydown', (e) => {
   sfx.init();
   if (!running) return;
   if (e.code === 'Escape') {
+    if (!$('help').classList.contains('hidden')) { $('help').classList.add('hidden'); return; }
     if (panels.handleKey('Escape')) return;
     if (panels.isOpen) panels.close();
     else if (ui.bigMap) ui.bigMap = false;
@@ -113,12 +140,13 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Tab' || e.code === 'KeyI') panels.toggleInv();
   if (e.code === 'KeyM') ui.bigMap = !ui.bigMap;
   if (e.code.startsWith('Digit')) { const n = +e.code.slice(5); if (n >= 1 && n <= 6) selPending = n - 1; }
+  syncLock();
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
-addEventListener('blur', () => { keys.clear(); mouse.down = false; });
-addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
-$('game').addEventListener('mousedown', (e) => { sfx.init(); if (e.button === 0) mouse.down = true; });
-addEventListener('mouseup', () => (mouse.down = false));
+addEventListener('blur', () => { keys.clear(); mouse.down = mouse.aim = false; });
+addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; if (rotating() && inPlay()) aimAng += e.movementX * TURN_SPEED; });
+$('game').addEventListener('mousedown', (e) => { sfx.init(); if (e.button === 0) mouse.down = true; if (e.button === 2) mouse.aim = true; });
+addEventListener('mouseup', (e) => { if (e.button === 0) mouse.down = false; if (e.button === 2) mouse.aim = false; });
 addEventListener('contextmenu', (e) => e.preventDefault());
 $('game').addEventListener('wheel', (e) => {
   if (!s) return; const p = s.players[LOCAL];
@@ -138,11 +166,16 @@ function buildInput(first) {
   const inp = {
     mx: panels.isOpen || ui.bigMap ? undefined : ui.mouseWorld.x, my: panels.isOpen || ui.bigMap ? undefined : ui.mouseWorld.y,
     up: k('KeyW') || k('ArrowUp'), down: k('KeyS') || k('ArrowDown'), left: k('KeyA') || k('ArrowLeft'), right: k('KeyD') || k('ArrowRight'),
-    sprint: k('ShiftLeft') || k('ShiftRight'), attack: mouse.down && !ui.bigMap && !panels.isOpen,
+    sprint: k('ShiftLeft') || k('ShiftRight'), attack: mouse.down && !ui.bigMap && !panels.isOpen, aim: mouse.aim && !ui.bigMap && !panels.isOpen,
     sneak: ed('KeyC'), interact: ed('KeyE'), reload: ed('KeyR'), shove: ed('Space'), flash: ed('KeyF'), heal: ed('KeyH'), throwN: ed('KeyG'), throwB: ed('KeyX'), barricade: ed('KeyB'),
     sel: first ? selPending : -1, hotEquip: first ? hotEquipPending : -1,
+    peek: k('KeyQ') && !panels.isOpen && !ui.bigMap, peekStart: ed('KeyQ'),
   };
   if (first) { selPending = -1; hotEquipPending = -1; }
+  if (rotating() && s) {
+    const p = s.players[LOCAL]; inp.relative = true;
+    if (inp.mx !== undefined) { inp.mx = p.x + Math.cos(aimAng) * AIM_DIST; inp.my = p.y + Math.sin(aimAng) * AIM_DIST; }
+  }
   if (touch.move) {
     const dx = (touch.move.x - touch.move.ox) / 45, dy = (touch.move.y - touch.move.oy) / 45;
     inp.left = dx < -0.35; inp.right = dx > 0.35; inp.up = dy < -0.35; inp.down = dy > 0.35;
@@ -183,7 +216,12 @@ if (matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window) {
 }
 
 // ---------- menus ----------
-$('btnNew').onclick = async () => { await spritesReady; if (hasSave() && !confirm('Start a new world? Your current save will be overwritten.')) return; sfx.init(); newGame(); };
+$('btnNew').onclick = async () => {
+  const b = $('btnNew');
+  if (hasSave() && !b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Overwrite your save? Click again'; b.onmouseleave = () => { delete b.dataset.armed; b.textContent = 'New World'; }; return; }
+  delete b.dataset.armed; b.textContent = 'New World';
+  await spritesReady; sfx.init(); newGame();
+};
 $('btnContinue').onclick = async () => { await spritesReady; sfx.init(); const r = loadGame(spawnZombie, newPlayer); if (r) begin(r.state, r.explored); else newGame(); };
 $('btnHelp').onclick = () => $('help').classList.remove('hidden');
 $('btnPauseHelp').onclick = () => $('help').classList.remove('hidden');
@@ -192,7 +230,7 @@ $('btnResume').onclick = () => togglePause();
 $('btnQuit').onclick = () => { save(); running = false; paused = false; $('pause').classList.add('hidden'); panels.close(); showMenu(); };
 $('btnRespawn').onclick = () => { command(s, LOCAL, { t: 'respawn' }); drain(); $('death').classList.add('hidden'); const p = s.players[LOCAL]; rend.cam.x = p.x; rend.cam.y = p.y; addMsg('You wake up at the safehouse.', '#ffd27a'); save(); };
 $('vol').oninput = (e) => sfx.setVolume(+e.target.value);
-function showMenu() { $('btnContinue').classList.toggle('hidden', !hasSave()); $('menu').classList.remove('hidden'); }
+function showMenu() { $('btnContinue').classList.toggle('hidden', !hasSave()); $('menu').classList.remove('hidden'); showViewSetting(); }
 
 // ---------- loop ----------
 let last = performance.now(), acc = 0, saveT = 0, revealT = 0;
@@ -217,6 +255,10 @@ function frame(now) {
   const p = s.players[LOCAL];
   ui.interact = !p.dead ? getInteract(s, p) : null;
   ui.panelOpen = panels.isOpen;
+  $('game').classList.toggle('free', ui.panelOpen); // keep a visible cursor outside an open panel
+  ui.rotate = rotating();
+  if (!ui.rotate) aimAng = p.ang;
+  if (!wantLock() && document.pointerLockElement) document.exitPointerLock();
   sfx.lx = p.x; sfx.ly = p.y; sfx.setRain(s.weather ? s.weather.rain : 0);
   const w = s.world, ti = Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE);
   sfx.occl = (x, y) => !los(w, p.x, p.y, x, y);
@@ -231,7 +273,8 @@ function frame(now) {
     }
   }
   rend.render(s, LOCAL, ui);
-  hotbar.render(p, running && !p.dead && !ui.bigMap);
+  ui.aim = ui.rotate ? rend.worldToScreen(p.x + Math.cos(p.ang) * AIM_DIST, p.y + Math.sin(p.ang) * AIM_DIST) : null;
+  hotbar.render(p, running && !p.dead && !ui.bigMap && !panels.isOpen); // the inventory shows its own copy of these slots
   drawHUD(rend.ctx, s, p, ui, rend, mm);
 }
 rend.resize();

@@ -2,7 +2,7 @@ import { TILE } from '../config.js';
 import { T } from '../world/worldgen.js';
 import { ITEMS, OBJECTIVES, CAT_COLOR } from '../data/items.js';
 import { iconCanvas } from './icons.js';
-import { hourOf, dayOf, daylight, weaponList, capacity, carried } from '../sim/sim.js';
+import { hourOf, dayOf, daylight, weaponList, capacity, carried, gunSpread } from '../sim/sim.js';
 
 const MM_COL = {
   [T.GRASS]: [47, 69, 39], [T.TREE]: [29, 51, 25], [T.BUSH]: [42, 64, 34], [T.ROAD]: [38, 40, 43], [T.SIDEWALK]: [80, 81, 80],
@@ -58,7 +58,7 @@ function stanceIcon(ctx, kind, x, y, col) {
   ctx.restore();
 }
 const LOC_INFO = {
-  safe: ['Safehouse', 'Your base. Zombies cannot get past the fence. Stash, workbench, bed, radio and the weapon rack.', 'Safe', '#7ae07a'],
+  safe: ['Safehouse', 'Your base. Zombies cannot get past the fence. Stash, workbench, bed, radio, the weapon rack and the mod stash.', 'Safe', '#7ae07a'],
   grocery: ['Grocery Store', 'Shelves of food, drinks and energy drinks. A cash register by the door.', 'Medium', '#e0c04a'],
   pharmacy: ['Pharmacy', 'Bandages, painkillers and antibiotics. Worth the detour when you are hurt.', 'Medium', '#e0c04a'],
   hardware: ['Hardware Store', 'Nails, planks, scrap, tape and electronics. Tools, sometimes a sledgehammer.', 'Medium', '#e0c04a'],
@@ -187,8 +187,9 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   const slot = small ? 38 : 54, gap = small ? 4 : 6, hw = 6 * (slot + gap) - gap, hx = small ? Math.max(230, SW / 2 - hw / 2) : SW / 2 - hw / 2, hy = SH - slot - (small ? 8 : 14);
   ui.selPop = Math.max(0, (ui.selPop || 0) - ui.dt * 5);
   // prompt
-  if (ui.interact && !p.search) {
-    const t = `[E] ${ui.interact.label}` + (ui.interact.kind === 'door' && ui.interact.label === 'Open Door' ? '   [B] Barricade' : ''); ctx.font = '600 14px system-ui, sans-serif'; ctx.textAlign = 'center';
+  if (ui.interact && !p.search && !ui.panelOpen) {
+    const canPeek = ui.interact.label === 'Open Door' || ui.interact.label === 'Open Window';
+    const t = p.peek ? 'Peeking: release [Q] to let go' : `[E] ${ui.interact.label}` + (canPeek ? '   [Q] Peek' : '') + (ui.interact.kind === 'door' && ui.interact.label === 'Open Door' ? '   [B] Barricade' : ''); ctx.font = '600 14px system-ui, sans-serif'; ctx.textAlign = 'center';
     const tw = ctx.measureText(t).width + 20;
     ctx.fillStyle = 'rgba(10,12,16,0.75)'; ctx.fillRect(SW / 2 - tw / 2, hy - 44, tw, 26);
     ctx.fillStyle = '#ffe9b0'; ctx.fillText(t, SW / 2, hy - 26);
@@ -260,10 +261,12 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   ctx.globalAlpha = 1;
   // crosshair
   if (!ui.panelOpen && !ui.touch) {
-    const { x, y } = ui.mouse; const gun = p.wpn && ITEMS[p.wpn.id].cat === 'gun';
+    const { x, y } = ui.aim || ui.mouse; const gun = p.wpn && ITEMS[p.wpn.id].cat === 'gun';
     ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.5; ctx.beginPath();
     const wd = gun ? ITEMS[p.wpn.id] : null;
-    const r = gun ? 6 + wd.spread * (1 + (p.bloom || 0) * 2.2) * (p.sneak ? 0.6 : 1) * (p.moving ? 1.5 : 1) * 260 : 5; ctx.moveTo(x - r - 4, y); ctx.lineTo(x - r, y); ctx.moveTo(x + r, y); ctx.lineTo(x + r + 4, y); ctx.moveTo(x, y - r - 4); ctx.lineTo(x, y - r); ctx.moveTo(x, y + r); ctx.lineTo(x, y + r + 4); ctx.stroke();
+    const target = gun ? 6 + gunSpread(p, wd) * 260 : 5;
+    ui.crossR = (ui.crossR ?? target) + (target - (ui.crossR ?? target)) * Math.min(1, ui.dt * 18); // eases open and closed
+    const r = ui.crossR; ctx.moveTo(x - r - 4, y); ctx.lineTo(x - r, y); ctx.moveTo(x + r, y); ctx.lineTo(x + r + 4, y); ctx.moveTo(x, y - r - 4); ctx.lineTo(x, y - r); ctx.moveTo(x, y + r); ctx.lineTo(x, y + r + 4); ctx.stroke();
   }
 }
 export { CAT_COLOR };

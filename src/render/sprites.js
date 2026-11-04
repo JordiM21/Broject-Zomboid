@@ -1,9 +1,10 @@
 // Frame-by-frame character sprites, rendered once from pose keyframes into cached canvases.
 // Every animation frame is its own image; the renderer just picks a frame and rotates it.
+import { MODS } from '../data/items.js';
 const S = 2;          // pixel density of the cached frames
 const OUT = '#16171b'; // outline colour
 
-export const P_ANIMS = { idle: 4, walk: 8, attack: 8, reload: 6, heal: 4, shove: 5 };
+export const P_ANIMS = { idle: 6, walk: 10, run: 10, attack: 12, reload: 16, heal: 4, shove: 6 };
 export const Z_ANIMS = { idle: 4, walk: 8, attack: 6, hit: 3, death: 7 };
 
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -24,8 +25,22 @@ function limb(g, a, b, w, col) {
 }
 function poly(g, pts, fill) { g.fillStyle = fill; g.strokeStyle = OUT; g.lineWidth = 1.1; g.beginPath(); g.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i], pts[i + 1]); g.closePath(); g.fill(); g.stroke(); }
 
+// where mods sit on each gun: barrel tip, and the rectangle an Extended Mag adds
+const GUN_MOUNT = {
+  pistol: { tip: 12, mag: [1.5, 2, 5.5, 6] }, smg: { tip: 19, mag: [4, 10, 3.5, 4.5] }, carbine: { tip: 28, mag: [7.3, 9, 3.4, 5] },
+  shotgun: { tip: 26, mag: [4, 2.4, 16, 2.4] }, rifle: { tip: 30, mag: [7, 2.2, 4, 5.5] },
+};
+function drawGunMods(g, id, mods) {
+  const m = GUN_MOUNT[id]; if (!m) return;
+  if (mods.includes('extmag')) { const [x, y, w, h] = m.mag; poly(g, [x, y, x + w, y, x + w, y + h, x, y + h], MODS.extmag.color); }
+  if (mods.includes('silencer')) { poly(g, [m.tip, -2.5, m.tip + 11, -2.5, m.tip + 11, 2.5, m.tip, 2.5], '#6a7078'); g.fillStyle = MODS.silencer.color; g.fillRect(m.tip + 2.5, -2.4, 1.6, 4.8); g.fillRect(m.tip + 6.5, -2.4, 1.6, 4.8); }
+}
 // weapon drawn along +x from the grip
-export function drawWeapon(g, id) {
+export function drawWeapon(g, id, mods = []) {
+  drawWeaponBody(g, id);
+  if (mods.length) drawGunMods(g, id, mods);
+}
+function drawWeaponBody(g, id) {
   switch (id) {
     case 'knife': poly(g, [-4, -1.6, 3, -1.6, 3, 1.6, -4, 1.6], '#3a2a1e'); poly(g, [3, -2, 15, -0.6, 16, 0.6, 3, 2], '#d6dde2'); break;
     case 'bat': case 'spikedbat':
@@ -52,7 +67,7 @@ const GUN_TIP = { carbine: 29, pistol: 13, shotgun: 27, rifle: 31, smg: 20, cros
 // ---------- figure ----------
 function drawFigure(g, P, L) {
   if (L.scale) g.scale(L.scale, L.scale);
-  for (const f of [P.lf, P.rf]) blob(g, f[0], f[1], 4.6, 3.2, L.boots);
+  if (!P.noFeet) for (const f of [P.lf, P.rf]) blob(g, f[0], f[1], 4.6, 3.2, L.boots);
   // torso
   g.save(); g.translate(P.bx, 0); g.rotate(P.br); g.scale(P.bs ? P.bs[0] : 1, P.bs ? P.bs[1] : 1);
   if (L.bag) { g.fillStyle = L.bag; g.strokeStyle = OUT; g.lineWidth = 1.3; g.beginPath(); g.roundRect(-L.bw - 5, -7, 8, 14, 3); g.fill(); g.stroke(); }
@@ -71,7 +86,14 @@ function drawFigure(g, P, L) {
   blob(g, P.hd[0], P.hd[1], L.hr, L.hr * 0.95, L.skin);
   if (L.hair) { g.fillStyle = L.hair; g.beginPath(); g.ellipse(P.hd[0] - 1.2, P.hd[1], L.hr * 0.95, L.hr * 0.9, 0, Math.PI * 0.42, Math.PI * 1.58); g.fill(); }
   if (L.head) L.head(g, P.hd, L);
-  if (!P.hide && L.wpn) { g.save(); g.translate(P.rh[0], P.rh[1]); g.rotate(P.wa || 0); drawWeapon(g, L.wpn); g.restore(); }
+  if (!P.hide && L.wpn) { g.save(); g.translate(P.rh[0], P.rh[1]); g.rotate(P.wa || 0); drawWeapon(g, L.wpn, L.mods); g.restore(); }
+  if (P.held) { // magazine or round on its way to the gun
+    g.save(); g.translate(P.lh[0], P.lh[1]); g.rotate(0.5);
+    if (P.held === 'mag') { const ext = L.mods && L.mods.includes('extmag'), h = ext ? 6.5 : 4.5; poly(g, [-1.7, -h, 1.7, -h, 1.7, h, -1.7, h], ext ? MODS.extmag.color : '#2a2d31'); }
+    else if (P.held === 'shell') poly(g, [-1.5, -3, 1.5, -3, 1.5, 3, -1.5, 3], '#c02a2a');
+    else poly(g, [-0.8, -3.5, 0.8, -3.5, 0.8, 3.5, -0.8, 3.5], '#d0a040');
+    g.restore();
+  }
   blob(g, P.lh[0], P.lh[1], 2.9, 2.9, L.hand);
   blob(g, P.rh[0], P.rh[1], 2.9, 2.9, L.hand);
 }
@@ -90,46 +112,89 @@ const GRIP = {
   spear: { lh: [12, 1], rh: [3, 5], wa: 0 },
   smg: { lh: [13, 0], rh: [8, 4], wa: 0 },
 };
-function playerPose(cls, anim, t) {
+// how each weapon class is carried at a sprint: guns across the chest, blades trailing. two: left-hand distance along the weapon.
+const RUN_CARRY = {
+  knife: { rh: [7, 8], wa: 0.7 }, one: { rh: [6, 8], wa: 1.3 }, axe: { rh: [7, 7], wa: 1.5, two: 9 }, pistol: { rh: [9, 7], wa: 0.6 },
+  long: { rh: [5, 7], wa: -0.6, two: 13 }, smg: { rh: [6, 6], wa: -0.55, two: 9 }, katana: { rh: [5, 8], wa: 2.1 }, sledge: { rh: [7, 7], wa: 2.5, two: 10 }, spear: { rh: [6, 7], wa: -0.12, two: 11 },
+};
+// reloads: T is how far the gun tips across the chest, R where the right hand brings it, then weapon-local points the left hand visits
+const RELOAD = {
+  pistol: { T: -0.6, R: [10, 4], mag: [3, 4], cock: [7, -1] }, smg: { T: -0.5, R: [8, 5], mag: [5.5, 9], cock: [9, -2] }, carbine: { T: -0.45, R: [6, 5], mag: [8, 8], cock: [5, -3] },
+  rifle: { T: -0.35, R: [6, 6], load: [9, -1], rounds: 2, held: 'round', cock: [4, -3] }, shotgun: { T: -0.3, R: [6, 6], load: [12, 3], rounds: 3, held: 'shell', cock: [17, 1] }, crossbow: { T: -0.2, R: [5, 6], load: [12, -2], rounds: 1, held: 'round', cock: [10, -6] },
+};
+const POUCH = [0, -11]; // ammo pouch on the left hip
+function reloadPose(P, G, t, wpn) {
+  const c = RELOAD[wpn]; if (!c) return;
+  const on = key([[0, 0], [0.14, 1], [0.86, 1], [1, 0]], t), wa = lerp(G.wa, c.T, on);
+  const at = ([ox, oy]) => [c.R[0] + ox * Math.cos(c.T) - oy * Math.sin(c.T), c.R[1] + ox * Math.sin(c.T) + oy * Math.cos(c.T)];
+  P.rh = mix(G.rh, c.R, on); P.wa = wa; P.br = 0.12 * on; P.hd = [lerp(1.5, 2.6, on), 0.9 * on];
+  if (c.mag) {
+    const m = at(c.mag), k = at(c.cock);
+    P.lh = key([[0, G.lh], [0.14, m], [0.24, m], [0.38, POUCH], [0.5, POUCH], [0.66, m], [0.72, m], [0.82, k], [0.88, k], [1, G.lh]], t);
+    if (t > 0.42 && t < 0.68) P.held = 'mag'; else if (t > 0.2 && t < 0.34) P.held = 'mag'; // new mag going in, old one coming out
+    const seat = key([[0.66, 0], [0.71, 1], [0.78, 0]], t), rack = key([[0.82, 0], [0.86, 1], [0.92, 0]], t); // palm slap, then the charging handle
+    P.wa += seat * 0.1; P.rh = add(P.rh, [-seat * 1.5 - rack, 0]); P.lh = add(P.lh, [-rack * 4, 0]);
+  } else {
+    const ins = at(c.load), k = at(c.cock), a = 0.12, b = 0.74;
+    if (t < a) P.lh = mix(G.lh, POUCH, ease(t / a));
+    else if (t < b) {
+      const seg = ((t - a) / (b - a)) * c.rounds, f = seg - Math.floor(seg); // pouch to gun and back, once per round
+      P.lh = mix(POUCH, ins, ease(f < 0.55 ? f / 0.55 : (1 - f) / 0.45)); if (f < 0.55) P.held = c.held;
+      P.wa += Math.max(0, 1 - Math.abs(f - 0.55) * 8) * 0.05;
+    } else {
+      const r = key([[0.74, 0], [0.8, 1], [0.88, 1], [1, 0]], t), pull = key([[0.8, 0], [0.84, 1], [0.88, 0]], t);
+      P.lh = add(r === 1 || t < 0.88 ? mix(POUCH, k, r) : mix(G.lh, k, r), [-pull * 7, 0]); P.rh = add(P.rh, [-pull, 0]); // pump or bolt
+    }
+  }
+}
+function playerPose(cls, anim, t, wpn) {
   const G = GRIP[cls];
   const P = { lf: [4, -4.5], rf: [-3, 4.5], bx: 0, br: 0, hd: [1.5, 0], lh: [...G.lh], rh: [...G.rh], wa: G.wa, hide: cls === 'fists' };
-  const ph = t * Math.PI * 2;
-  if (anim === 'idle') { P.bs = [1, 1 + 0.03 * Math.sin(ph)]; P.lh[1] -= Math.sin(ph) * 0.5; P.rh[1] += Math.sin(ph) * 0.5; }
-  else if (anim === 'walk') {
-    P.lf = [Math.sin(ph) * 8.5, -4.5]; P.rf = [-Math.sin(ph) * 8.5, 4.5]; P.br = Math.sin(ph) * 0.07; P.hd = [1.5 + Math.cos(ph * 2) * 0.4, 0];
-    if (cls === 'fists' || cls === 'knife' || cls === 'one') { P.lh[0] -= Math.sin(ph) * 3; if (cls === 'fists') P.rh[0] += Math.sin(ph) * 3; }
-    else { P.lh[1] += Math.cos(ph * 2) * 0.5; P.rh[1] += Math.cos(ph * 2) * 0.5; }
+  const ph = t * Math.PI * 2, sw = Math.sin(ph), bob = Math.cos(ph * 2);
+  if (anim === 'idle') { P.bs = [1, 1 + 0.03 * sw]; P.lh[1] -= sw * 0.5; P.rh[1] += sw * 0.5; P.hd = [1.5 + bob * 0.15, sw * 0.25]; P.br = sw * 0.015; }
+  else if (anim === 'walk') { // shoulders turn against the legs
+    P.lf = [sw * 8.5, -4.5]; P.rf = [-sw * 8.5, 4.5]; P.br = -sw * 0.09; P.hd = [1.5 + bob * 0.4, -sw * 0.4];
+    if (cls === 'fists' || cls === 'knife' || cls === 'one') { P.lh[0] -= sw * 3; if (cls === 'fists') P.rh[0] += sw * 3; }
+    else { P.lh = add(P.lh, [bob * 0.5, bob * 0.4]); P.rh = add(P.rh, [bob * 0.5, bob * 0.4]); P.wa += sw * 0.02; }
+  } else if (anim === 'run') { // long stride, weight forward, arms pumping
+    P.lf = [sw * 12, -4]; P.rf = [-sw * 12, 4]; P.bx = 2 + bob * 0.5; P.br = -sw * 0.18; P.hd = [4 + bob * 0.5, -sw * 0.8];
+    const C = RUN_CARRY[cls];
+    if (!C) { P.lh = [6 - sw * 7, -8]; P.rh = [6 + sw * 7, 8]; }
+    else {
+      P.rh = [C.rh[0] + sw * 1.5, C.rh[1] + bob * 0.6]; P.wa = C.wa + sw * 0.06;
+      P.lh = C.two ? [P.rh[0] + Math.cos(P.wa) * C.two, P.rh[1] + Math.sin(P.wa) * C.two] : [6 - sw * 7, -8];
+    }
   } else if (anim === 'attack') {
-    if (cls === 'fists') { P.rh = key([[0, [9, 7]], [0.25, [21, 3]], [0.6, [11, 7]], [1, [9, 7]]], t); P.br = key([[0, 0], [0.25, 0.25], [1, 0]], t); }
-    else if (cls === 'knife') { P.rh = key([[0, [8, 7]], [0.08, [4, 9]], [0.3, [23, 2]], [0.65, [10, 7]], [1, [9, 7]]], t); P.wa = key([[0, 0.35], [0.3, 0], [1, 0.35]], t); P.br = key([[0, 0], [0.3, 0.25], [1, 0]], t); }
+    // melee timing: short wind-up, fast strike, follow through, slow recovery
+    const lunge = key([[0, 0], [0.1, -0.25], [0.3, 1], [0.55, 0.65], [1, 0]], t);
+    if (cls === 'fists') { P.rh = key([[0, [9, 7]], [0.1, [6, 9]], [0.28, [23, 2]], [0.55, [14, 5]], [1, [9, 7]]], t); P.lh = key([[0, [9, -7]], [0.28, [5, -9]], [1, [9, -7]]], t); P.br = 0.32 * lunge; P.bx = 2.5 * lunge; P.lf = [4 + 3 * Math.max(0, lunge), -4.5]; P.hd = [1.5 + 2 * lunge, 0.8 * lunge]; }
+    else if (cls === 'knife') { P.rh = key([[0, [9, 7]], [0.1, [4, 10]], [0.28, [24, 2]], [0.55, [14, 5]], [1, [9, 7]]], t); P.wa = key([[0, 0.35], [0.1, 0.6], [0.28, 0], [1, 0.35]], t); P.lh = key([[0, [6, -8]], [0.28, [1, -9]], [1, [6, -8]]], t); P.br = 0.34 * lunge; P.bx = 3 * lunge; P.lf = [4 + 4 * Math.max(0, lunge), -4.5]; P.hd = [1.5 + 2.2 * lunge, 0.8 * lunge]; }
     else if (cls === 'one' || cls === 'axe') {
-      const a = key(cls === 'axe' ? [[0, 0.75], [0.12, -1.55], [0.45, 1.35], [0.75, 1.2], [1, 0.75]] : [[0, 0.9], [0.08, -1.3], [0.4, 1.3], [0.7, 1.1], [1, 0.9]], t);
-      const r = 10, c = [2, 0];
-      P.rh = [c[0] + Math.cos(a * 0.75) * r, c[1] + Math.sin(a * 0.75) * r]; P.wa = a; P.br = a * 0.22;
-      P.lh = cls === 'axe' ? [P.rh[0] - Math.cos(a) * 5, P.rh[1] - Math.sin(a) * 5] : [5 - Math.sin(a) * 2, -8];
+      const a = key(cls === 'axe' ? [[0, 0.75], [0.16, -1.6], [0.4, 1.45], [0.62, 1.2], [1, 0.75]] : [[0, 0.9], [0.1, -1.4], [0.32, 1.45], [0.55, 1.15], [1, 0.9]], t);
+      P.rh = [2 + Math.cos(a * 0.75) * 10.5, Math.sin(a * 0.75) * 10.5]; P.wa = a; P.br = a * 0.28; P.bx = 2.5 * lunge;
+      P.lh = cls === 'axe' ? [P.rh[0] - Math.cos(a) * 5, P.rh[1] - Math.sin(a) * 5] : [5 - Math.sin(a) * 3, -8 + Math.max(0, a) * 1.2];
+      P.lf = [4 + 3.5 * Math.max(0, lunge), -4.5]; P.rf = [-3 - 1.5 * Math.max(0, lunge), 4.5]; P.hd = [1.5 + 1.8 * lunge, -a * 0.6];
     } else if (cls === 'katana') { // lightning-fast diagonal draw cut, both hands on the grip
-      const a = key([[0, -0.5], [0.05, -1.7], [0.28, 1.6], [0.55, 1.45], [1, -0.5]], t);
-      P.rh = [3 + Math.cos(a * 0.7) * 11, Math.sin(a * 0.7) * 11]; P.lh = [P.rh[0] - Math.cos(a) * 5, P.rh[1] - Math.sin(a) * 5]; P.wa = a; P.br = a * 0.3; P.bx = key([[0, 0], [0.28, 2], [1, 0]], t);
-      P.lf = [4 + 3 * Math.max(0, Math.sin(t * Math.PI)), -4.5];
-    } else if (cls === 'sledge') { // heavy wind-up, then a crushing two-handed slam
-      const a = key([[0, 0.55], [0.3, -2.0], [0.48, 0.15], [0.62, 0.05], [1, 0.55]], t);
+      const a = key([[0, -0.5], [0.07, -1.75], [0.26, 1.65], [0.5, 1.4], [1, -0.5]], t);
+      P.rh = [3 + Math.cos(a * 0.7) * 11, Math.sin(a * 0.7) * 11]; P.lh = [P.rh[0] - Math.cos(a) * 5, P.rh[1] - Math.sin(a) * 5]; P.wa = a; P.br = a * 0.32; P.bx = 3 * lunge;
+      P.lf = [4 + 5 * Math.max(0, lunge), -4.5]; P.rf = [-3 - 2 * Math.max(0, lunge), 4.5]; P.hd = [1.5 + 2 * lunge, -a * 0.5];
+    } else if (cls === 'sledge') { // heavy wind-up, then a crushing two-handed slam that takes time to recover from
+      const a = key([[0, 0.55], [0.3, -2.0], [0.46, 0.15], [0.66, 0.05], [1, 0.55]], t);
       P.rh = [2 + Math.cos(a * 0.6) * 9, Math.sin(a * 0.6) * 9]; P.lh = [P.rh[0] - Math.cos(a) * 6, P.rh[1] - Math.sin(a) * 6]; P.wa = a;
-      P.br = key([[0, 0], [0.3, -0.45], [0.5, 0.25], [1, 0]], t); P.bx = key([[0, 0], [0.3, -2], [0.5, 4], [1, 0]], t); P.hd = [1.5 + P.bx * 0.6, 0];
+      P.br = key([[0, 0], [0.3, -0.45], [0.46, 0.28], [0.7, 0.2], [1, 0]], t); P.bx = key([[0, 0], [0.3, -2.5], [0.46, 4.5], [0.7, 3.5], [1, 0]], t); P.hd = [1.5 + P.bx * 0.7, 0];
+      P.lf = [4 + Math.max(0, P.bx), -4.5];
     } else if (cls === 'spear') { // long thrust with a forward lunge
-      const k = key([[0, 0], [0.1, -0.3], [0.3, 1], [0.6, 0.6], [1, 0]], t);
-      P.rh = [3 + 14 * k, 5 - 2 * k]; P.lh = [12 + 12 * k, 1 - k]; P.wa = -0.04 * k; P.bx = 4 * k; P.lf = [4 + 5 * Math.max(0, k), -4.5]; P.hd = [1.5 + 3 * k, 0];
-    } else if (cls === 'smg') { const k = key([[0, 0], [0.3, 1], [1, 0]], t); P.rh[0] -= 2.5 * k; P.lh[0] -= 2.5 * k; P.wa = (Math.sin(t * 40) * 0.05) * k; P.br = 0.04 * Math.sin(t * 30); }
-    else if (cls === 'pistol') { const k = key([[0, 0], [0.15, 1], [1, 0]], t); P.rh[0] -= 4 * k; P.lh[0] -= 4 * k; P.wa = -0.12 * k; P.br = -0.05 * k; }
-    else { const k = key([[0, 0], [0.12, 1], [1, 0]], t); P.rh[0] -= 4 * k; P.lh[0] -= 4 * k; P.br = -0.1 * k; P.bx = -1.5 * k; }
-  } else if (anim === 'reload') {
-    if (cls === 'smg') { P.wa = key([[0, 0], [0.2, 0.7], [0.8, 0.7], [1, 0]], t); P.lh = key([[0, [13, 0]], [0.3, [3, 10]], [0.6, [8, 5]], [1, [13, 0]]], t); }
-    else if (cls === 'pistol') { P.wa = key([[0, 0], [0.2, 0.9], [0.8, 0.9], [1, 0]], t); P.rh = key([[0, [14, 2]], [0.2, [10, 3]], [0.8, [10, 3]], [1, [14, 2]]], t); P.lh = key([[0, [12, -1]], [0.3, [2, 9]], [0.6, [9, 3]], [1, [12, -1]]], t); }
-    else if (cls === 'long') { P.wa = key([[0, 0], [0.2, 0.4], [0.85, 0.4], [1, 0]], t); P.lh = key([[0, [17, 0]], [0.25, [3, 9]], [0.45, [11, 3]], [0.65, [3, 9]], [0.85, [12, 2]], [1, [17, 0]]], t); }
-  } else if (anim === 'heal') { P.hide = true; P.lh = [8 + Math.sin(ph * 2) * 2.5, -3]; P.rh = [8 - Math.sin(ph * 2) * 2.5, 3]; P.hd = [2.5, 0]; }
-  else if (anim === 'shove') { const k = key([[0, 0], [0.35, 1], [1, 0]], t); P.lh = [9 + 10 * k, -7]; P.rh = [9 + 10 * k, 7]; P.bx = 3 * k; P.hide = true; }
+      const k = key([[0, 0], [0.12, -0.35], [0.3, 1], [0.55, 0.7], [1, 0]], t);
+      P.rh = [3 + 14 * k, 5 - 2 * k]; P.lh = [12 + 12 * k, 1 - k]; P.wa = -0.04 * k; P.bx = 4 * k; P.lf = [4 + 6 * Math.max(0, k), -4.5]; P.rf = [-3 - 2 * Math.max(0, k), 4.5]; P.hd = [1.5 + 3 * k, 0];
+    } else if (cls === 'smg') { const k = key([[0, 0], [0.25, 1], [0.6, -0.1], [1, 0]], t); P.rh[0] -= 2.5 * k; P.lh[0] -= 2.5 * k; P.wa = (Math.sin(t * 40) * 0.05) * k; P.br = 0.04 * Math.sin(t * 30); }
+    else if (cls === 'pistol') { const k = key([[0, 0], [0.14, 1], [0.45, -0.12], [1, 0]], t); P.rh[0] -= 4 * k; P.lh[0] -= 4 * k; P.wa = -0.12 * k; P.br = -0.05 * k; P.hd = [1.5 - 0.6 * k, 0]; }
+    else { const k = key([[0, 0], [0.12, 1], [0.45, -0.12], [1, 0]], t); P.rh[0] -= 4 * k; P.lh[0] -= 4 * k; P.br = -0.1 * k; P.bx = -1.5 * k; P.hd = [1.5 - 1 * k, 0]; }
+  } else if (anim === 'reload') reloadPose(P, G, t, wpn);
+  else if (anim === 'heal') { P.hide = true; P.lh = [8 + Math.sin(ph * 2) * 2.5, -3]; P.rh = [8 - Math.sin(ph * 2) * 2.5, 3]; P.hd = [2.5, 0]; }
+  else if (anim === 'shove') { const k = key([[0, 0], [0.14, -0.25], [0.38, 1], [0.6, 0.5], [1, 0]], t); P.lh = [9 + 10 * k, -7]; P.rh = [9 + 10 * k, 7]; P.bx = 3 * k; P.hd = [1.5 + 2 * k, 0]; P.lf = [4 + 3 * Math.max(0, k), -4.5]; P.hide = true; }
   return P;
 }
-function playerLook(wpn, armor, bag, head, feet) {
+function playerLook(wpn, armor, bag, head, feet, mods) {
   const top = { vest: '#2c3a52', jacket: '#5a3a22', riotgear: '#232b38', ghillie: '#4e6a30' }[armor] || '#3b5c8a';
   const dark = { vest: '#202c40', jacket: '#46301b', riotgear: '#161c26', ghillie: '#3a5222' }[armor] || '#2e4870';
   return {
@@ -138,7 +203,7 @@ function playerLook(wpn, armor, bag, head, feet) {
       else if (head === 'nvg') { g.fillStyle = '#2a2d31'; g.fillRect(hd[0] - 6, hd[1] - 1.2, 9, 2.4); g.fillRect(hd[0] + 2, hd[1] - 4, 5, 8); g.fillStyle = '#5ae07a'; g.fillRect(hd[0] + 6, hd[1] - 3.4, 1.6, 2.4); g.fillRect(hd[0] + 6, hd[1] + 1, 1.6, 2.4); }
       else if (head === 'headlamp') { g.fillStyle = '#3a3f46'; g.fillRect(hd[0] - 5.5, hd[1] - 1, 10, 2); g.fillStyle = '#fff2a0'; g.beginPath(); g.arc(hd[0] + 5, hd[1], 2.2, 0, 7); g.fill(); }
     } : null,
-    skin: '#e3b78c', hand: '#d9a87c', hair: head === 'helmet' || head === 'milhelmet' ? null : '#3a2a1a', top, topDark: dark, sleeve: dark, boots: { sneakers: '#e8e8e8', boots: '#151515', runners: '#c83a3a' }[feet] || '#2a2622', bw: 7.5, bh: 11, hr: 6, arm: 4.2, wpn,
+    skin: '#e3b78c', hand: '#d9a87c', hair: head === 'helmet' || head === 'milhelmet' ? null : '#3a2a1a', top, topDark: dark, sleeve: dark, boots: { sneakers: '#e8e8e8', boots: '#151515', runners: '#c83a3a' }[feet] || '#2a2622', bw: 7.5, bh: 11, hr: 6, arm: 4.2, wpn, mods,
     bag: bag === 'milbag' ? '#4a5236' : bag === 'hikingbag' ? '#3e7a3e' : bag === 'schoolbag' ? '#3a6ab0' : null,
     detail: (g) => {
       if (armor === 'riotgear') { g.fillStyle = '#3a4658'; g.fillRect(-5, -9, 9, 18); g.fillStyle = '#e0c040'; g.fillRect(-1, -6, 2, 12); }
@@ -214,18 +279,27 @@ function zombiePose(type, anim, t, v) {
 
 // ---------- cache ----------
 const cache = new Map();
-const SIZE = 64; // world px covered by a frame
-function render(keyStr, draw) {
+const SIZE = 64; // world px covered by a zombie frame
+export const P_FRAME = 96; // players need more room: a silenced rifle reaches far past the body
+const MAX_FRAMES = 1500; // ponytail: evicts oldest frames first; raise it if frames visibly re-render during play
+function render(keyStr, draw, size = SIZE) {
   let c = cache.get(keyStr); if (c) return c;
-  c = document.createElement('canvas'); c.width = c.height = SIZE * S;
-  const g = c.getContext('2d'); g.setTransform(S, 0, 0, S, (SIZE * S) / 2, (SIZE * S) / 2);
-  draw(g); cache.set(keyStr, c); return c;
+  c = document.createElement('canvas'); c.width = c.height = size * S;
+  const g = c.getContext('2d'); g.setTransform(S, 0, 0, S, (size * S) / 2, (size * S) / 2);
+  draw(g); cache.set(keyStr, c);
+  if (cache.size > MAX_FRAMES) cache.delete(cache.keys().next().value);
+  return c;
 }
 const frameOf = (anim, t, n) => Math.min(n - 1, Math.floor(((t % 1) + 1) % 1 * n));
-export function playerFrame(wpn, armor, bag, anim, t, head, feet) {
+// noFeet: the upper body only, for acting while moving (legsFrame then supplies the stride)
+export function playerFrame(wpn, armor, bag, anim, t, head, feet, mods = [], noFeet = false) {
   const n = P_ANIMS[anim], f = anim === 'attack' || anim === 'reload' || anim === 'shove' ? Math.min(n - 1, Math.floor(Math.max(0, Math.min(0.999, t)) * n)) : frameOf(anim, t, n);
   const cls = WCLASS[wpn] || 'fists';
-  return render(`p|${wpn}|${armor}|${bag}|${head}|${feet}|${anim}|${f}`, (g) => drawFigure(g, playerPose(cls, anim, (f + 0.5) / n), playerLook(wpn === 'fists' ? null : wpn, armor, bag, head, feet)));
+  return render(`p|${wpn}|${mods.join()}|${armor}|${bag}|${head}|${feet}|${anim}|${f}|${noFeet ? 1 : 0}`, (g) => { const P = playerPose(cls, anim, (f + 0.5) / n, wpn); P.noFeet = noFeet; drawFigure(g, P, playerLook(wpn === 'fists' ? null : wpn, armor, bag, head, feet, mods)); }, P_FRAME);
+}
+export function legsFrame(feet, gait, t) {
+  const n = P_ANIMS[gait], f = frameOf(gait, t, n), L = playerLook(null, null, null, null, feet);
+  return render(`l|${feet}|${gait}|${f}`, (g) => { const P = playerPose('fists', gait, (f + 0.5) / n); for (const q of [P.lf, P.rf]) blob(g, q[0], q[1], 4.6, 3.2, L.boots); }, P_FRAME);
 }
 export function zombieFrame(type, v, anim, t) {
   const n = Z_ANIMS[anim], once = anim !== 'walk' && anim !== 'idle';

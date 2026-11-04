@@ -1,7 +1,7 @@
 // Authoritative simulation. Pure state + inputs -> state + events.
 // Netcode-ready: every player action arrives as an input frame or a command object.
 import { TILE, DAY_LENGTH, START_HOUR, PLAYER_R, BASE_CARRY } from '../config.js';
-import { RACK_ITEMS, CAT_ORDER, ITEMS, FISTS, UPGRADES, STASH_CAP, RECIPES, TRADE_COST, TRADE_POOL, OBJECTIVES, CONTAINER_LABEL } from '../data/items.js';
+import { RACK_ITEMS, MOD_STASH_ITEMS, MODS, modFits, gunStats, CAT_ORDER, ITEMS, FISTS, UPGRADES, STASH_CAP, RECIPES, TRADE_COST, TRADE_POOL, OBJECTIVES, CONTAINER_LABEL } from '../data/items.js';
 import { generateWorld, T, SOLID } from '../world/worldgen.js';
 import { solidAt, collide, los, castRay, bulletBlock, isSafe, FlowField } from '../world/world.js';
 import { makeItem, addItem, countItem, removeItem, invWeight, rollLoot } from './inventory.js';
@@ -42,6 +42,7 @@ export function createState(seed, fresh = true) {
   s.dawnIdx = dawnIndex(s);
   s.baseConts = world.containers.length;
   { const rk = world.containers[world.fixtures.rack]; rk.items = []; rk.searched = true; for (const [id, n] of RACK_ITEMS) { const it = makeItem(id, n); if (ITEMS[id].cat === 'gun') it.mag = ITEMS[id].mag; rk.items.push(it); } }
+  { const ms = world.containers[world.fixtures.modstash]; ms.searched = true; ms.items = MOD_STASH_ITEMS.map((id) => makeItem(id)); }
   if (fresh) { for (let k = 0; k < 520; k++) spawnRandomZombie(s, 22, false); for (const zn of world.zones) spawnInZone(s, zn, zn.kind === 'military' ? 45 : 28); }
   initRuntime(s);
   return s;
@@ -104,7 +105,7 @@ export function autoHot(p, it, force = false) {
 }
 export const capacity = (p) => BASE_CARRY + (p.bag ? ITEMS[p.bag.id].cap : 0) + gearStats(p).carry;
 export const carried = (p) => invWeight(p.inv) + GEAR_SLOTS.reduce((w, k) => w + (p.gear && p.gear[k] ? ITEMS[p.gear[k].id].w * 0.5 : 0), 0);
-export const contCap = (s, c) => (c.type === 'stash' ? STASH_CAP[s.upgrades.stash] : c.type === 'pile' || c.type === 'body' || c.type === 'rack' ? 999 : 20);
+export const contCap = (s, c) => (c.type === 'stash' ? STASH_CAP[s.upgrades.stash] : c.type === 'pile' || c.type === 'body' || c.type === 'rack' || c.type === 'modstash' ? 999 : 20);
 const contPos = (c) => (c.px !== undefined ? { x: c.px, y: c.py } : { x: (c.x + 0.5) * TILE, y: (c.y + 0.5) * TILE });
 export const contLabel = (c) => c.label || CONTAINER_LABEL[c.type] || 'Container';
 
@@ -204,6 +205,19 @@ function contAction(s, c) {
   return (c.searched ? 'Open ' : 'Search ') + name + (c.searched && c.items && !c.items.length ? ' (empty)' : '');
 }
 
+// Hold to crack a closed door or window and look through it. Makes no noise, and the door stays shut to zombies.
+function updatePeek(s, p, inp) {
+  if (!inp.peek) { p.peek = null; return; }
+  const w = s.world;
+  const closed = (kind, i) => { if (kind === 'door') { const d = w.doors[i]; return !d.open && !d.broken && !d.locked && !d.bar; } const wi = w.windows[i]; return !wi.open && !wi.broken; };
+  if (p.peek && (!closed(p.peek.kind, p.peek.i) || Math.hypot((p.peek.tx + 0.5) * TILE - p.x, (p.peek.ty + 0.5) * TILE - p.y) > 60)) p.peek = null;
+  if (p.peek) return;
+  const it = getInteract(s, p);
+  if (!it || (it.kind !== 'door' && it.kind !== 'window')) return;
+  if (closed(it.kind, it.i)) { p.peek = { kind: it.kind, i: it.i, tx: it.tx, ty: it.ty }; ev(s, { type: 'peek', x: (it.tx + 0.5) * TILE, y: (it.ty + 0.5) * TILE }); }
+  else if (inp.peekStart && it.kind === 'door' && (w.doors[it.i].locked || w.doors[it.i].bar)) msg(s, "It won't budge. No gap to look through.", '#aaa', p.id);
+}
+
 function barricade(s, p) {
   const it = getInteract(s, p);
   if (!it || it.kind !== 'door') { msg(s, 'Face a door to barricade it.', '#aaa', p.id); return; }
@@ -282,7 +296,12 @@ function updatePlayer(s, p, inp, dt) {
 
   let mx = (inp.right ? 1 : 0) - (inp.left ? 1 : 0), my = (inp.down ? 1 : 0) - (inp.up ? 1 : 0);
   const ml = Math.hypot(mx, my); if (ml > 0) { mx /= ml; my /= ml; }
+  if (inp.relative && ml > 0) { // rotating view: W is wherever the character faces, A/D strafe
+    const c = Math.cos(p.ang), n = Math.sin(p.ang), fwd = -my, side = mx;
+    mx = fwd * c - side * n; my = fwd * n + side * c;
+  }
   p.moving = ml > 0;
+  updatePeek(s, p, inp);
   const over = carried(p) / capacity(p);
   const slow = over > 1 ? Math.max(0.4, 1 - (over - 1) * 1.2) : 1;
   p.sprinting = !!inp.sprint && p.moving && p.stamina > 3 && !p.channel && !p.sneak;
@@ -305,15 +324,15 @@ function updatePlayer(s, p, inp, dt) {
     }
   }
   let speed = p.sneak ? 62 : p.sprinting ? (hasPerk(p, 'sprinter') ? 192 : 172) : 112;
-  const gs = gearStats(p); speed *= slow * gs.slow; if (p.buffs.adrenaline) speed *= 1.3; if (p.channel) speed *= 0.4; if (p.reload > 0) speed *= 0.8;
+  const gs = gearStats(p); speed *= slow * gs.slow; if (p.buffs.adrenaline) speed *= 1.3; if (p.channel) speed *= 0.4; if (p.reload > 0) speed *= 0.8; if (p.peek) speed *= 0.5;
   const tHere = w.tiles[Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE)];
   if (tHere === T.BUSH) speed *= 0.6;
   const bx = p.x, by = p.y;
   p.x += mx * speed * dt; p.y += my * speed * dt;
   collide(p, PLAYER_R, (tx, ty) => solidAt(w, tx, ty));
   // doorway assist: if blocked while moving along one axis, slide toward the open tile's center
-  if (p.moving && Math.hypot(p.x - bx, p.y - by) < speed * dt * 0.3 && (mx === 0 || my === 0)) {
-    const ax = mx === 0, cx = Math.floor(p.x / TILE), cy = Math.floor(p.y / TILE);
+  if (p.moving && Math.hypot(p.x - bx, p.y - by) < speed * dt * 0.3 && (Math.abs(mx) < 0.35 || Math.abs(my) < 0.35)) { // nearly axis-aligned, so it also works in the rotating view
+    const ax = Math.abs(mx) < 0.35, cx = Math.floor(p.x / TILE), cy = Math.floor(p.y / TILE);
     const ntx = cx + Math.sign(mx), nty = cy + Math.sign(my);
     if (ax && !solidAt(w, cx, nty)) p.x += Math.sign((cx + 0.5) * TILE - p.x) * Math.min(Math.abs((cx + 0.5) * TILE - p.x), speed * dt);
     else if (!ax && !solidAt(w, ntx, cy)) p.y += Math.sign((cy + 0.5) * TILE - p.y) * Math.min(Math.abs((cy + 0.5) * TILE - p.y), speed * dt);
@@ -366,6 +385,7 @@ function updatePlayer(s, p, inp, dt) {
   if (inp.heal) quickHeal(s, p);
   if (inp.throwN) throwItem(s, p, 'noisemaker', inp);
   if (inp.throwB) throwItem(s, p, 'pipebomb', inp);
+  p.ads = !!inp.aim && !!p.wpn && ITEMS[p.wpn.id].cat === 'gun';
   if (inp.attack && p.atkCd <= 0 && p.reload <= 0 && !p.channel && !p.search) attack(s, p);
 
   survival(s, p, dt);
@@ -455,6 +475,10 @@ function attack(s, p) {
   }
 }
 
+const ADS_SPREAD = 0.4;
+// current cone half-angle: grows with sustained fire (bloom) and movement, shrinks when sneaking or aiming down sights
+export const gunSpread = (p, wd) => wd.spread * (1 + (p.bloom || 0) * 2.2) * (p.sneak ? 0.6 : 1) * (p.moving ? 1.5 : 1) * (p.ads ? ADS_SPREAD : 1);
+
 function fire(s, p, wd) {
   const w = s.world;
   if (p.wpn.mag <= 0) {
@@ -462,9 +486,9 @@ function fire(s, p, wd) {
     if (countItem(p.inv, wd.ammo) > 0) startReload(s, p); else { ev(s, { type: 'empty', x: p.x, y: p.y }); msg(s, 'Out of ammo.', '#aaa', p.id); }
     return;
   }
-  p.wpn.mag--; p.atkCd = wd.cd; p.muzzle = 0.06; p.swing = p.swingDur = 0.18; p.act = 'attack';
-  // spread grows with sustained fire (bloom) and movement, shrinks when sneaking
-  const spread = wd.spread * (1 + (p.bloom || 0) * 2.2) * (p.sneak ? 0.6 : 1) * (p.moving ? 1.5 : 1);
+  const g = gunStats(p.wpn), silenced = g.alert < 1;
+  p.wpn.mag--; p.atkCd = wd.cd; p.muzzle = silenced ? 0 : 0.06; p.swing = p.swingDur = 0.18; p.act = 'attack';
+  const spread = gunSpread(p, wd);
   p.bloom = Math.min(1, (p.bloom || 0) + (BLOOM[p.wpn.id] || 0.3));
   const ox = p.x + Math.cos(p.ang) * 18, oy = p.y + Math.sin(p.ang) * 18;
   const mult = p.buffs && p.buffs.adrenaline ? 1.25 : 1;
@@ -472,8 +496,8 @@ function fire(s, p, wd) {
     const a = p.ang + (rnd() - 0.5) * 2 * spread, v = (SPEED[p.wpn.id] || 1400) * (wd.pellets > 1 ? 0.85 + rnd() * 0.3 : 1);
     s.bullets.push({ x: ox, y: oy, px: ox, py: oy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, left: wd.range, dmg: wd.dmg * mult, pierce: wd.pierce, gun: p.wpn.id, pid: p.id, falloff: wd.pellets > 1, range: wd.range, hit: [] });
   }
-  ev(s, { type: 'gunshot', gun: p.wpn.id, x: ox, y: oy, ang: p.ang, pid: p.id });
-  s.noises.push({ pl: 1, x: p.x, y: p.y, r: wd.noise * TILE });
+  ev(s, { type: 'gunshot', gun: p.wpn.id, x: ox, y: oy, ang: p.ang, pid: p.id, silenced });
+  s.noises.push({ pl: 1, x: p.x, y: p.y, r: g.noise * TILE, alert: g.alert });
 }
 
 const SPEED = { carbine: 1900, pistol: 1500, smg: 1400, shotgun: 1150, rifle: 2400, crossbow: 760 };
@@ -511,13 +535,13 @@ function updateBullets(s, dt) {
 
 function startReload(s, p) {
   if (!p.wpn || p.reload > 0) return;
-  const wd = ITEMS[p.wpn.id]; if (wd.cat !== 'gun' || p.wpn.mag >= wd.mag) return;
+  const wd = ITEMS[p.wpn.id]; if (wd.cat !== 'gun' || p.wpn.mag >= gunStats(p.wpn).mag) return;
   if (countItem(p.inv, wd.ammo) <= 0) { msg(s, `No ${ITEMS[wd.ammo].name}.`, '#aaa', p.id); return; }
   p.reload = wd.reload; ev(s, { type: 'reload', x: p.x, y: p.y });
 }
 function finishReload(s, p) {
   if (!p.wpn) return; const wd = ITEMS[p.wpn.id]; if (wd.cat !== 'gun') return;
-  p.wpn.mag += removeItem(p.inv, wd.ammo, wd.mag - p.wpn.mag);
+  p.wpn.mag += removeItem(p.inv, wd.ammo, gunStats(p.wpn).mag - p.wpn.mag);
 }
 
 function shove(s, p) {
@@ -774,7 +798,7 @@ function updateZombies(s, dt) {
     }
     for (const n of s.noises) {
       if (z.state === 'chase' && !n.lure) continue;
-      if (Math.hypot(n.x - z.x, n.y - z.y) < n.r * (1 - 0.35 * s.weather.rain)) {
+      if (Math.hypot(n.x - z.x, n.y - z.y) < n.r * (1 - 0.35 * s.weather.rain) && (n.alert === undefined || rnd() < n.alert)) {
         z.state = 'investigate'; z.tx = n.x + (rnd() - 0.5) * 48; z.ty = n.y + (rnd() - 0.5) * 48; z.stuck = 0;
       }
     }
@@ -948,7 +972,30 @@ export function command(s, pid, c) {
         if (d.cat === 'bag') { if (p.bag) addItem(p.inv, p.bag); p.bag = it; }
         else { const sl = d.slot || 'body'; if (p.gear[sl]) addItem(p.inv, p.gear[sl]); p.gear[sl] = it; }
         ev(s, { type: 'equip' }); msg(s, `Wearing ${d.name}.`, '#aaa', p.id);
+      } else if (d.cat === 'mod') { // attach to the equipped gun if possible, otherwise the first gun that can take it
+        const free = (g) => g && modFits(g.id, it.id) && !(g.mods || []).includes(it.id);
+        const gun = free(p.wpn) ? p.wpn : p.inv.find(free);
+        if (gun) command(s, p.id, { t: 'attachMod', idx: c.idx, gun: p.inv.indexOf(gun) });
+        else msg(s, `No gun that can take a ${d.name}.`, '#aaa', p.id);
       } else if (d.cat === 'throw') msg(s, `Aim and press ${it.id === 'noisemaker' ? 'G' : 'X'} to throw.`, '#aaa', p.id);
+      break;
+    }
+    case 'attachMod': { // idx: the mod, gun: the gun (both inventory indexes)
+      const m = p.inv[c.idx], g = p.inv[c.gun]; if (!m || !g || !MODS[m.id]) return;
+      if (!modFits(g.id, m.id)) { msg(s, `A ${ITEMS[m.id].name} doesn't fit the ${ITEMS[g.id].name}.`, '#aaa', p.id); return; }
+      if ((g.mods || []).includes(m.id)) { msg(s, `This ${ITEMS[g.id].name} already has a ${ITEMS[m.id].name}.`, '#aaa', p.id); return; }
+      g.mods = [...(g.mods || []), m.id];
+      p.inv.splice(c.idx, 1);
+      ev(s, { type: 'equip', pid: p.id }); msg(s, `${ITEMS[m.id].name} attached to ${ITEMS[g.id].name}.`, '#9fe09f', p.id);
+      break;
+    }
+    case 'detachMod': { // idx: the gun, mod: which mod. Rounds that no longer fit go back to the inventory.
+      const g = p.inv[c.idx]; if (!g || !(g.mods || []).includes(c.mod)) return;
+      g.mods = g.mods.filter((id) => id !== c.mod);
+      addItem(p.inv, makeItem(c.mod));
+      const over = g.mag - gunStats(g).mag;
+      if (over > 0) { g.mag -= over; addItem(p.inv, makeItem(ITEMS[g.id].ammo, over)); }
+      ev(s, { type: 'equip', pid: p.id }); msg(s, `${ITEMS[c.mod].name} removed from ${ITEMS[g.id].name}.`, '#aaa', p.id);
       break;
     }
     case 'unequip': {
@@ -969,7 +1016,8 @@ export function command(s, pid, c) {
       if (c.slot < 0 || c.slot > 5) return;
       if (c.idx === null || c.idx === undefined) { p.hotbar[c.slot] = null; break; }
       const it = p.inv[c.idx]; if (!it || !HOTABLE.has(ITEMS[it.id].cat)) { msg(s, "That can't go on the hotbar.", '#aaa', p.id); return; }
-      p.hotbar = p.hotbar.map((h) => (h && (h.ref === it || h.id === it.id) ? null : h));
+      // two guns of a type can sit on separate slots, since their mods can differ
+      p.hotbar = p.hotbar.map((h) => (h && (h.ref === it || (h.id === it.id && ITEMS[it.id].cat !== 'gun')) ? null : h));
       p.hotbar[c.slot] = { id: it.id, ref: it }; ev(s, { type: 'click' });
       break;
     }

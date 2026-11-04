@@ -1,7 +1,24 @@
 // Procedural spatial audio: stereo panning, distance falloff, wall occlusion,
 // indoor/outdoor reverb, surface-aware footsteps. No asset files.
+import { ITEMS } from './data/items.js';
 const SURF = { 0: 'grass', 15: 'bush', 1: 'hard', 2: 'hard', 13: 'hard', 9: 'gravel', 16: 'gravel', 10: 'dirt', 3: 'wood', 5: 'wood', 11: 'tile', 12: 'carpet' };
 const BLADE = new Set(['knife', 'machete', 'axe']);
+// Suppressed shots. The ammo sets the character of the shot: thump [from Hz, to Hz, secs, wave, gain], gas puff
+// [secs, Hz, filter, gain], supersonic crack [secs, Hz, gain] that a silencer can't remove, and a low tail.
+const SUPPRESSED = {
+  ammo9: { reach: 450, wet: 0.08, thump: [240, 110, 0.05, 'triangle', 0.2], puff: [0.07, 1300, 'lowpass', 0.5] }, // subsonic: a soft "pft"
+  ammomed: { reach: 600, wet: 0.12, thump: [170, 70, 0.09, 'triangle', 0.3], puff: [0.11, 1800, 'bandpass', 0.45], crack: [0.018, 5200, 0.22] }, // a sharp "tsst"
+  ammo308: { reach: 850, wet: 0.2, thump: [110, 38, 0.2, 'sine', 0.6], puff: [0.22, 900, 'lowpass', 0.75], crack: [0.03, 4200, 0.4], tail: [0.45, 380, 0.16] }, // a heavy "thoomp" with a crack
+  shells: { reach: 700, wet: 0.18, thump: [95, 42, 0.16, 'sine', 0.55], puff: [0.2, 650, 'lowpass', 0.9], tail: [0.3, 260, 0.2] }, // a wide, dull "fwump"
+};
+// The gun on top of that: pitch and length of the shot, plus its metal action (at: seconds after firing).
+const SILENCED_ACTION = {
+  pistol: { pitch: 1, len: 1, metal: 1900, gain: 0.05, at: [0.025] }, // slide
+  smg: { pitch: 1.3, len: 0.7, metal: 2700, gain: 0.025, at: [0.012] }, // light, fast bolt
+  carbine: { pitch: 1, len: 1, metal: 1300, gain: 0.06, at: [0.04] }, // gas-driven bolt
+  rifle: { pitch: 1, len: 1, metal: 700, gain: 0.09, at: [0.55, 0.72] }, // bolt worked by hand
+  shotgun: { pitch: 1, len: 1, metal: 520, gain: 0.12, at: [0.5, 0.64] }, // pump back and forward
+};
 const METAL = new Set(['gun', 'melee', 'ammo', 'throw']);
 
 function impulse(c, secs, decay, pre = 0) {
@@ -131,6 +148,15 @@ export class Sfx {
   }
   rummage(dur, out) { const n = Math.max(2, Math.round(dur / 0.22)); for (let k = 0; k < n; k++) this.noise(0.08 + Math.random() * 0.06, 1200 + Math.random() * 2000, 'bandpass', 0.06, k * (dur / n) + Math.random() * 0.05, out, 1.5); }
 
+  silencedShot(gun, o) {
+    const r = SUPPRESSED[ITEMS[gun].ammo], a = SILENCED_ACTION[gun], [f0, f1, dur, wave, gain] = r.thump, [pd, pf, pt, pg] = r.puff;
+    this.tone(f0 * a.pitch, f1 * a.pitch, dur * a.len, wave, gain, 0, o);
+    this.noise(pd * a.len, pf * a.pitch, pt, pg, 0, o);
+    if (r.crack) this.noise(r.crack[0], r.crack[1], 'highpass', r.crack[2], 0, o);
+    if (r.tail) this.noise(r.tail[0], r.tail[1], 'lowpass', r.tail[2], 0.02, o);
+    for (const d of a.at) this.clank(o, a.metal, a.gain, d);
+  }
+
   play(e, localId) {
     if (!this.ctx || this.ctx.state !== 'running') return;
     const pos = e.x !== undefined;
@@ -140,6 +166,7 @@ export class Sfx {
     switch (e.type) {
       case 'gunshot': {
         if (e.gun === 'crossbow') { o = L(500, 0.1); this.tone(180, 90, 0.12, 'triangle', 0.25, 0, o); this.noise(0.06, 2500, 'bandpass', 0.2, 0, o, 3); this.sweep(0.15, 3000, 800, 'bandpass', 0.06, 0.02, o, 4); break; }
+        if (e.silenced) { const r = SUPPRESSED[ITEMS[e.gun].ammo]; o = L(r.reach, r.wet); if (!o.v) return; this.silencedShot(e.gun, o); break; }
         o = this.bus(e.x, e.y, 2400, 0.9); if (!o.v) return;
         const big = e.gun === 'shotgun' ? 1.3 : e.gun === 'rifle' ? 1.5 : 1;
         this.noise(0.22 * big, 2400, 'lowpass', 1.0, 0, o); this.tone(160, 40, 0.18 * big, 'square', 0.35, 0, o); this.noise(0.5 * big, 400, 'lowpass', 0.3, 0.04, o);
@@ -157,6 +184,7 @@ export class Sfx {
         if (e.crit) { this.noise(0.05, 2600, 'bandpass', 0.35, 0.03, o, 4); this.tone(70, 40, 0.15, 'square', 0.12, 0.02, o); }
         break;
       }
+      case 'peek': o = L(160, 0); this.noise(0.2, 650, 'bandpass', 0.05, 0, o, 3); break; // only you can hear the hinge
       case 'silentKill': o = L(400, 0.05); this.noise(0.12, 400, 'lowpass', 0.4, 0, o); this.sweep(0.12, 2500, 900, 'bandpass', 0.12, 0.02, o); this.noise(0.4, 900, 'lowpass', 0.06, 0.15, o); break;
       case 'zdie': o = L(900, 0.2); if (!o.v) return; this.noise(0.18, 700, 'lowpass', e.ztype === 'brute' ? 0.9 : 0.5, 0, o); this.noise(0.1, 2200, 'bandpass', 0.25, 0.02, o, 2); this.voice(o, 75, 0.55, 0.16, 450); this.tone(80, 40, 0.15, 'sine', 0.35, 0.3, o); this.noise(0.15, 300, 'lowpass', 0.4, 0.3, o); break;
       case 'groan': o = L(1000, 0.35); if (!o.v) return; this.voice(o, (e.ztype === 'brute' ? 55 : e.ztype === 'runner' ? 120 : 80) + Math.random() * 25, 0.7 + Math.random() * 0.6, 0.14, e.ztype === 'runner' ? 900 : 550); break;

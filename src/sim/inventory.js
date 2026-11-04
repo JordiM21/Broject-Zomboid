@@ -1,4 +1,4 @@
-import { ITEMS, LOOT } from '../data/items.js';
+import { ITEMS, LOOT, itemWeight } from '../data/items.js';
 import { RNG } from '../rng.js';
 
 export function makeItem(id, n = 1) {
@@ -31,7 +31,7 @@ export function removeItem(inv, id, n) {
   }
   return removed;
 }
-export function invWeight(inv) { let w = 0; for (const s of inv) w += ITEMS[s.id].w * s.n; return w; }
+export function invWeight(inv) { let w = 0; for (const s of inv) w += itemWeight(s) * s.n; return w; }
 
 export function rollLoot(type, seed, cid, salt = 0) {
   const tab = LOOT[type]; if (!tab) return [];
