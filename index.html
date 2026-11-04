@@ -26,7 +26,7 @@
       <div><b>WASD</b> move</div><div><b>Shift</b> sprint (loud)</div>
       <div><b>Mouse</b> aim · <b>Click</b> attack</div><div><b>Space</b> shove zombies back</div>
       <div><b>E</b> search / open / use</div><div><b>Tab</b> or <b>I</b> inventory</div>
-      <div><b>1–6</b> / wheel switch weapon</div><div><b>R</b> reload</div>
+      <div><b>1–6</b> use hotbar slot (weapons equip / holster, items get used) · <b>wheel</b> cycle weapons</div><div><b>R</b> reload</div>
       <div><b>H</b> quick heal</div><div><b>C</b> sneak: quieter, harder to see. Hit unaware zombies from behind for a silent kill</div>
       <div><b>F</b> flashlight</div><div><b>M</b> map</div>
       <div><b>G</b> throw Noise Maker</div><div><b>X</b> throw Pipe Bomb</div>
@@ -34,7 +34,7 @@
       <div><b>E</b> on a window: open it quietly, then climb through</div><div><b>Attack</b> a door or window to smash it (loud)</div>
       <div>Locked doors: pry with a <b>Crowbar</b> or smash them</div><div>Climbing through broken glass can cut you</div>
       <div><b>Inventory</b>: hover an item, then <b>E</b> use · <b>Q</b> drop · <b>T</b> move</div><div><b>R</b> take all · <b>Shift+R</b> put all · <b>Right-click</b> item menu</div>
-      <div>Drag an item out of the inventory window to drop it</div><div>Doors and windows glow when you can use them</div><div><b>Esc</b> pause</div>
+      <div>Drag an item out of the inventory window to drop it</div><div><b>Hotbar</b>: drag items onto it, drag slots to reorder, right-click or drag off to clear. In the inventory, hover an item and press <b>1–6</b> to assign</div><div>Doors and windows glow when you can use them</div><div><b>Esc</b> pause</div>
     </div>
     <p>Your <b>Safehouse</b> is the fenced compound in the middle of town. Zombies can't enter it. Everything else is theirs.</p>
     <p>Loot houses, stores, cars and the police station. Bring materials back and put them in the <b>Stash</b> to build upgrades at the <b>Workbench</b>.</p>
@@ -62,6 +62,7 @@
   </div>
 </div>
 
+<div id="hotbar" class="hidden"></div>
 <div id="inv" class="panel hidden"><div id="invBody"></div><div id="invDetails" class="details"></div></div>
 <div id="base" class="panel hidden"><h3>Safehouse</h3><div id="baseBody"></div></div>
 

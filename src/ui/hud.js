@@ -137,24 +137,6 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   // hotbar
   const wl = weaponList(p);
   const slot = small ? 38 : 54, gap = small ? 4 : 6, hw = 6 * (slot + gap) - gap, hx = small ? Math.max(230, SW / 2 - hw / 2) : SW / 2 - hw / 2, hy = SH - slot - (small ? 8 : 14);
-  for (let k = 0; k < 6; k++) {
-    const x = hx + k * (slot + gap), it = wl[k];
-    const sel = k < wl.length && wl[k] === p.wpn;
-    if (sel && ui.lastSel !== k) { ui.lastSel = k; ui.selPop = 1; }
-    const pop = sel ? (ui.selPop || 0) : 0;
-    ctx.save(); ctx.translate(x + slot / 2, hy + slot / 2); ctx.scale(1 + pop * 0.15, 1 + pop * 0.15); ctx.translate(-x - slot / 2, -hy - slot / 2);
-    ctx.fillStyle = sel ? 'rgba(255,210,122,0.25)' : 'rgba(10,12,16,0.6)'; ctx.fillRect(x, hy, slot, slot);
-    ctx.strokeStyle = sel ? '#ffd27a' : 'rgba(255,255,255,0.15)'; ctx.lineWidth = sel ? 2 : 1; ctx.strokeRect(x + 0.5, hy + 0.5, slot - 1, slot - 1);
-    ctx.fillStyle = '#888'; ctx.font = '600 10px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText(k + 1, x + 4, hy + 12);
-    if (k >= wl.length) { ctx.restore(); continue; }
-    const d = it ? ITEMS[it.id] : null;
-    ctx.fillStyle = '#eee'; ctx.textAlign = 'center'; ctx.font = `600 ${small ? 9 : 10}px system-ui, sans-serif`;
-    const nm = it ? d.name.split(' ').slice(-1)[0] : 'Fists';
-    if (it) ctx.drawImage(iconCanvas(it.id), x + slot * 0.14, hy + slot * 0.06, slot * 0.72, slot * 0.72); else ctx.drawImage(iconCanvas('fists'), x + slot * 0.18, hy + slot * 0.1, slot * 0.64, slot * 0.64);
-    if (it && d.dur) { ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(x + 4, hy + slot - 8, slot - 8, 4); const f = it.dur / d.dur; ctx.fillStyle = f > 0.5 ? '#7ad07a' : f > 0.2 ? '#d0c04a' : '#d05a4a'; ctx.fillRect(x + 4, hy + slot - 8, (slot - 8) * f, 4); }
-    if (it && d.cat === 'gun') { const res = p.inv.filter((i) => i.id === d.ammo).reduce((a, b) => a + b.n, 0); ctx.fillStyle = it.mag ? '#ffd27a' : '#ff6a6a'; ctx.fillText(`${it.mag}/${res}`, x + slot / 2, hy + slot - 6); }
-    ctx.restore();
-  }
   ui.selPop = Math.max(0, (ui.selPop || 0) - ui.dt * 5);
   // prompt
   if (ui.interact && !p.search) {

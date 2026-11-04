@@ -1,12 +1,13 @@
 // DOM panels: inventory/container grid with drag & drop, base (upgrades, crafting, radio).
-import { ITEMS, CAT_COLOR, UPGRADES, RECIPES, STASH_CAP, TRADE_COST, DESC, itemStats } from '../data/items.js';
-import { getCont, contCap, contLabel, capacity, carried, costStatus, dayOf } from '../sim/sim.js';
+import { PERK_NAME, ITEMS, CAT_COLOR, UPGRADES, RECIPES, STASH_CAP, TRADE_COST, DESC, itemStats } from '../data/items.js';
+import { getCont, contCap, contLabel, capacity, carried, costStatus, dayOf, gearStats } from '../sim/sim.js';
 import { iconURL } from './icons.js';
 import { playerFrame } from '../render/sprites.js';
 const dolls = new Map();
 function dollURL(p) {
-  const k = `${p.wpn ? p.wpn.id : 'fists'}|${p.armor ? p.armor.id : ''}|${p.bag ? p.bag.id : ''}`;
-  if (!dolls.has(k)) dolls.set(k, playerFrame(p.wpn ? p.wpn.id : 'fists', p.armor && p.armor.id, p.bag && p.bag.id, 'idle', 0.1).toDataURL());
+  const G = p.gear || {}, id = (x) => (x ? x.id : undefined);
+  const k = `${p.wpn ? p.wpn.id : 'fists'}|${id(G.body)}|${id(p.bag)}|${id(G.head)}|${id(G.feet)}`;
+  if (!dolls.has(k)) dolls.set(k, playerFrame(p.wpn ? p.wpn.id : 'fists', id(G.body), id(p.bag), 'idle', 0.1, id(G.head), id(G.feet)).toDataURL());
   return dolls.get(k);
 }
 
@@ -21,6 +22,8 @@ function tile(it, idx, side, p) {
   let bar = '';
   if (d.dur && it.dur !== undefined) { const f = it.dur / d.dur; bar = `<div class="dur"><i style="width:${Math.round(f * 100)}%;background:${f > 0.5 ? '#7ad07a' : f > 0.2 ? '#d0c04a' : '#d05a4a'}"></i></div>`; }
   if (d.cat === 'gun') bar = `<span class="mag">${it.mag}/${d.mag}</span>`;
+  const hk = p.hotbar ? p.hotbar.findIndex((h) => h && (h.ref === it || (!p.inv.includes(h.ref) && h.id === it.id))) : -1;
+  if (side === 'inv' && hk >= 0) bar += `<span class="hk">${hk + 1}</span>`;
   return `<div class="tile${it === p.wpn ? ' eq' : ''}" draggable="true" data-side="${side}" data-idx="${idx}" style="--cat:${CAT_COLOR[d.cat]}">
     <img src="${iconURL(it.id)}" alt="" draggable="false"><span class="nm">${esc(d.name)}</span>${it.n > 1 ? `<span class="cnt">${it.n}</span>` : ''}${bar}${it === p.wpn ? '<span class="eqb">E</span>' : ''}</div>`;
 }
@@ -107,6 +110,7 @@ export class Panels {
     const p = this.h.player(), h = this.hover;
     if (code === 'KeyR' && p.openCid >= 0) { this.h.cmd({ t: shift ? 'putAll' : 'takeAll', cid: p.openCid }); this.refresh(); return true; }
     if (!h) return false;
+    if (code.startsWith('Digit') && h.side === 'inv') { const n = +code.slice(5); if (n >= 1 && n <= 6) { this.h.cmd({ t: 'hotbar', slot: n - 1, idx: h.idx }); this.refresh(); return true; } }
     const map = { KeyE: 'use', KeyQ: 'drop', KeyT: 'move' };
     if (!map[code]) return false;
     return this.act(map[code], h.side, h.idx) || code !== 'KeyE';
@@ -197,9 +201,10 @@ export class Panels {
   }
   renderInv(s, p) {
     const wt = carried(p), cap = capacity(p), f = Math.min(1, wt / cap);
+    const G = p.gear || {};
     const slot = (name, it, key) => `<div class="eslot" data-drop="equip" title="${name}">${it ? `<img src="${iconURL(it.id)}" alt=""><button class="x" data-act="unequip" data-slot="${key}" title="Unequip">×</button>` : key === 'wpn' ? `<img src="${iconURL('fists')}" alt="" style="opacity:.45">` : `<span class="dim">${name}</span>`}<span class="elbl">${it ? esc(ITEMS[it.id].name) : ''}</span></div>`;
     const c = p.openCid >= 0 ? getCont(s, p.openCid) : null;
-    const equip = `${slot('Weapon', p.wpn, 'wpn')}${slot('Bag', p.bag, 'bag')}${slot('Armor', p.armor, 'armor')}`;
+    const equip = `${slot('Weapon', p.wpn, 'wpn')}${slot('Back', p.bag, 'bag')}${slot('Head', G.head, 'head')}${slot('Body', G.body, 'body')}${slot('Legs', G.legs, 'legs')}${slot('Feet', G.feet, 'feet')}`;
     let html = `<div class="cols"><div class="col zone" data-drop="inv">
       <div class="hdr"><b>Inventory</b><button class="mini ghost" data-act="sortInv">Sort</button></div>
       <div class="wbar"><i style="width:${f * 100}%;background:${wt > cap ? '#e0603a' : f > 0.8 ? '#d0b040' : '#7ab07a'}"></i><span>${wt.toFixed(1)} / ${cap} kg${wt > cap ? ' · overloaded' : ''}</span></div>
@@ -214,7 +219,7 @@ export class Panels {
     } else html += `</div><div class="col char"><div class="hdr"><b>Survivor</b><span class="dim">Day ${dayOf(s)}</span></div>
       <div class="charTop"><div class="doll"><img src="${dollURL(p)}" alt=""></div><div class="equip v">${equip}</div></div>
       <div id="charStats"></div>
-      <div class="keys mini"><span>${kbd('E')} Use</span><span>${kbd('Q')} Drop</span><span>${kbd('T')} Move</span><span>${kbd('R')} Take all</span><span>${kbd('Right-click')} Menu</span><span>${kbd('Drag out')} Drop</span></div></div>`;
+      <div class="keys mini"><span>${kbd('E')} Use</span><span>${kbd('Q')} Drop</span><span>${kbd('T')} Move</span><span>${kbd('R')} Take all</span><span>${kbd('Right-click')} Menu</span><span>${kbd('Drag out')} Drop</span><span>${kbd('1-6')} / drag to hotbar: Assign</span></div></div>`;
     html += `</div><div class="hint">Click: move · Double-click or ${kbd('E')}: use · ${kbd('Q')}: drop · Right-click: menu · Drag outside the window: drop</div>`;
     if (this._inv !== html) {
       this._inv = html; $('invBody').innerHTML = html;
@@ -225,7 +230,7 @@ export class Panels {
   updateStats(s, p) {
     const el = $('charStats'); if (!el) return;
     const bar = (label, v, col) => `<div class="sbar"><span>${label}</span><div><i style="width:${Math.max(0, Math.min(100, v))}%;background:${col}"></i></div><b>${Math.round(v)}</b></div>`;
-    const arm = p.armor ? ITEMS[p.armor.id] : null, stance = p.sneak ? 'Sneaking' : p.sprinting ? 'Running' : p.moving ? 'Walking' : 'Still';
+    const gs = gearStats(p), stance = p.sneak ? 'Sneaking' : p.sprinting ? 'Running' : p.moving ? 'Walking' : 'Still';
     const chips = [];
     if (p.bleeding) chips.push(['Bleeding', '#ff5a5a']);
     if (p.infection > 0) chips.push([`Infected ${Math.round(p.infection)}%`, '#b6ff5a']);
@@ -233,9 +238,11 @@ export class Panels {
     for (const [k, v] of Object.entries(p.buffs || {})) chips.push([`${k === 'adrenaline' ? 'Adrenaline' : 'Energy'} ${Math.ceil(v)}s`, k === 'adrenaline' ? '#ff7a7a' : '#5ad0c8']);
     if (p.inv.some((i) => i.id === 'reviver')) chips.push(['Self-revive ready', '#ff6ab0']);
     if (p.wpn && ITEMS[p.wpn.id].silent) chips.push(['Silent kills', '#9ab0ff']);
+    for (const k of gs.perks) chips.push([PERK_NAME[k], '#c8a0ff']);
+    if (gs.carry) chips.push([`+${gs.carry} kg carry`, '#d0c080']);
     if (!chips.length) chips.push(['Healthy', '#7ad07a']);
     const html = bar('Health', p.hp, '#c94a4a') + bar('Food', p.hunger, '#d08a3a') + bar('Water', p.thirst, '#3a8ad0') + bar('Stamina', p.stamina, '#c9c04a') +
-      `<div class="prot"><div><span>Damage taken</span><b>-${arm ? Math.round(arm.armor * 100) : 0}%</b></div><div><span>Bite protection</span><b>${arm ? Math.round(arm.biteProt * 100) : 0}%</b></div><div><span>Visibility</span><b>${Math.round((p.vis ?? 1) * 100)}%</b></div><div><span>Stance</span><b>${stance}</b></div></div>` +
+      `<div class="prot"><div><span>Damage taken</span><b>-${Math.round(gs.armor * 100)}%</b></div><div><span>Bite protection</span><b>${Math.round(gs.bite * 100)}%</b></div><div><span>Visibility</span><b>${Math.round((p.vis ?? 1) * 100)}%</b></div><div><span>Stance</span><b>${stance}</b></div></div>` +
       `<div class="chips">${chips.map(([t, col]) => `<span style="color:${col};border-color:${col}">${t}</span>`).join('')}</div>`;
     if (this._stats !== html) { this._stats = html; el.innerHTML = html; }
   }

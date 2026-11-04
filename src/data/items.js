@@ -43,10 +43,20 @@ export const ITEMS = {
   schoolbag: { name: 'School Bag', cat: 'bag', w: 0.5, cap: 8 },
   hikingbag: { name: 'Hiking Pack', cat: 'bag', w: 1, cap: 16 },
   milbag: { name: 'Military Rucksack', cat: 'bag', w: 1.5, cap: 26 },
-  jacket: { name: 'Leather Jacket', cat: 'armor', w: 1, armor: 0.25, biteProt: 0.4 },
-  vest: { name: 'Police Vest', cat: 'armor', w: 2, armor: 0.45, biteProt: 0.6 },
-  riotgear: { name: 'Riot Gear', cat: 'armor', w: 4, armor: 0.62, biteProt: 0.85, slow: 0.9 },
-  ghillie: { name: 'Ghillie Suit', cat: 'armor', w: 1.5, armor: 0.1, biteProt: 0.2, stealth: 0.55 },
+  jacket: { name: 'Leather Jacket', cat: 'armor', slot: 'body', w: 1, armor: 0.25, biteProt: 0.4 },
+  vest: { name: 'Police Vest', cat: 'armor', slot: 'body', w: 2, armor: 0.45, biteProt: 0.6 },
+  riotgear: { name: 'Riot Gear', cat: 'armor', slot: 'body', w: 4, armor: 0.62, biteProt: 0.85, slow: 0.9 },
+  ghillie: { name: 'Ghillie Suit', cat: 'armor', slot: 'body', w: 1.5, armor: 0.1, biteProt: 0.2, stealth: 0.55 },
+  helmet: { name: 'Motorcycle Helmet', cat: 'armor', slot: 'head', w: 1.2, armor: 0.12, biteProt: 0.25 },
+  milhelmet: { name: 'Military Helmet', cat: 'armor', slot: 'head', w: 1.4, armor: 0.18, biteProt: 0.35 },
+  nvg: { name: 'Night Vision Goggles', cat: 'armor', slot: 'head', w: 0.8, perk: 'nvg' },
+  headlamp: { name: 'Headlamp', cat: 'armor', slot: 'head', w: 0.3, perk: 'headlamp' },
+  jeans: { name: 'Thick Jeans', cat: 'armor', slot: 'legs', w: 0.8, armor: 0.04, biteProt: 0.12 },
+  cargo: { name: 'Cargo Pants', cat: 'armor', slot: 'legs', w: 0.9, carry: 5 },
+  kevlarpants: { name: 'Kevlar Pants', cat: 'armor', slot: 'legs', w: 2, armor: 0.15, biteProt: 0.3, slow: 0.97 },
+  sneakers: { name: 'Soft Sneakers', cat: 'armor', slot: 'feet', w: 0.5, perk: 'quiet' },
+  boots: { name: 'Combat Boots', cat: 'armor', slot: 'feet', w: 1.2, armor: 0.05, biteProt: 0.1, perk: 'glassproof' },
+  runners: { name: 'Running Shoes', cat: 'armor', slot: 'feet', w: 0.4, perk: 'sprinter' },
   adrenaline: { name: 'Adrenaline Shot', cat: 'buff', w: 0.1, stack: 3, buff: 'adrenaline', time: 20 },
   energy: { name: 'Energy Drink', cat: 'buff', w: 0.3, stack: 5, buff: 'energy', time: 90, thirst: 15 },
   reviver: { name: 'Self-Revive Kit', cat: 'perk', w: 0.8, stack: 1 },
@@ -71,16 +81,16 @@ export const LOOT = {
   fridge: { rolls: [0, 3], t: [['beans', 2], ['water', 4], ['soda', 3], ['apple', 3], ['chips', 1]] },
   counter: { rolls: [0, 2], t: [['knife', 1.5], ['beans', 3], ['chips', 3], ['cloth', 2], ['tape', 1], ['rag', 2], ['water', 1]] },
   cabinet: { rolls: [0, 2], t: [['bandage', 4], ['rag', 3], ['painkillers', 3], ['antibiotics', 1], ['medkit', 0.4]] },
-  wardrobe: { rolls: [0, 2], t: [['cloth', 5], ['schoolbag', 1.2], ['hikingbag', 0.35], ['jacket', 0.6], ['rag', 2]] },
+  wardrobe: { rolls: [0, 2], t: [['jeans', 1], ['cargo', 0.5], ['sneakers', 0.6], ['runners', 0.4], ['boots', 0.3], ['helmet', 0.15], ['cloth', 5], ['schoolbag', 1.2], ['hikingbag', 0.35], ['jacket', 0.6], ['rag', 2]] },
   dresser: { rolls: [0, 2], t: [['katana', 0.04], ['watch', 1.2], ['jewelry', 1], ['cash', 2], ['cloth', 2], ['ammo9', 0.6], ['pistol', 0.12], ['painkillers', 1]] },
   shelf: { rolls: [0, 2], t: [['tape', 2], ['electronics', 2], ['nails', 2], ['plank', 0.8], ['chips', 1], ['noisemaker', 0.3], ['cash', 0.6]] },
-  toolbox: { rolls: [1, 3], t: [['nails', 4], ['scrap', 3], ['tape', 2], ['plank', 2], ['crowbar', 0.6], ['axe', 0.25], ['electronics', 1]] },
+  toolbox: { rolls: [1, 3], t: [['headlamp', 0.3], ['nails', 4], ['scrap', 3], ['tape', 2], ['plank', 2], ['crowbar', 0.6], ['axe', 0.25], ['electronics', 1]] },
   car: { rolls: [0, 2], t: [['scrap', 4], ['water', 2], ['tape', 1], ['electronics', 1.5], ['bat', 0.5], ['ammo9', 0.5], ['shells', 0.4], ['crowbar', 0.3], ['cash', 0.8]] },
   grocery: { rolls: [1, 3], t: [['energy', 1], ['beans', 4], ['chips', 4], ['water', 4], ['soda', 3], ['apple', 2], ['mre', 0.3]] },
   pharmacy: { rolls: [1, 3], t: [['bandage', 4], ['painkillers', 3], ['antibiotics', 2], ['medkit', 1], ['rag', 2]] },
   hardware: { rolls: [1, 3], t: [['sledge', 0.3], ['spear', 0.2], ['nails', 4], ['plank', 4], ['scrap', 3], ['tape', 3], ['electronics', 2], ['crowbar', 0.5], ['axe', 0.4], ['machete', 0.3]] },
   register: { rolls: [0, 2], t: [['cash', 5], ['watch', 0.6], ['jewelry', 0.4]] },
-  locker: { rolls: [1, 2], t: [['riotgear', 0.25], ['smg', 0.2], ['ammo9', 4], ['shells', 3], ['pistol', 1.2], ['shotgun', 0.7], ['rifle', 0.3], ['ammo308', 1], ['vest', 0.6], ['bandage', 2]] },
+  locker: { rolls: [1, 2], t: [['helmet', 0.4], ['boots', 0.4], ['riotgear', 0.25], ['smg', 0.2], ['ammo9', 4], ['shells', 3], ['pistol', 1.2], ['shotgun', 0.7], ['rifle', 0.3], ['ammo308', 1], ['vest', 0.6], ['bandage', 2]] },
   crate: { rolls: [1, 3], t: [['crossbow', 0.25], ['bolt', 0.8], ['ghillie', 0.2], ['spear', 0.4], ['energy', 0.6], ['mre', 2], ['water', 3], ['hikingbag', 0.6], ['milbag', 0.2], ['machete', 0.6], ['ammo308', 1], ['shells', 1], ['bandage', 2], ['rifle', 0.15]] },
 };
 
@@ -134,6 +144,10 @@ export const DESC = {
   smg: 'Hold the trigger to empty 30 rounds fast. Inaccurate and very loud.', bolt: 'Ammo for the Crossbow.',
   riotgear: 'Best protection in the game, but heavy: 10% slower.', ghillie: 'Camouflage: zombies have a much harder time seeing you.',
   adrenaline: 'For 20 s: +30% speed, +25% damage, no stamina drain.', energy: 'For 90 s: stamina recovers twice as fast. Also quenches thirst.',
+  helmet: 'Protects your head from bites and blows.', milhelmet: 'Sturdy helmet. Solid bite protection.',
+  nvg: 'See in the dark: night is much brighter while worn.', headlamp: 'Hands-free light: a wide glow around you at night. Zombies spot you a little easier.',
+  jeans: 'Thick denim. A little bite protection.', cargo: 'Lots of pockets: +5 kg carry capacity.', kevlarpants: 'Bullet-proof weave on your legs. Slightly slower.',
+  sneakers: 'Soft soles: your footsteps are much quieter.', boots: 'Tough soles: broken glass can no longer cut you.', runners: 'Run faster and tire less while sprinting.',
   reviver: 'Carry it. If you die, it brings you back once with half health and blasts nearby zombies away.',
   beans: 'Heavy but filling. Your main food source.', chips: 'Light snack. Makes you a little thirsty.', apple: 'Fresh fruit. A bit of food and water.',
   mre: 'Military ration. Fills you up for a long time.', water: 'Clean water. Thirst kills faster than hunger.', soda: 'Sugary drink. Decent for thirst.',
@@ -171,7 +185,7 @@ export function itemStats(it) {
     if (d.regen) s.push(['Heal over time', '+' + d.regen]);
     if (d.cure) s.push(['Cures', 'Infection']);
   } else if (d.cat === 'bag') s.push(['Carry', '+' + d.cap + ' kg']);
-  else if (d.cat === 'armor') { s.push(['Damage taken', '-' + Math.round(d.armor * 100) + '%'], ['Bite protection', Math.round(d.biteProt * 100) + '%']); if (d.slow) s.push(['Speed', '-' + Math.round((1 - d.slow) * 100) + '%']); if (d.stealth) s.push(['Visibility', '-' + Math.round((1 - d.stealth) * 100) + '%']); }
+  else if (d.cat === 'armor') { s.push(['Slot', { head: 'Head', body: 'Body', legs: 'Legs', feet: 'Feet' }[d.slot] || 'Body']); if (d.armor) s.push(['Damage taken', '-' + Math.round(d.armor * 100) + '%']); if (d.biteProt) s.push(['Bite protection', Math.round(d.biteProt * 100) + '%']); if (d.carry) s.push(['Carry', '+' + d.carry + ' kg']); if (d.perk) s.push(['Perk', PERK_NAME[d.perk]]); if (d.slow) s.push(['Speed', '-' + Math.round((1 - d.slow) * 100) + '%']); if (d.stealth) s.push(['Visibility', '-' + Math.round((1 - d.stealth) * 100) + '%']); }
   else if (d.cat === 'buff') s.push(['Duration', d.time + ' s']);
   else if (d.cat === 'perk') s.push(['Effect', 'Passive (carry it)']);
   if (d.silent) s.push(['Perk', 'Silent kills']);
@@ -181,10 +195,11 @@ export function itemStats(it) {
   return s;
 }
 
+export const PERK_NAME = { nvg: 'Night vision', headlamp: 'Head light', quiet: 'Quiet steps', glassproof: 'Glass-proof', sprinter: 'Sprinter' };
 export const CAT_ORDER = ['gun', 'melee', 'ammo', 'perk', 'buff', 'med', 'food', 'throw', 'bag', 'armor', 'mat', 'val'];
 
 LOOT.medcab = { rolls: [1, 3], t: [['adrenaline', 0.5], ['reviver', 0.08], ['bandage', 5], ['painkillers', 4], ['antibiotics', 3], ['medkit', 1.6], ['rag', 2], ['water', 1]] };
-LOOT.milcrate = { rolls: [1, 3], t: [['smg', 0.5], ['riotgear', 0.3], ['crossbow', 0.3], ['bolt', 0.8], ['adrenaline', 0.5], ['reviver', 0.12], ['ammo9', 4], ['ammo308', 3], ['shells', 3], ['mre', 3], ['pistol', 1], ['shotgun', 0.8], ['rifle', 0.8], ['vest', 1], ['milbag', 0.6], ['pipebomb', 1], ['machete', 0.8], ['bandage', 1]] };
+LOOT.milcrate = { rolls: [1, 3], t: [['milhelmet', 0.6], ['nvg', 0.3], ['kevlarpants', 0.35], ['boots', 0.5], ['smg', 0.5], ['riotgear', 0.3], ['crossbow', 0.3], ['bolt', 0.8], ['adrenaline', 0.5], ['reviver', 0.12], ['ammo9', 4], ['ammo308', 3], ['shells', 3], ['mre', 3], ['pistol', 1], ['shotgun', 0.8], ['rifle', 0.8], ['vest', 1], ['milbag', 0.6], ['pipebomb', 1], ['machete', 0.8], ['bandage', 1]] };
 LOOT.zsoldier = { rolls: [1, 2], t: [['ammo9', 3], ['ammo308', 2], ['shells', 1], ['mre', 2], ['bandage', 2], ['pistol', 0.3], ['vest', 0.15], ['pipebomb', 0.3]] };
 CONTAINER_LABEL.medcab = 'Medical Cabinet'; CONTAINER_LABEL.milcrate = 'Military Crate'; CONTAINER_LABEL.zsoldier = 'Soldier Corpse';
 LOOT.stove = { rolls: [0, 2], t: [['beans', 3], ['chips', 1], ['knife', 1], ['rag', 1], ['mre', 0.2]] };
@@ -198,4 +213,4 @@ Object.assign(CONTAINER_LABEL, { rack: 'Weapon Rack (test)',  stove: 'Stove', si
 LOOT.zombie = { rolls: [0, 2], t: [['cash', 3], ['rag', 3], ['cloth', 2], ['bandage', 1.5], ['ammo9', 1.2], ['chips', 1], ['water', 1], ['watch', 0.8], ['painkillers', 0.8], ['shells', 0.5], ['jewelry', 0.4], ['tape', 0.5]] };
 CONTAINER_LABEL.zombie = 'Zombie Corpse';
 
-export const RACK_ITEMS = [['katana',1],['sledge',1],['spear',1],['crossbow',1],['bolt',20],['smg',1],['ammo9',60],['ammo9',60],['pistol',1],['shotgun',1],['shells',30],['rifle',1],['ammo308',30],['axe',1],['machete',1],['spikedbat',1],['crowbar',1],['bat',1],['riotgear',1],['ghillie',1],['vest',1],['jacket',1],['milbag',1],['adrenaline',3],['energy',3],['reviver',1],['pipebomb',3],['noisemaker',3],['medkit',2]];
+export const RACK_ITEMS = [['katana',1],['sledge',1],['spear',1],['crossbow',1],['bolt',20],['smg',1],['ammo9',60],['ammo9',60],['pistol',1],['shotgun',1],['shells',30],['rifle',1],['ammo308',30],['axe',1],['machete',1],['spikedbat',1],['crowbar',1],['bat',1],['riotgear',1],['ghillie',1],['vest',1],['jacket',1],['milbag',1],['adrenaline',3],['energy',3],['reviver',1],['pipebomb',3],['noisemaker',3],['medkit',2],['helmet',1],['milhelmet',1],['nvg',1],['headlamp',1],['jeans',1],['cargo',1],['kevlarpants',1],['sneakers',1],['boots',1],['runners',1],['hikingbag',1],['schoolbag',1]];

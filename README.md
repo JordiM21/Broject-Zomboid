@@ -23,6 +23,11 @@ WASD move · Shift sprint · Mouse aim · Click attack · Space shove · E searc
 - **Military Zone** (far from the safehouse): fenced base with barracks, tents, trucks and watchtowers. Military Crates hold rifles, shotguns, ammo, vests, rucksacks and pipe bombs. Guarded by armored soldier zombies whose corpses carry ammo and rations.
 - Street lamps (some broken or flickering), burning wrecks and fire barrels light the night; morning mist, rain haze, ambient birds, crickets and distant screams, gunfire and sirens.
 
+## Hotbar and equipment
+
+- Six hotbar slots hold anything usable: weapons (press to equip, again to holster), meds, food, buffs and throwables. Drag items from the inventory onto a slot, drag slots to reorder, right-click or drag off to clear, or hover an item and press 1–6. The slot refills from another stack of the same item.
+- Equipment slots: Head, Body, Legs, Feet and Back (bag). Head: motorcycle/military helmet, night vision goggles, headlamp. Legs: jeans, cargo pants (+5 kg), kevlar pants. Feet: soft sneakers (quiet steps), combat boots (glass-proof), running shoes (faster sprint). Protection from all pieces stacks.
+
 ## Gear, buffs and perks
 
 - Weapons: Katana (silent one-cut kills on unaware zombies), Sledgehammer (stuns, huge knockback), Spear (longest reach), Crossbow (near-silent, pierces), SMG (full auto), plus the originals. Each has its own animation.

@@ -111,3 +111,17 @@ body.dropping #game { outline: 3px dashed rgba(255,150,90,0.6); outline-offset: 
 .prot { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px; font-size: 12px; margin: 8px 0; } .prot div { display: flex; justify-content: space-between; border-bottom: 1px dotted rgba(255,255,255,0.08); } .prot span { color: var(--dim); }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; } .chips span { font-size: 11px; font-weight: 700; border: 1px solid; border-radius: 10px; padding: 1px 8px; }
 .keys.mini { display: flex; flex-wrap: wrap; gap: 6px 10px; padding: 10px 0 0; font-size: 11px; color: var(--dim); } .keys.mini kbd { margin: 0 3px 0 0; }
+
+#hotbar { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; gap: 6px; z-index: 6; }
+#hotbar .hs, #hotbar .fist { position: relative; width: 56px; height: 56px; border-radius: 8px; background: rgba(10,12,16,0.72); border: 1px solid rgba(255,255,255,0.14); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.1s, border-color 0.1s, background 0.1s; user-select: none; }
+#hotbar .fist { width: 44px; opacity: 0.55; } #hotbar .fist.eq { opacity: 1; border-color: var(--acc); }
+#hotbar .hs:hover { transform: translateY(-3px); border-color: rgba(255,210,122,0.6); }
+#hotbar .hs.eq { border: 2px solid var(--acc); background: rgba(255,210,122,0.18); transform: translateY(-4px); }
+#hotbar .hs.over { border-color: #9fe09f; background: rgba(120,220,120,0.15); }
+#hotbar .hs.gone img { opacity: 0.3; filter: grayscale(1); }
+#hotbar img { width: 70%; height: 70%; pointer-events: none; }
+#hotbar .key { position: absolute; left: 4px; top: 2px; font: 700 11px system-ui; color: var(--acc); text-shadow: 0 1px 2px #000; }
+#hotbar .cnt { position: absolute; right: 4px; bottom: 2px; font: 700 11px system-ui; color: #fff; text-shadow: 0 1px 2px #000; } #hotbar .cnt.red { color: #ff7a6a; }
+#hotbar .dur { position: absolute; left: 6px; right: 6px; bottom: 4px; height: 3px; background: rgba(0,0,0,0.6); border-radius: 2px; } #hotbar .dur i { display: block; height: 100%; border-radius: 2px; }
+.tile .hk { position: absolute; right: 3px; top: 12px; font: 800 10px system-ui; color: #111; background: var(--acc); border-radius: 3px; padding: 0 4px; }
+.equip.v { grid-template-columns: 1fr 1fr; gap: 5px; } .equip.v .eslot { height: 38px; padding-left: 6px; gap: 6px; } .equip.v .eslot img { width: 26px; height: 26px; } .equip.v .elbl { font-size: 11px; } .equip.v .eslot > .dim { font-size: 11px; }

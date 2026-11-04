@@ -128,11 +128,16 @@ function playerPose(cls, anim, t) {
   else if (anim === 'shove') { const k = key([[0, 0], [0.35, 1], [1, 0]], t); P.lh = [9 + 10 * k, -7]; P.rh = [9 + 10 * k, 7]; P.bx = 3 * k; P.hide = true; }
   return P;
 }
-function playerLook(wpn, armor, bag) {
+function playerLook(wpn, armor, bag, head, feet) {
   const top = { vest: '#2c3a52', jacket: '#5a3a22', riotgear: '#232b38', ghillie: '#4e6a30' }[armor] || '#3b5c8a';
   const dark = { vest: '#202c40', jacket: '#46301b', riotgear: '#161c26', ghillie: '#3a5222' }[armor] || '#2e4870';
   return {
-    skin: '#e3b78c', hand: '#d9a87c', hair: '#3a2a1a', top, topDark: dark, sleeve: dark, boots: '#2a2622', bw: 7.5, bh: 11, hr: 6, arm: 4.2, wpn,
+    head: head ? (g, hd, L) => {
+      if (head === 'helmet' || head === 'milhelmet') { blob(g, hd[0] - 0.5, hd[1], L.hr + 1.4, L.hr + 1.2, head === 'helmet' ? '#b02a2a' : '#4a5236'); if (head === 'helmet') { g.fillStyle = 'rgba(140,190,230,0.75)'; g.fillRect(hd[0] + 3, hd[1] - 4, 3, 8); } else { g.fillStyle = 'rgba(255,255,255,0.15)'; g.beginPath(); g.arc(hd[0] - 2, hd[1] - 2, 2.2, 0, 7); g.fill(); } }
+      else if (head === 'nvg') { g.fillStyle = '#2a2d31'; g.fillRect(hd[0] - 6, hd[1] - 1.2, 9, 2.4); g.fillRect(hd[0] + 2, hd[1] - 4, 5, 8); g.fillStyle = '#5ae07a'; g.fillRect(hd[0] + 6, hd[1] - 3.4, 1.6, 2.4); g.fillRect(hd[0] + 6, hd[1] + 1, 1.6, 2.4); }
+      else if (head === 'headlamp') { g.fillStyle = '#3a3f46'; g.fillRect(hd[0] - 5.5, hd[1] - 1, 10, 2); g.fillStyle = '#fff2a0'; g.beginPath(); g.arc(hd[0] + 5, hd[1], 2.2, 0, 7); g.fill(); }
+    } : null,
+    skin: '#e3b78c', hand: '#d9a87c', hair: head === 'helmet' || head === 'milhelmet' ? null : '#3a2a1a', top, topDark: dark, sleeve: dark, boots: { sneakers: '#e8e8e8', boots: '#151515', runners: '#c83a3a' }[feet] || '#2a2622', bw: 7.5, bh: 11, hr: 6, arm: 4.2, wpn,
     bag: bag === 'milbag' ? '#4a5236' : bag === 'hikingbag' ? '#3e7a3e' : bag === 'schoolbag' ? '#3a6ab0' : null,
     detail: (g) => {
       if (armor === 'riotgear') { g.fillStyle = '#3a4658'; g.fillRect(-5, -9, 9, 18); g.fillStyle = '#e0c040'; g.fillRect(-1, -6, 2, 12); }
@@ -216,10 +221,10 @@ function render(keyStr, draw) {
   draw(g); cache.set(keyStr, c); return c;
 }
 const frameOf = (anim, t, n) => Math.min(n - 1, Math.floor(((t % 1) + 1) % 1 * n));
-export function playerFrame(wpn, armor, bag, anim, t) {
+export function playerFrame(wpn, armor, bag, anim, t, head, feet) {
   const n = P_ANIMS[anim], f = anim === 'attack' || anim === 'reload' || anim === 'shove' ? Math.min(n - 1, Math.floor(Math.max(0, Math.min(0.999, t)) * n)) : frameOf(anim, t, n);
   const cls = WCLASS[wpn] || 'fists';
-  return render(`p|${wpn}|${armor}|${bag}|${anim}|${f}`, (g) => drawFigure(g, playerPose(cls, anim, (f + 0.5) / n), playerLook(wpn === 'fists' ? null : wpn, armor, bag)));
+  return render(`p|${wpn}|${armor}|${bag}|${head}|${feet}|${anim}|${f}`, (g) => drawFigure(g, playerPose(cls, anim, (f + 0.5) / n), playerLook(wpn === 'fists' ? null : wpn, armor, bag, head, feet)));
 }
 export function zombieFrame(type, v, anim, t) {
   const n = Z_ANIMS[anim], once = anim !== 'walk' && anim !== 'idle';

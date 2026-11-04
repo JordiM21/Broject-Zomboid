@@ -5,9 +5,9 @@ const toB64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s 
 const fromB64 = (b) => { const s = atob(b), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
 
 function packPlayer(p) {
-  const { inv, wpn, bag, armor } = p;
+  const { inv, wpn, bag, gear } = p;
   return { id: p.id, x: p.x, y: p.y, hp: p.hp, hunger: p.hunger, thirst: p.thirst, stamina: p.stamina, bleeding: p.bleeding, infection: p.infection,
-    regen: p.regen, inv, wpn: inv.indexOf(wpn), bag, armor, flashlight: p.flashlight, sneak: p.sneak, dead: p.dead };
+    regen: p.regen, inv, wpn: inv.indexOf(wpn), bag, gear, hotbar: (p.hotbar || []).map((h) => (h ? [h.id, inv.indexOf(h.ref)] : null)), buffs: p.buffs, flashlight: p.flashlight, sneak: p.sneak, dead: p.dead };
 }
 
 export function saveGame(s, explored) {
@@ -54,6 +54,8 @@ export function loadGame(spawnZombie, newPlayer) {
   for (const pp of d.players) {
     const p = newPlayer(s, pp.id, 'none');
     Object.assign(p, pp); p.inv = pp.inv; p.wpn = pp.wpn >= 0 ? p.inv[pp.wpn] : null;
+    p.gear = pp.gear || { head: null, body: null, legs: null, feet: null };
+    p.hotbar = (pp.hotbar || [null, null, null, null, null, null]).map((h) => (h ? { id: h[0], ref: h[1] >= 0 ? p.inv[h[1]] : null } : null));
     s.players[p.id] = p;
   }
   for (const [type, x, y, hp] of d.zombies) { const z = spawnZombie(s, x, y, type); z.hp = hp; }

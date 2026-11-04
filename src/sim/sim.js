@@ -55,7 +55,7 @@ export function newPlayer(s, id, kit = 'start') {
   const sp = s.world.spawn;
   const p = {
     id, x: sp.x, y: sp.y, ang: -Math.PI / 2, hp: 100, hunger: 85, thirst: 85, stamina: 100, bleeding: false, infection: 0, regen: 0,
-    inv: [], wpn: null, bag: null, armor: null, flashlight: true, sneak: false, atkCd: 0, swing: 0, reload: 0,
+    inv: [], wpn: null, bag: null, gear: { head: null, body: null, legs: null, feet: null }, hotbar: [null, null, null, null, null, null], flashlight: true, sneak: false, atkCd: 0, swing: 0, reload: 0,
     channel: null, search: null, dead: false, invuln: 0, hurt: 0, moving: false, sprinting: false, openCid: -1, stepT: 0, muzzle: 0,
   };
   if (kit === 'start') {
@@ -65,6 +65,7 @@ export function newPlayer(s, id, kit = 'start') {
     addItem(p.inv, makeItem('knife')); addItem(p.inv, makeItem('bandage', 2)); addItem(p.inv, makeItem('water'));
     p.wpn = p.inv[0];
   } else addItem(p.inv, makeItem('rag', 2));
+  for (const it of p.inv) autoHot(p, it, true);
   return p;
 }
 export function addPlayer(s, id) { s.players[id] = newPlayer(s, id); return s.players[id]; }
@@ -73,8 +74,35 @@ const ev = (s, e) => s.events.push(e);
 const msg = (s, text, color = '#ddd', pid = null) => ev(s, { type: 'msg', text, color, pid });
 export const getCont = (s, cid) => s.world.containers[cid];
 export const stashCont = (s) => s.world.containers[s.world.fixtures.stash];
-export const capacity = (p) => BASE_CARRY + (p.bag ? ITEMS[p.bag.id].cap : 0);
-export const carried = (p) => invWeight(p.inv) + (p.armor ? ITEMS[p.armor.id].w * 0.5 : 0);
+export const GEAR_SLOTS = ['head', 'body', 'legs', 'feet'];
+// combined protection and perks from everything worn
+export function gearStats(p) {
+  const g = { armor: 0, bite: 0, slow: 1, stealth: 1, carry: 0, perks: new Set() };
+  let a = 1, b = 1;
+  for (const k of GEAR_SLOTS) {
+    const it = p.gear && p.gear[k]; if (!it) continue; const d = ITEMS[it.id];
+    a *= 1 - (d.armor || 0); b *= 1 - (d.biteProt || 0);
+    if (d.slow) g.slow *= d.slow; if (d.stealth) g.stealth *= d.stealth; if (d.carry) g.carry += d.carry; if (d.perk) g.perks.add(d.perk);
+  }
+  g.armor = Math.min(0.8, 1 - a); g.bite = Math.min(0.95, 1 - b);
+  return g;
+}
+export const hasPerk = (p, k) => GEAR_SLOTS.some((s) => p.gear && p.gear[s] && ITEMS[p.gear[s].id].perk === k);
+// hotbar: slots remember an item id + reference; refill from another stack of the same item
+export function resolveHot(p, k) {
+  const h = p.hotbar && p.hotbar[k]; if (!h) return null;
+  if (h.ref && p.inv.includes(h.ref)) return h.ref;
+  h.ref = p.inv.find((i) => i.id === h.id) || null; return h.ref;
+}
+const HOTABLE = new Set(['melee', 'gun', 'food', 'med', 'buff', 'throw']);
+export function autoHot(p, it, force = false) {
+  if (!it || !p.hotbar) return; const cat = ITEMS[it.id].cat;
+  if (!force && cat !== 'melee' && cat !== 'gun') return;
+  if (!HOTABLE.has(cat) || p.hotbar.some((h) => h && (h.ref === it || h.id === it.id))) return;
+  const k = p.hotbar.findIndex((h) => !h); if (k >= 0) p.hotbar[k] = { id: it.id, ref: it };
+}
+export const capacity = (p) => BASE_CARRY + (p.bag ? ITEMS[p.bag.id].cap : 0) + gearStats(p).carry;
+export const carried = (p) => invWeight(p.inv) + GEAR_SLOTS.reduce((w, k) => w + (p.gear && p.gear[k] ? ITEMS[p.gear[k].id].w * 0.5 : 0), 0);
 export const contCap = (s, c) => (c.type === 'stash' ? STASH_CAP[s.upgrades.stash] : c.type === 'pile' || c.type === 'body' || c.type === 'rack' ? 999 : 20);
 const contPos = (c) => (c.px !== undefined ? { x: c.px, y: c.py } : { x: (c.x + 0.5) * TILE, y: (c.y + 0.5) * TILE });
 export const contLabel = (c) => c.label || CONTAINER_LABEL[c.type] || 'Container';
@@ -245,7 +273,8 @@ function updatePlayer(s, p, inp, dt) {
   if (inp.mx !== undefined) p.ang = Math.atan2(inp.my - p.y, inp.mx - p.x);
   if (inp.sneak) { p.sneak = !p.sneak; msg(s, p.sneak ? 'Sneaking: quieter, harder to spot.' : 'Walking.', '#aaa', p.id); }
   if (inp.flash) { p.flashlight = !p.flashlight; ev(s, { type: 'click', x: p.x, y: p.y }); }
-  if (inp.sel !== undefined && inp.sel >= 0) selectWeapon(s, p, inp.sel);
+  if (inp.sel !== undefined && inp.sel >= 0) activateHot(s, p, inp.sel, inp);
+  if (inp.hotEquip !== undefined && inp.hotEquip >= 0) { const it = resolveHot(p, inp.hotEquip); if (it && ['melee', 'gun'].includes(ITEMS[it.id].cat)) { p.wpn = it; p.reload = 0; ev(s, { type: 'equip', pid: p.id }); } }
 
   let mx = (inp.right ? 1 : 0) - (inp.left ? 1 : 0), my = (inp.down ? 1 : 0) - (inp.up ? 1 : 0);
   const ml = Math.hypot(mx, my); if (ml > 0) { mx /= ml; my /= ml; }
@@ -256,7 +285,7 @@ function updatePlayer(s, p, inp, dt) {
   if (p.climb) {
     const c = p.climb; c.t += dt; const k = Math.min(1, c.t / c.dur);
     p.x = c.x0 + (c.x1 - c.x0) * k; p.y = c.y0 + (c.y1 - c.y0) * k; p.moving = true;
-    if (k >= 1) { p.climb = null; if (c.glass && rnd() < 0.35 && !p.bleeding) { p.bleeding = true; p.hp -= 5; msg(s, 'You cut yourself on the broken glass!', '#ff6a6a', p.id); ev(s, { type: 'phurt', x: p.x, y: p.y, pid: p.id, ang: 0 }); } }
+    if (k >= 1) { p.climb = null; if (c.glass && rnd() < 0.35 && !p.bleeding && !hasPerk(p, 'glassproof')) { p.bleeding = true; p.hp -= 5; msg(s, 'You cut yourself on the broken glass!', '#ff6a6a', p.id); ev(s, { type: 'phurt', x: p.x, y: p.y, pid: p.id, ang: 0 }); } }
     survival(s, p, dt); if (p.hp <= 0) killPlayer(s, p);
     return;
   }
@@ -271,8 +300,8 @@ function updatePlayer(s, p, inp, dt) {
       msg(s, 'Door pried open.', '#9fe09f', p.id); p.pry = null;
     }
   }
-  let speed = p.sneak ? 62 : p.sprinting ? 172 : 112;
-  speed *= slow; if (p.armor && ITEMS[p.armor.id].slow) speed *= ITEMS[p.armor.id].slow; if (p.buffs.adrenaline) speed *= 1.3; if (p.channel) speed *= 0.4; if (p.reload > 0) speed *= 0.8;
+  let speed = p.sneak ? 62 : p.sprinting ? (hasPerk(p, 'sprinter') ? 192 : 172) : 112;
+  const gs = gearStats(p); speed *= slow * gs.slow; if (p.buffs.adrenaline) speed *= 1.3; if (p.channel) speed *= 0.4; if (p.reload > 0) speed *= 0.8;
   const tHere = w.tiles[Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE)];
   if (tHere === T.BUSH) speed *= 0.6;
   const bx = p.x, by = p.y;
@@ -296,7 +325,7 @@ function updatePlayer(s, p, inp, dt) {
     p.stepT -= dt;
     if (p.stepT <= 0) {
       p.stepT = p.sprinting ? 0.3 : p.sneak ? 0.6 : 0.45;
-      const r = p.sprinting ? 6 : p.sneak ? 0 : 2.5;
+      const r = (p.sprinting ? 6 : p.sneak ? 0 : 2.5) * (hasPerk(p, 'quiet') ? 0.5 : 1);
       if (r) s.noises.push({ pl: 1, x: p.x, y: p.y, r: r * TILE });
       ev(s, { type: 'step', x: p.x, y: p.y, pid: p.id, loud: p.sprinting, sneak: p.sneak, surf: tHere });
     }
@@ -305,7 +334,7 @@ function updatePlayer(s, p, inp, dt) {
   // stealth: how visible the player is to zombies
   let vis = daylight(s) > 0.35 ? 1 : p.flashlight ? 1.15 : 0.5;
   if (p.sneak) vis *= 0.55;
-  if (p.armor && ITEMS[p.armor.id].stealth) vis *= ITEMS[p.armor.id].stealth;
+  vis *= gs.stealth; if (hasPerk(p, 'headlamp') && daylight(s) <= 0.35) vis *= 1.25;
   if (!p.moving) vis *= 0.75; else if (p.sprinting) vis *= 1.3;
   if (tHere === T.BUSH) vis *= 0.4;
   if (s.weather.rain > 0.4) vis *= 0.85;
@@ -342,7 +371,7 @@ function updatePlayer(s, p, inp, dt) {
 function survival(s, p, dt) {
   p.hunger = Math.max(0, p.hunger - (dt * 100) / (DAY_LENGTH * 1.6));
   p.thirst = Math.max(0, p.thirst - ((dt * 100) / (DAY_LENGTH * 1.1)) * (p.sprinting ? 1.6 : 1));
-  if (p.sprinting && !(p.buffs && p.buffs.adrenaline)) p.stamina = Math.max(0, p.stamina - 20 * dt);
+  if (p.sprinting && !(p.buffs && p.buffs.adrenaline)) p.stamina = Math.max(0, p.stamina - (hasPerk(p, 'sprinter') ? 15 : 20) * dt);
   else if (p.atkCd < 0) p.stamina = Math.min(100, p.stamina + (p.hunger < 15 || p.thirst < 15 ? 7 : 15) * (p.buffs && p.buffs.energy ? 2 : 1) * dt);
   if (p.bleeding) p.hp -= 1.0 * dt;
   if (p.infection > 0) {
@@ -358,6 +387,14 @@ function survival(s, p, dt) {
 
 function weaponList(p) { return [null, ...p.inv.filter((i) => { const c = ITEMS[i.id].cat; return c === 'melee' || c === 'gun'; }).slice(0, 5)]; }
 export { weaponList };
+function activateHot(s, p, k, inp) {
+  const it = resolveHot(p, k);
+  if (!it) { if (p.hotbar[k]) msg(s, `No ${ITEMS[p.hotbar[k].id].name} left.`, '#aaa', p.id); return; }
+  const d = ITEMS[it.id];
+  if (d.cat === 'melee' || d.cat === 'gun') { p.wpn = p.wpn === it ? null : it; p.reload = 0; ev(s, { type: 'equip', pid: p.id }); }
+  else if (d.cat === 'throw') throwItem(s, p, it.id, inp);
+  else command(s, p.id, { t: 'use', idx: p.inv.indexOf(it) });
+}
 function selectWeapon(s, p, n) {
   const l = weaponList(p); if (n >= l.length) return;
   p.wpn = l[n]; p.reload = 0;
@@ -555,8 +592,8 @@ function updateThrown(s, dt) {
 function hurtPlayer(s, p, z) {
   if (p.invuln > 0 || p.dead) return;
   const zt = ZT[z.type];
-  const arm = p.armor ? ITEMS[p.armor.id] : null;
-  p.hp -= zt.dmg * (1 - (arm ? arm.armor : 0)) * (0.85 + rnd() * 0.3);
+  const gs = gearStats(p), arm = { biteProt: gs.bite };
+  p.hp -= zt.dmg * (1 - gs.armor) * (0.85 + rnd() * 0.3);
   p.invuln = 0.25; p.hurt = 0.45; p.channel = null; p.search = null;
   const prot = arm ? arm.biteProt : 0;
   if (!p.bleeding && rnd() < 0.2 * (1 - prot)) { p.bleeding = true; msg(s, 'You are bleeding! [H] to bandage.', '#ff6a6a', p.id); }
@@ -573,12 +610,12 @@ function killPlayer(s, p) {
     return;
   }
   p.dead = true; p.hp = 0;
-  const items = [...p.inv]; if (p.bag) items.push(p.bag); if (p.armor) items.push(p.armor);
+  const items = [...p.inv]; if (p.bag) items.push(p.bag); for (const k of GEAR_SLOTS) if (p.gear[k]) items.push(p.gear[k]);
   if (items.length) {
     const c = makeLoose(s, p.x, p.y, 'body', items);
     c.label = `Your Body (Day ${dayOf(s)})`;
   }
-  p.inv = []; p.bag = null; p.armor = null; p.wpn = null; p.openCid = -1; p.channel = null; p.search = null;
+  p.inv = []; p.bag = null; p.gear = { head: null, body: null, legs: null, feet: null }; p.hotbar = p.hotbar.map(() => null); p.wpn = null; p.openCid = -1; p.channel = null; p.search = null;
   s.stats.deaths++;
   ev(s, { type: 'pdie', pid: p.id, x: p.x, y: p.y });
 }
@@ -840,7 +877,7 @@ export function command(s, pid, c) {
   switch (c.t) {
     case 'take': {
       if (!contOk) return; const it = cont.items[c.idx]; if (!it) return;
-      cont.items.splice(c.idx, 1); addItem(p.inv, it);
+      cont.items.splice(c.idx, 1); addItem(p.inv, it); autoHot(p, p.inv.findLast((x) => x.id === it.id));
       if (!cont.items.length && (cont.type === 'zombie' || cont.type === 'zsoldier')) cont.emptyT = s.time;
       ev(s, { type: 'pickup', cat: ITEMS[it.id].cat, x: p.x, y: p.y, pid: p.id, text: `+ ${ITEMS[it.id].name}${it.n > 1 ? ' x' + it.n : ''}` });
       break;
@@ -848,7 +885,7 @@ export function command(s, pid, c) {
     case 'takeAll': {
       if (!contOk) return;
       const nTaken = cont.items.length;
-      for (const it of cont.items) addItem(p.inv, it);
+      for (const it of cont.items) { addItem(p.inv, it); autoHot(p, p.inv.findLast((x) => x.id === it.id)); }
       cont.items.length = 0; if (cont.type === 'zombie' || cont.type === 'zsoldier') cont.emptyT = s.time; ev(s, { type: 'pickup', cat: 'bag', x: p.x, y: p.y, pid: p.id, text: nTaken ? `+ ${nTaken} item${nTaken > 1 ? 's' : ''}` : '' });
       break;
     }
@@ -885,16 +922,17 @@ export function command(s, pid, c) {
       else if (d.cat === 'med') { if (!p.channel) { p.channel = { id: it.id, t: 0, dur: it.id === 'medkit' ? 2.4 : 1.4 }; ev(s, { type: 'medStart', x: p.x, y: p.y, id: p.channel.id, pid: p.id }); } }
       else if (d.cat === 'melee' || d.cat === 'gun') { p.wpn = it; p.reload = 0; ev(s, { type: 'equip' }); }
       else if (d.cat === 'bag' || d.cat === 'armor') {
-        const slot = d.cat === 'bag' ? 'bag' : 'armor';
         p.inv.splice(c.idx, 1);
-        if (p[slot]) addItem(p.inv, p[slot]);
-        p[slot] = it; ev(s, { type: 'equip' });
+        if (d.cat === 'bag') { if (p.bag) addItem(p.inv, p.bag); p.bag = it; }
+        else { const sl = d.slot || 'body'; if (p.gear[sl]) addItem(p.inv, p.gear[sl]); p.gear[sl] = it; }
+        ev(s, { type: 'equip' }); msg(s, `Wearing ${d.name}.`, '#aaa', p.id);
       } else if (d.cat === 'throw') msg(s, `Aim and press ${it.id === 'noisemaker' ? 'G' : 'X'} to throw.`, '#aaa', p.id);
       break;
     }
     case 'unequip': {
       if (c.slot === 'wpn') p.wpn = null;
-      else if (p[c.slot]) { addItem(p.inv, p[c.slot]); p[c.slot] = null; }
+      else if (c.slot === 'bag') { if (p.bag) { addItem(p.inv, p.bag); p.bag = null; } }
+      else if (p.gear[c.slot]) { addItem(p.inv, p.gear[c.slot]); p.gear[c.slot] = null; }
       break;
     }
     case 'drop': {
@@ -905,6 +943,15 @@ export function command(s, pid, c) {
       addItem(pile.items, it);
       break;
     }
+    case 'hotbar': { // assign an inventory item to a hotbar slot (idx null clears it)
+      if (c.slot < 0 || c.slot > 5) return;
+      if (c.idx === null || c.idx === undefined) { p.hotbar[c.slot] = null; break; }
+      const it = p.inv[c.idx]; if (!it || !HOTABLE.has(ITEMS[it.id].cat)) { msg(s, "That can't go on the hotbar.", '#aaa', p.id); return; }
+      p.hotbar = p.hotbar.map((h) => (h && (h.ref === it || h.id === it.id) ? null : h));
+      p.hotbar[c.slot] = { id: it.id, ref: it }; ev(s, { type: 'click' });
+      break;
+    }
+    case 'hotswap': { const a = p.hotbar[c.a]; p.hotbar[c.a] = p.hotbar[c.b]; p.hotbar[c.b] = a; break; }
     case 'sort': {
       const list = c.which === 'cont' ? (contOk ? cont.items : null) : p.inv;
       if (!list) return;

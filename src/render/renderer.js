@@ -460,7 +460,8 @@ export class Renderer {
       pts.push(p.x + Math.cos(a) * e, p.y + Math.sin(a) * e);
     }
     // night
-    const nightA = (1 - dl) * 0.9;
+    const headId = p.gear && p.gear.head ? p.gear.head.id : null, nvg = headId === 'nvg';
+    const nightA = (1 - dl) * 0.9 * (nvg ? 0.3 : 1);
     const ctx = this.ctx;
     if (nightA > 0.02) {
       const g = this.night.getContext('2d');
@@ -468,7 +469,7 @@ export class Renderer {
       g.fillStyle = `rgba(3,5,14,${nightA})`; g.fillRect(0, 0, this.night.width, this.night.height);
       toWorld(g); g.globalCompositeOperation = 'destination-out';
       const light = (x, y, r, a = 1) => { const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, `rgba(0,0,0,${a})`); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); };
-      light(p.x, p.y, 110, 0.85);
+      light(p.x, p.y, headId === 'headlamp' ? 240 : 110, 0.85);
       if (p.flashlight) {
         const gr = g.createRadialGradient(p.x, p.y, 10, p.x, p.y, 400); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.7, 'rgba(0,0,0,0.75)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
         g.fillStyle = gr; g.beginPath(); g.moveTo(p.x, p.y); g.arc(p.x, p.y, 400, p.ang - 0.45, p.ang + 0.45); g.closePath(); g.fill();
@@ -491,6 +492,7 @@ export class Renderer {
       toWorld(ctx); ctx.globalCompositeOperation = 'lighter';
       for (const [x, y, r, a, c] of this.glow) { const gr = ctx.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, `rgba(${c},${a * nightA})`); gr.addColorStop(1, `rgba(${c},0)`); ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); }
       ctx.globalCompositeOperation = 'source-over'; ctx.setTransform(1, 0, 0, 1, 0, 0);
+      if (nvg && dl < 0.5) { ctx.fillStyle = `rgba(40,220,90,${0.16 * (1 - dl * 2)})`; ctx.fillRect(0, 0, this.night.width, this.night.height); }
     }
     // fog of war (line of sight)
     const g = this.fog.getContext('2d');
@@ -730,7 +732,8 @@ export class Renderer {
     else if (p.reload > 0 && wd && wd.cat === 'gun') { anim = 'reload'; t = 1 - p.reload / wd.reload; }
     else if (p.swing > 0) { anim = p.act === 'shove' ? 'shove' : 'attack'; t = 1 - p.swing / (p.swingDur || 0.2); }
     else if (p.moving) { anim = 'walk'; t = st.d / 70; }
-    const fr = playerFrame(p.wpn ? p.wpn.id : 'fists', p.armor && p.armor.id, p.bag && p.bag.id, anim, t);
+    const G = p.gear || {};
+    const fr = playerFrame(p.wpn ? p.wpn.id : 'fists', G.body && G.body.id, p.bag && p.bag.id, anim, t, G.head && G.head.id, G.feet && G.feet.id);
     ctx.save(); ctx.translate(p.x, p.y);
     ctx.fillStyle = 'rgba(0,0,0,0.32)'; ctx.beginPath(); ctx.ellipse(2, 3, 12, 10, 0, 0, 7); ctx.fill();
     ctx.rotate(p.ang);

@@ -1,6 +1,6 @@
 import './style.css';
 import { SIM_DT } from './config.js';
-import { daylight, createState, addPlayer, step, command, getInteract, spawnZombie, newPlayer, dayOf, weaponList } from './sim/sim.js';
+import { resolveHot, daylight, createState, addPlayer, step, command, getInteract, spawnZombie, newPlayer, dayOf, weaponList } from './sim/sim.js';
 import { Renderer } from './render/renderer.js';
 import { assetsReady } from './render/assets.js';
 import { playerFrame, zombieFrame, P_ANIMS, Z_ANIMS, prewarm } from './render/sprites.js';
@@ -11,6 +11,8 @@ import { TILE } from './config.js';
 import { Sfx } from './audio.js';
 import { drawHUD, Minimap } from './ui/hud.js';
 import { Panels } from './ui/panels.js';
+import { ITEMS } from './data/items.js';
+import { HotbarUI } from './ui/hotbar.js';
 import { saveGame, loadGame, hasSave } from './save.js';
 
 const LOCAL = 'p1';
@@ -23,11 +25,23 @@ const mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false };
 const ui = { pings: [], messages: [], mouse, mouseWorld: { x: 0, y: 0 }, interact: null, bigMap: false, panelOpen: false, dt: 0 };
 const PING = { groan: 1, alert: 2, bash: 2, doorbreak: 2, zattack: 2, explode: 2, gunshot: 1 };
 const zSteps = new WeakMap();
-let selPending = -1, hitStop = 0;
+let hotEquipPending = -1, selPending = -1, hitStop = 0;
 
 const panels = new Panels({
   state: () => s, player: () => s && s.players[LOCAL],
   cmd: (c) => { command(s, LOCAL, c); drain(); },
+});
+const hotbar = new HotbarUI($('hotbar'), {
+  use: (k) => { selPending = k; },
+  holster: () => { if (s) { s.players[LOCAL].wpn = null; } },
+  cmd: (c) => { command(s, LOCAL, c); drain(); },
+  invDrag: () => panels.drag,
+  assign: (k, d) => {
+    const p = s.players[LOCAL];
+    if (d.side === 'inv') command(s, LOCAL, { t: 'hotbar', slot: k, idx: d.idx });
+    else { const it = panels.item('cont', d.idx); if (!it) return; command(s, LOCAL, { t: 'take', cid: p.openCid, idx: d.idx }); const j = p.inv.findLastIndex((x) => x.id === it.id); if (j >= 0) command(s, LOCAL, { t: 'hotbar', slot: k, idx: j }); }
+    drain(); panels.refresh();
+  },
 });
 const addMsg = (text, color = '#ddd') => { ui.messages.push({ text, color, t: 7 }); if (ui.messages.length > 30) ui.messages.shift(); };
 
@@ -107,8 +121,11 @@ $('game').addEventListener('mousedown', (e) => { sfx.init(); if (e.button === 0)
 addEventListener('mouseup', () => (mouse.down = false));
 addEventListener('contextmenu', (e) => e.preventDefault());
 $('game').addEventListener('wheel', (e) => {
-  if (!s) return; const p = s.players[LOCAL]; const l = weaponList(p); const i = Math.max(0, l.indexOf(p.wpn));
-  selPending = (i + (e.deltaY > 0 ? 1 : -1) + l.length) % l.length;
+  if (!s) return; const p = s.players[LOCAL];
+  const slots = [0, 1, 2, 3, 4, 5].filter((k) => { const it = resolveHot(p, k); return it && ['melee', 'gun'].includes(ITEMS[it.id].cat); });
+  if (!slots.length) return;
+  const cur = slots.findIndex((k) => resolveHot(p, k) === p.wpn);
+  hotEquipPending = slots[(cur + (e.deltaY > 0 ? 1 : -1) + slots.length) % slots.length];
 }, { passive: true });
 addEventListener('resize', () => rend.resize());
 addEventListener('beforeunload', save);
@@ -123,9 +140,9 @@ function buildInput(first) {
     up: k('KeyW') || k('ArrowUp'), down: k('KeyS') || k('ArrowDown'), left: k('KeyA') || k('ArrowLeft'), right: k('KeyD') || k('ArrowRight'),
     sprint: k('ShiftLeft') || k('ShiftRight'), attack: mouse.down && !ui.bigMap && !panels.isOpen,
     sneak: ed('KeyC'), interact: ed('KeyE'), reload: ed('KeyR'), shove: ed('Space'), flash: ed('KeyF'), heal: ed('KeyH'), throwN: ed('KeyG'), throwB: ed('KeyX'), barricade: ed('KeyB'),
-    sel: first ? selPending : -1,
+    sel: first ? selPending : -1, hotEquip: first ? hotEquipPending : -1,
   };
-  if (first) selPending = -1;
+  if (first) { selPending = -1; hotEquipPending = -1; }
   if (touch.move) {
     const dx = (touch.move.x - touch.move.ox) / 45, dy = (touch.move.y - touch.move.oy) / 45;
     inp.left = dx < -0.35; inp.right = dx > 0.35; inp.up = dy < -0.35; inp.down = dy > 0.35;
@@ -214,6 +231,7 @@ function frame(now) {
     }
   }
   rend.render(s, LOCAL, ui);
+  hotbar.render(p, running && !p.dead);
   drawHUD(rend.ctx, s, p, ui, rend, mm);
 }
 rend.resize();
