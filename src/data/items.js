@@ -165,5 +165,13 @@ LOOT.medcab = { rolls: [1, 3], t: [['bandage', 5], ['painkillers', 4], ['antibio
 LOOT.milcrate = { rolls: [1, 3], t: [['ammo9', 4], ['ammo308', 3], ['shells', 3], ['mre', 3], ['pistol', 1], ['shotgun', 0.8], ['rifle', 0.8], ['vest', 1], ['milbag', 0.6], ['pipebomb', 1], ['machete', 0.8], ['bandage', 1]] };
 LOOT.zsoldier = { rolls: [1, 2], t: [['ammo9', 3], ['ammo308', 2], ['shells', 1], ['mre', 2], ['bandage', 2], ['pistol', 0.3], ['vest', 0.15], ['pipebomb', 0.3]] };
 CONTAINER_LABEL.medcab = 'Medical Cabinet'; CONTAINER_LABEL.milcrate = 'Military Crate'; CONTAINER_LABEL.zsoldier = 'Soldier Corpse';
+LOOT.stove = { rolls: [0, 2], t: [['beans', 3], ['chips', 1], ['knife', 1], ['rag', 1], ['mre', 0.2]] };
+LOOT.sink = { rolls: [0, 2], t: [['rag', 3], ['cloth', 2], ['tape', 1], ['bandage', 0.6], ['water', 1]] };
+LOOT.nightstand = { rolls: [0, 2], t: [['painkillers', 2], ['cash', 2], ['watch', 0.8], ['ammo9', 0.6], ['bandage', 1], ['pistol', 0.08]] };
+LOOT.bookshelf = { rolls: [0, 1], t: [['tape', 1], ['cash', 1], ['electronics', 0.6], ['jewelry', 0.3]] };
+LOOT.tvstand = { rolls: [0, 2], t: [['electronics', 4], ['tape', 1], ['noisemaker', 0.4]] };
+LOOT.desk = { rolls: [0, 2], t: [['tape', 2], ['electronics', 2], ['cash', 1.5], ['nails', 1], ['painkillers', 0.6]] };
+LOOT.filing = { rolls: [0, 2], t: [['cash', 1], ['tape', 1], ['electronics', 1], ['ammo9', 0.5], ['bandage', 0.5]] };
+Object.assign(CONTAINER_LABEL, { stove: 'Stove', sink: 'Sink Cabinet', nightstand: 'Nightstand', bookshelf: 'Bookshelf', tvstand: 'TV Stand', desk: 'Desk', filing: 'Filing Cabinet' });
 LOOT.zombie = { rolls: [0, 2], t: [['cash', 3], ['rag', 3], ['cloth', 2], ['bandage', 1.5], ['ammo9', 1.2], ['chips', 1], ['water', 1], ['watch', 0.8], ['painkillers', 0.8], ['shells', 0.5], ['jewelry', 0.4], ['tape', 0.5]] };
 CONTAINER_LABEL.zombie = 'Zombie Corpse';

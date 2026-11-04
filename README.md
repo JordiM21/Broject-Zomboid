@@ -21,6 +21,11 @@ WASD move · Shift sprint · Mouse aim · Click attack · Space shove · E searc
 - **Military Zone** (far from the safehouse): fenced base with barracks, tents, trucks and watchtowers. Military Crates hold rifles, shotguns, ammo, vests, rucksacks and pipe bombs. Guarded by armored soldier zombies whose corpses carry ammo and rations.
 - Street lamps (some broken or flickering), burning wrecks and fire barrels light the night; morning mist, rain haze, ambient birds, crickets and distant screams, gunfire and sirens.
 
+## Doors, windows and interiors
+
+- Rooms are furnished by type (kitchen, bedroom, bathroom, living room) with fridges, stoves, sinks, counters, wardrobes, dressers, nightstands, bookshelves, TV stands, desks and filing cabinets, each with its own loot. Searched furniture shows open doors and pulled drawers.
+- Some doors are locked: pry with a crowbar (quiet-ish) or smash them with any melee weapon (loud). Windows can be opened quietly and climbed through, or smashed. Broken glass can cut you. Zombies smash windows and climb in.
+
 ## Stealth and sound
 
 - Zombies build suspicion (yellow ?) before they chase. Light, flashlight, sneaking, standing still, bushes and rain change how visible you are (HUD: Hidden / Low profile / Exposed / Detected).

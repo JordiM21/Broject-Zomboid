@@ -139,7 +139,8 @@ export function getInteract(s, p) {
     const cx = (tx + 0.5) * TILE, cy = (ty + 0.5) * TILE;
     if (Math.hypot(cx - p.x, cy - p.y) > 50) continue;
     let cand = null;
-    if (t === T.DOOR) cand = { kind: 'door', i, tx, ty, label: w.doors[i].broken ? 'Broken Door' : w.doors[i].open ? 'Close Door' : 'Open Door' };
+    if (t === T.DOOR) { const d = w.doors[i]; cand = { kind: 'door', i, tx, ty, label: d.broken ? 'Broken Door' : d.open ? 'Close Door' : d.locked ? (countItem(p.inv, 'crowbar') ? 'Pry Open (Crowbar)' : 'Locked Door') : 'Open Door' }; }
+    else if (t === T.WINDOW && w.windows[i]) { const wi = w.windows[i]; cand = { kind: 'window', i, tx, ty, label: wi.broken || wi.open ? (wi.broken ? 'Climb Through (glass!)' : 'Climb Through') : 'Open Window' }; }
     else if (w.contAt[i] >= 0) {
       const c = w.containers[w.contAt[i]];
       if (c.type === 'car') { const car = w.cars.find((k) => k.cid === c.id); if (!car) continue; }
@@ -186,6 +187,11 @@ function doInteract(s, p) {
   if (it.kind === 'door') {
     const d = w.doors[it.i];
     if (d.broken) { msg(s, 'This door is broken.', '#aaa', p.id); return; }
+    if (d.locked && !d.open) {
+      if (countItem(p.inv, 'crowbar')) { p.pry = { i: it.i, t: 0, dur: 1.6, x: (it.tx + 0.5) * TILE, y: (it.ty + 0.5) * TILE }; ev(s, { type: 'pry', x: p.pry.x, y: p.pry.y }); }
+      else { msg(s, 'Locked. Pry it with a Crowbar, smash it with a weapon, or use a window.', '#ffb070', p.id); ev(s, { type: 'locked', x: (it.tx + 0.5) * TILE, y: (it.ty + 0.5) * TILE }); }
+      return;
+    }
     if (d.open) { // don't close on someone
       const rx = it.tx * TILE, ry = it.ty * TILE;
       const blocked = [...Object.values(s.players), ...s.zombies].some((e) => !e.dead && e.x > rx - 10 && e.x < rx + TILE + 10 && e.y > ry - 10 && e.y < ry + TILE + 10);
@@ -194,6 +200,19 @@ function doInteract(s, p) {
     d.open = !d.open;
     ev(s, { type: 'door', x: (it.tx + 0.5) * TILE, y: (it.ty + 0.5) * TILE, open: d.open });
     s.noises.push({ pl: 1, x: p.x, y: p.y, r: 2 * TILE });
+    return;
+  }
+  if (it.kind === 'window') {
+    const wi = w.windows[it.i], cx = (it.tx + 0.5) * TILE, cy = (it.ty + 0.5) * TILE;
+    if (!wi.open && !wi.broken) { wi.open = true; ev(s, { type: 'winopen', x: cx, y: cy }); s.noises.push({ pl: 1, x: cx, y: cy, r: 2 * TILE }); return; }
+    // climb: land on the opposite side of the window
+    const horiz = solidAt(w, it.tx - 1, it.ty) || solidAt(w, it.tx + 1, it.ty);
+    const dir = horiz ? Math.sign(cy - p.y) || 1 : Math.sign(cx - p.x) || 1;
+    const tx2 = horiz ? cx : cx + dir * TILE, ty2 = horiz ? cy + dir * TILE : cy;
+    if (solidAt(w, Math.floor(tx2 / TILE), Math.floor(ty2 / TILE))) { msg(s, 'Something blocks the other side.', '#aaa', p.id); return; }
+    p.climb = { t: 0, dur: 0.6, x0: p.x, y0: p.y, x1: tx2, y1: ty2, glass: wi.broken };
+    p.openCid = -1; ev(s, { type: 'climb', x: cx, y: cy, pid: p.id });
+    s.noises.push({ pl: 1, x: cx, y: cy, r: 3 * TILE });
     return;
   }
   const c = getCont(s, it.cid);
@@ -226,6 +245,24 @@ function updatePlayer(s, p, inp, dt) {
   const over = carried(p) / capacity(p);
   const slow = over > 1 ? Math.max(0.4, 1 - (over - 1) * 1.2) : 1;
   p.sprinting = !!inp.sprint && p.moving && p.stamina > 3 && !p.channel && !p.sneak;
+  if (p.climb) {
+    const c = p.climb; c.t += dt; const k = Math.min(1, c.t / c.dur);
+    p.x = c.x0 + (c.x1 - c.x0) * k; p.y = c.y0 + (c.y1 - c.y0) * k; p.moving = true;
+    if (k >= 1) { p.climb = null; if (c.glass && rnd() < 0.35 && !p.bleeding) { p.bleeding = true; p.hp -= 5; msg(s, 'You cut yourself on the broken glass!', '#ff6a6a', p.id); ev(s, { type: 'phurt', x: p.x, y: p.y, pid: p.id, ang: 0 }); } }
+    survival(s, p, dt); if (p.hp <= 0) killPlayer(s, p);
+    return;
+  }
+  if (p.pry) {
+    p.pry.t += dt;
+    if (Math.hypot(p.pry.x - p.x, p.pry.y - p.y) > 60 || inp.attack) p.pry = null;
+    else if (p.pry.t >= p.pry.dur) {
+      const d = w.doors[p.pry.i]; d.locked = false; d.open = true; d.hp = Math.min(d.hp, 40);
+      ev(s, { type: 'door', x: p.pry.x, y: p.pry.y, open: true }); ev(s, { type: 'pried', x: p.pry.x, y: p.pry.y });
+      s.noises.push({ pl: 1, x: p.x, y: p.y, r: 5 * TILE });
+      const cb = p.inv.find((i) => i.id === 'crowbar'); if (cb && cb.dur !== undefined) cb.dur = Math.max(1, cb.dur - 3);
+      msg(s, 'Door pried open.', '#9fe09f', p.id); p.pry = null;
+    }
+  }
   let speed = p.sneak ? 62 : p.sprinting ? 172 : 112;
   speed *= slow; if (p.channel) speed *= 0.4; if (p.reload > 0) speed *= 0.8;
   const tHere = w.tiles[Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE)];
@@ -345,6 +382,18 @@ function attack(s, p) {
     const dmg = wd.dmg * mult * (crit ? 2 : 1) * (0.9 + rnd() * 0.2);
     damageZombie(s, z, dmg, Math.cos(a), Math.sin(a), wd.knock, p, crit, true);
     hit = true; loud = true;
+  }
+  if (!hit) { // smash a closed door or window in front
+    const fx = Math.floor((p.x + Math.cos(p.ang) * 26) / TILE), fy = Math.floor((p.y + Math.sin(p.ang) * 26) / TILE);
+    const fi = fy * s.world.w + fx, ft = s.world.tiles[fi], cx = (fx + 0.5) * TILE, cy = (fy + 0.5) * TILE;
+    if (ft === T.WINDOW && s.world.windows[fi] && !s.world.windows[fi].broken) {
+      Object.assign(s.world.windows[fi], { broken: true, open: true }); ev(s, { type: 'glass', x: cx, y: cy, ang: p.ang });
+      s.noises.push({ pl: 1, x: cx, y: cy, r: 10 * TILE });
+    } else if (ft === T.DOOR && !s.world.doors[fi].open && !s.world.doors[fi].broken) {
+      const d = s.world.doors[fi]; d.hp -= wd.dmg * 0.6 * mult; ev(s, { type: 'bash', x: cx, y: cy });
+      s.noises.push({ pl: 1, x: cx, y: cy, r: 8 * TILE });
+      if (d.hp <= 0) { d.broken = true; d.open = true; d.locked = false; ev(s, { type: 'doorbreak', x: cx, y: cy }); }
+    }
   }
   if (loud) s.noises.push({ pl: 1, x: p.x, y: p.y, r: 3 * TILE });
   if (hit) {
@@ -529,6 +578,7 @@ function zombiePass(w) {
     if (tx < 0 || ty < 0 || tx >= w.w || ty >= w.h) return true;
     const i = ty * w.w + tx; if (w.safe[i]) return true;
     const t = w.tiles[i]; if (t === T.DOOR) return !w.doors[i].open;
+    if (t === T.WINDOW && w.windows[i]) return !(w.windows[i].open || w.windows[i].broken);
     return SOLID[t] === 1;
   };
 }
@@ -593,7 +643,7 @@ function updateZombies(s, dt) {
     const tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE);
     if (f.t <= 0 || tx !== f.cx || ty !== f.cy) {
       f.t = 0.4;
-      f.build(tx, ty, 40, (nx, ny, ni) => { const t = w.tiles[ni]; if (w.safe[ni]) return false; return t === T.DOOR || !SOLID[t]; });
+      f.build(tx, ty, 40, (nx, ny, ni) => { const t = w.tiles[ni]; if (w.safe[ni]) return false; return t === T.DOOR || t === T.WINDOW || !SOLID[t]; });
     }
   }
   // spatial hash
@@ -691,12 +741,18 @@ function updateZombies(s, dt) {
     if (dl > 1 && spd > 0) {
       dx /= dl; dy /= dl;
       const ox = z.x, oy = z.y;
+      if (w.tiles[Math.floor(z.y / TILE) * w.w + Math.floor(z.x / TILE)] === T.WINDOW) spd *= 0.3; // climbing through
       const step = Math.min(dl, spd * dt);
       z.x += dx * step; z.y += dy * step;
       const ta = Math.atan2(dy, dx); let da = ta - z.ang; while (da > Math.PI) da -= 6.283; while (da < -Math.PI) da += 6.283; z.ang += da * Math.min(1, dt * 8);
       // door bashing
       const ax = Math.floor((z.x + dx * (zt.r + 6)) / TILE), ay = Math.floor((z.y + dy * (zt.r + 6)) / TILE);
       const ai = ay * w.w + ax;
+      const wi = w.tiles[ai] === T.WINDOW ? w.windows[ai] : null;
+      if (wi && !wi.open && !wi.broken && z.state !== 'idle') {
+        z.bash += dt;
+        if (z.bash >= 1) { z.bash = 0; wi.hp -= z.type === 'brute' ? 20 : 8; ev(s, { type: 'bash', x: (ax + 0.5) * TILE, y: (ay + 0.5) * TILE, glassy: true }); if (wi.hp <= 0) { wi.broken = true; wi.open = true; ev(s, { type: 'glass', x: (ax + 0.5) * TILE, y: (ay + 0.5) * TILE, ang: z.ang }); s.noises.push({ x: z.x, y: z.y, r: 9 * TILE }); } }
+      }
       if (w.tiles[ai] === T.DOOR && !w.doors[ai].open && z.state !== 'idle') {
         z.bash += dt;
         if (z.bash >= 1) {

@@ -9,7 +9,7 @@ export const SOLID = new Uint8Array(32);
 [T.WALL, T.WINDOW, T.TREE, T.FENCE, T.CAR, T.FURN].forEach((t) => (SOLID[t] = 1));
 
 export const FURN_KINDS = ['none', 'fridge', 'counter', 'cabinet', 'wardrobe', 'dresser', 'shelf', 'toolbox',
-  'grocery', 'pharmacy', 'hardware', 'register', 'locker', 'crate', 'stash', 'bench', 'bed', 'radio', 'medcab', 'milcrate'];
+  'grocery', 'pharmacy', 'hardware', 'register', 'locker', 'crate', 'stash', 'bench', 'bed', 'radio', 'medcab', 'milcrate', 'stove', 'sink', 'nightstand', 'bookshelf', 'tvstand', 'desk', 'filing'];
 const FK = Object.fromEntries(FURN_KINDS.map((k, i) => [k, i]));
 
 const CAR_COLORS = ['#7a2e2e', '#2e4a7a', '#5d6066', '#8a7a3a', '#3f6b4a', '#a8a8a8', '#4a3a5a'];
@@ -22,7 +22,7 @@ export function generateWorld(seed) {
     seed, w: W, h: H,
     tiles: new Uint8Array(N), floor: new Uint8Array(N), deco: new Uint8Array(N), furn: new Uint8Array(N),
     bld: new Int16Array(N).fill(-1), safe: new Uint8Array(N), contAt: new Int32Array(N).fill(-1),
-    buildings: [], containers: [], doors: {}, cars: [], props: [], safeRect: null, spawn: null, fixtures: {}, zones: [], lamps: [], fires: [],
+    buildings: [], containers: [], doors: {}, cars: [], props: [], safeRect: null, spawn: null, fixtures: {}, windows: {}, zones: [], lamps: [], fires: [],
   };
   const I = (x, y) => y * W + x;
   const inb = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
@@ -57,7 +57,7 @@ export function generateWorld(seed) {
       const inT = tile(ix, iy);
       if (inT === T.WALL || inT === T.DOOR || inT === T.FURN) continue;
       const a = (top || bot) ? [tile(xx - 1, yy), tile(xx + 1, yy)] : [tile(xx, yy - 1), tile(xx, yy + 1)];
-      if (a[0] === T.WALL || a[0] === T.WINDOW) if (a[1] === T.WALL || a[1] === T.WINDOW) obj(xx, yy, T.WINDOW);
+      if (a[0] === T.WALL || a[0] === T.WINDOW) if (a[1] === T.WALL || a[1] === T.WINDOW) { obj(xx, yy, T.WINDOW); world.windows[I(xx, yy)] = { open: false, broken: false, hp: 20 }; }
     }
   };
   const addCar = (x, y, vert, withLoot = true) => {
@@ -172,10 +172,10 @@ export function generateWorld(seed) {
     shell(x, y, w, h, id, T.FLOOR);
     const doors = [];
     const fx = x + rng.int(2, w - 3), fy = face === 'N' ? y : y + h - 1;
-    door(fx, fy, false); doors.push([fx, fy]);
+    door(fx, fy, false); doors.push([fx, fy]); if (rng.chance(0.35)) world.doors[I(fx, fy)].locked = true;
     if (rng.chance(0.4)) { // back door
       const bx = x + rng.int(2, w - 3), by = face === 'N' ? y + h - 1 : y;
-      door(bx, by, false); doors.push([bx, by]);
+      door(bx, by, false); doors.push([bx, by]); if (rng.chance(0.5)) world.doors[I(bx, by)].locked = true;
     }
     const leaves = [];
     const split = (r, depth) => {
@@ -218,7 +218,8 @@ export function generateWorld(seed) {
   function furnishRoom(r, role) {
     const fl = role === 'kitchen' || role === 'bathroom' ? T.TILE : role === 'bedroom' ? T.CARPET : T.FLOOR;
     for (let yy = r.y; yy < r.y + r.h; yy++) for (let xx = r.x; xx < r.x + r.w; xx++) ground(xx, yy, fl);
-    const list = { living: ['shelf', 'shelf'], kitchen: ['fridge', 'counter', 'counter'], bedroom: ['wardrobe', 'dresser'], bathroom: ['cabinet'], combo: ['fridge', 'counter', 'shelf'] }[role];
+    const list = { living: ['bookshelf', 'tvstand', 'shelf'], kitchen: ['fridge', 'stove', 'sink', 'counter', 'counter'], bedroom: ['wardrobe', 'dresser', 'nightstand'], bathroom: ['cabinet', 'sink'], combo: ['fridge', 'stove', 'counter', 'tvstand'] }[role];
+    if (role === 'bedroom' && rng.chance(0.4)) list.push(rng.chance(0.5) ? 'desk' : 'nightstand');
     if (role === 'living' && rng.chance(0.35)) list.push('toolbox');
     const cands = [];
     for (let yy = r.y; yy < r.y + r.h; yy++) for (let xx = r.x; xx < r.x + r.w; xx++) {
@@ -235,10 +236,14 @@ export function generateWorld(seed) {
       addCont(xx, yy, k);
     }
     const mx = r.x + Math.floor(r.w / 2), my = r.y + Math.floor(r.h / 2);
-    if (role === 'bedroom') prop(mx - 0.5, my - 1, 1.4, 2, 'bed');
-    else if (role === 'living' || role === 'combo') { prop(mx - 1, my - 0.5, 2.2, 1.6, 'rug'); prop(mx - 0.8, my - 0.6, 1.6, 0.7, 'sofa'); }
-    else if (role === 'kitchen') prop(mx - 0.6, my - 0.6, 1.2, 1.2, 'table');
-    else if (role === 'bathroom') prop(mx - 0.3, my - 0.3, 0.7, 0.8, 'toilet');
+    if (role === 'bedroom') { prop(mx - 0.5, my - 1, 1.4, 2, 'bed'); if (r.w > 3) prop(r.x + 0.15, r.y + r.h - 0.9, 0.7, 0.7, 'plant'); }
+    else if (role === 'living' || role === 'combo') {
+      prop(mx - 1, my - 0.5, 2.2, 1.6, 'rug'); prop(mx - 0.8, my - 0.6, 1.6, 0.7, 'sofa');
+      if (r.w > 4) prop(mx + 1, my + 0.3, 0.8, 0.8, 'armchair');
+      prop(r.x + r.w - 0.85, r.y + r.h - 0.85, 0.7, 0.7, 'plant');
+      if (role === 'combo') { prop(mx - 0.6, my + 1, 1.2, 1, 'table'); }
+    } else if (role === 'kitchen') { prop(mx - 0.6, my - 0.6, 1.2, 1.2, 'table'); prop(mx - 1.05, my - 0.35, 0.45, 0.6, 'chair'); prop(mx + 0.6, my - 0.35, 0.45, 0.6, 'chair'); }
+    else if (role === 'bathroom') { prop(mx - 0.3, my - 0.3, 0.7, 0.8, 'toilet'); if (r.w >= 3 && r.h >= 3) prop(r.x + 0.1, r.y + 0.1, 0.9, 1.6, 'tub'); }
   }
 
   function yardDeco(x, y, w, h) {
@@ -325,7 +330,7 @@ export function generateWorld(seed) {
     for (let xx = x + 1; xx < x + w - 1; xx++) for (let yy = sy + 1; yy < y + h - 1; yy++) ground(xx, yy, T.CONCRETE);
     for (let xx = x + 2; xx < x + w - 2; xx += 2) addCont(xx, y + h - 2, 'locker');
     addCont(x + 1, sy + 2, 'locker'); addCont(x + w - 2, sy + 2, 'locker');
-    addCont(x + 2, y + 2, 'dresser'); addCont(x + w - 3, y + 2, 'shelf');
+    addCont(x + 2, y + 2, 'desk'); addCont(x + w - 3, y + 2, 'filing'); addCont(x + 3, y + 2, 'filing');
     prop(x + 3, y + 3, 2, 1, 'table'); prop(x + w - 5, y + 3, 2, 1, 'table');
     windows(x, y, w, h, 0.5);
     for (let xx = b.x; xx < b.x + b.w; xx += 3) if (rng.chance(0.5)) addCar(xx, y + h + 1, true);

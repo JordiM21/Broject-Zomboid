@@ -168,6 +168,12 @@ export class Sfx {
         if (e.open) { this.sweep(0.35, 500, 900, 'bandpass', 0.05, 0.03, o, 8); this.tone(1800, 1700, 0.02, 'square', 0.04, 0, o); }
         else { this.tone(110, 70, 0.1, 'sine', 0.3, 0.05, o); this.tone(1600, 1500, 0.02, 'square', 0.05, 0.07, o); }
         break;
+      case 'glass': o = L(1300, 0.4); this.noise(0.08, 5000, 'highpass', 0.9, 0, o); for (let k = 0; k < 9; k++) this.tone(3000 + Math.random() * 4000, 2500, 0.08 + Math.random() * 0.15, 'triangle', 0.08, 0.02 + Math.random() * 0.35, o); this.noise(0.3, 2500, 'bandpass', 0.2, 0.05, o, 2); break;
+      case 'pry': o = L(700, 0.2); this.sweep(1.3, 300, 900, 'bandpass', 0.08, 0, o, 12); this.clank(o, 600, 0.06, 0.2); this.clank(o, 500, 0.06, 0.8); break;
+      case 'pried': o = L(800, 0.3); this.noise(0.15, 1500, 'bandpass', 0.6, 0, o, 2); this.tone(120, 60, 0.15, 'sine', 0.4, 0, o); break;
+      case 'locked': o = L(500, 0.1); for (let k = 0; k < 3; k++) { this.tone(1800, 1600, 0.03, 'square', 0.05, k * 0.09, o); this.noise(0.04, 900, 'bandpass', 0.12, k * 0.09, o, 3); } break;
+      case 'winopen': o = L(500, 0.15); this.sweep(0.4, 800, 1400, 'bandpass', 0.06, 0, o, 8); this.tone(200, 140, 0.08, 'sine', 0.12, 0.35, o); break;
+      case 'climb': o = L(500, 0.1); this.noise(0.35, 1000, 'bandpass', 0.12, 0, o, 1); this.tone(110, 60, 0.12, 'sine', 0.3, 0.45, o); this.noise(0.08, 500, 'lowpass', 0.25, 0.45, o); break;
       case 'searchStart': this.rummage(e.dur, L(500, 0.1)); this.openSound(e.ctype, L(500, 0.1)); break;
       case 'open': if (!e.first) this.openSound(e.ctype, L(500, 0.1)); else if (e.empty) this.tone(260, 200, 0.12, 'triangle', 0.05); break;
       case 'pickup': case 'stow': this.itemSound(e.cat, L(400, 0.05)); break;

@@ -36,6 +36,14 @@ export class Minimap {
   }
 }
 
+function statIcon(ctx, kind, x, y, col, sc) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc); ctx.fillStyle = col; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1; ctx.beginPath();
+  if (kind === 'hp') { ctx.moveTo(0, 5); ctx.bezierCurveTo(-8, -1, -5, -7, 0, -3); ctx.bezierCurveTo(5, -7, 8, -1, 0, 5); }
+  else if (kind === 'food') { ctx.ellipse(-1.5, -1.5, 4.5, 3.8, -0.6, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#f0e8d8'; ctx.beginPath(); ctx.moveTo(1.5, 1); ctx.lineTo(5, 4.5); ctx.arc(5.5, 5.5, 1.4, 0, 7); }
+  else if (kind === 'water') { ctx.moveTo(0, -6); ctx.bezierCurveTo(3, -2, 5, 0, 5, 2); ctx.arc(0, 2, 5, 0, Math.PI); ctx.bezierCurveTo(-5, 0, -3, -2, 0, -6); }
+  else { ctx.moveTo(2, -6); ctx.lineTo(-4, 1); ctx.lineTo(0, 1); ctx.lineTo(-2, 6); ctx.lineTo(4, -1); ctx.lineTo(0, -1); ctx.closePath(); }
+  ctx.fill(); ctx.stroke(); ctx.restore();
+}
 function bar(ctx, x, y, w, v, col, label, trail = v) {
   ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x, y, w, 12);
   if (trail > v) { ctx.fillStyle = 'rgba(255,240,220,0.75)'; ctx.fillRect(x + 1 + (w - 2) * v / 100, y + 1, (w - 2) * (trail - v) / 100, 10); }
@@ -62,6 +70,8 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   let prog = null, ptxt = '';
   if (p.search) { prog = p.search.t / p.search.dur; ptxt = 'Searching...'; }
   else if (p.channel) { prog = p.channel.t / p.channel.dur; ptxt = `Using ${ITEMS[p.channel.id].name}...`; }
+  else if (p.pry) { prog = p.pry.t / p.pry.dur; ptxt = 'Prying the door...'; }
+  else if (p.climb) { prog = p.climb.t / p.climb.dur; ptxt = 'Climbing...'; }
   else if (p.reload > 0 && p.wpn) { prog = 1 - p.reload / ITEMS[p.wpn.id].reload; ptxt = 'Reloading...'; }
   if (prog !== null) {
     ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(ps.x, ps.y, 26, 0, 7); ctx.stroke();
@@ -76,10 +86,15 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   D.hp += (p.hp - D.hp) * k; D.hunger += (p.hunger - D.hunger) * k; D.thirst += (p.thirst - D.thirst) * k; D.st += (p.stamina - D.st) * k;
   D.trail = D.trail > D.hp ? Math.max(D.hp, D.trail - ui.dt * 25) : D.hp;
   const lowSt = p.stamina < 15 && performance.now() % 500 < 250;
-  bar(ctx, bx, by, 196, D.hp, p.hp < 30 ? '#e03a3a' : '#c94a4a', 'HEALTH', D.trail);
-  bar(ctx, bx, by + 16, 196, D.hunger, '#d08a3a', 'FOOD');
-  bar(ctx, bx, by + 32, 196, D.thirst, '#3a8ad0', 'WATER');
-  bar(ctx, bx, by + 48, 196, D.st, lowSt ? '#ff6a3a' : '#c9c04a', 'STAMINA');
+  bar(ctx, bx + 20, by, 176, D.hp, p.hp < 30 ? '#e03a3a' : '#c94a4a', '', D.trail);
+  bar(ctx, bx + 20, by + 16, 176, D.hunger, '#d08a3a', '');
+  bar(ctx, bx + 20, by + 32, 176, D.thirst, '#3a8ad0', '');
+  bar(ctx, bx + 20, by + 48, 176, D.st, lowSt ? '#ff6a3a' : '#c9c04a', '');
+  const beat = p.hp < 35 ? 1 + Math.max(0, Math.sin(performance.now() / 160)) * 0.18 : 1;
+  statIcon(ctx, 'hp', bx + 8, by + 6, p.hp < 30 ? '#ff4a4a' : '#e05a5a', beat);
+  statIcon(ctx, 'food', bx + 8, by + 22, p.hunger < 20 ? '#ffb05a' : '#e09a4a', 1);
+  statIcon(ctx, 'water', bx + 8, by + 38, p.thirst < 20 ? '#7ac8ff' : '#4a9ae0', 1);
+  statIcon(ctx, 'st', bx + 8, by + 54, lowSt ? '#ff7a3a' : '#e0d04a', 1);
   const wt = carried(p), cap = capacity(p);
   ctx.font = '600 11px system-ui, sans-serif'; ctx.textAlign = 'left';
   ctx.fillStyle = wt > cap ? '#ff8a6a' : '#bbb'; ctx.fillText(`Carry ${wt.toFixed(1)} / ${cap}`, bx, by + 76);
@@ -112,7 +127,7 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
     const d = it ? ITEMS[it.id] : null;
     ctx.fillStyle = '#eee'; ctx.textAlign = 'center'; ctx.font = `600 ${small ? 9 : 10}px system-ui, sans-serif`;
     const nm = it ? d.name.split(' ').slice(-1)[0] : 'Fists';
-    if (it) ctx.drawImage(iconCanvas(it.id), x + slot * 0.14, hy + slot * 0.06, slot * 0.72, slot * 0.72); else ctx.fillText(nm, x + slot / 2, hy + slot / 2 + 4);
+    if (it) ctx.drawImage(iconCanvas(it.id), x + slot * 0.14, hy + slot * 0.06, slot * 0.72, slot * 0.72); else ctx.drawImage(iconCanvas('fists'), x + slot * 0.18, hy + slot * 0.1, slot * 0.64, slot * 0.64);
     if (it && d.dur) { ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(x + 4, hy + slot - 8, slot - 8, 4); const f = it.dur / d.dur; ctx.fillStyle = f > 0.5 ? '#7ad07a' : f > 0.2 ? '#d0c04a' : '#d05a4a'; ctx.fillRect(x + 4, hy + slot - 8, (slot - 8) * f, 4); }
     if (it && d.cat === 'gun') { const res = p.inv.filter((i) => i.id === d.ammo).reduce((a, b) => a + b.n, 0); ctx.fillStyle = it.mag ? '#ffd27a' : '#ff6a6a'; ctx.fillText(`${it.mag}/${res}`, x + slot / 2, hy + slot - 6); }
     ctx.restore();

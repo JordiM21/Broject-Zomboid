@@ -131,7 +131,7 @@ export class Panels {
   }
   renderInv(s, p) {
     const wt = carried(p), cap = capacity(p), f = Math.min(1, wt / cap);
-    const slot = (name, it, key) => `<div class="eslot" data-drop="equip" title="${name}">${it ? `<img src="${iconURL(it.id)}" alt=""><button class="x" data-act="unequip" data-slot="${key}" title="Unequip">×</button>` : `<span class="dim">${name}</span>`}<span class="elbl">${it ? esc(ITEMS[it.id].name) : ''}</span></div>`;
+    const slot = (name, it, key) => `<div class="eslot" data-drop="equip" title="${name}">${it ? `<img src="${iconURL(it.id)}" alt=""><button class="x" data-act="unequip" data-slot="${key}" title="Unequip">×</button>` : key === 'wpn' ? `<img src="${iconURL('fists')}" alt="" style="opacity:.45">` : `<span class="dim">${name}</span>`}<span class="elbl">${it ? esc(ITEMS[it.id].name) : ''}</span></div>`;
     const c = p.openCid >= 0 ? getCont(s, p.openCid) : null;
     let html = `<div class="cols"><div class="col zone" data-drop="inv">
       <div class="hdr"><b>Inventory</b><button class="mini ghost" data-act="sortInv">Sort</button></div>
