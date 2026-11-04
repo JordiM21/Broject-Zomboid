@@ -1,6 +1,6 @@
 import './style.css';
 import { SIM_DT } from './config.js';
-import { createState, addPlayer, step, command, getInteract, spawnZombie, newPlayer, dayOf, weaponList } from './sim/sim.js';
+import { daylight, createState, addPlayer, step, command, getInteract, spawnZombie, newPlayer, dayOf, weaponList } from './sim/sim.js';
 import { Renderer } from './render/renderer.js';
 import { los } from './world/world.js';
 import { TILE } from './config.js';
@@ -196,7 +196,7 @@ function frame(now) {
   sfx.lx = p.x; sfx.ly = p.y; sfx.setRain(s.weather ? s.weather.rain : 0);
   const w = s.world, ti = Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE);
   sfx.occl = (x, y) => !los(w, p.x, p.y, x, y);
-  sfx.update(ui.dt, { indoor: w.bld[ti] >= 0, hp: p.hp, dead: p.dead });
+  sfx.update(ui.dt, { indoor: w.bld[ti] >= 0, hp: p.hp, dead: p.dead, day: daylight(s) });
   if (!paused && !p.dead) { // zombie footsteps near the player
     let n = 0;
     for (const z of s.zombies) {

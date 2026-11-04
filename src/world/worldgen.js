@@ -9,11 +9,11 @@ export const SOLID = new Uint8Array(32);
 [T.WALL, T.WINDOW, T.TREE, T.FENCE, T.CAR, T.FURN].forEach((t) => (SOLID[t] = 1));
 
 export const FURN_KINDS = ['none', 'fridge', 'counter', 'cabinet', 'wardrobe', 'dresser', 'shelf', 'toolbox',
-  'grocery', 'pharmacy', 'hardware', 'register', 'locker', 'crate', 'stash', 'bench', 'bed', 'radio'];
+  'grocery', 'pharmacy', 'hardware', 'register', 'locker', 'crate', 'stash', 'bench', 'bed', 'radio', 'medcab', 'milcrate'];
 const FK = Object.fromEntries(FURN_KINDS.map((k, i) => [k, i]));
 
 const CAR_COLORS = ['#7a2e2e', '#2e4a7a', '#5d6066', '#8a7a3a', '#3f6b4a', '#a8a8a8', '#4a3a5a'];
-const ROOF = { house: ['#5a3a32', '#4a4a52', '#3e4f5c', '#6a5038', '#58443c'], grocery: ['#556070'], pharmacy: ['#5f6e6a'], hardware: ['#6a5a40'], police: ['#2f3c52'], gas: ['#704038'], safe: ['#3d5a3d'] };
+const ROOF = { house: ['#5a3a32', '#4a4a52', '#3e4f5c', '#6a5038', '#58443c'], grocery: ['#556070'], pharmacy: ['#5f6e6a'], hardware: ['#6a5a40'], hospital: ['#c8ccd0'], military: ['#4a5236'], police: ['#2f3c52'], gas: ['#704038'], safe: ['#3d5a3d'] };
 
 export function generateWorld(seed) {
   const W = WORLD_W, H = WORLD_H, N = W * H;
@@ -22,7 +22,7 @@ export function generateWorld(seed) {
     seed, w: W, h: H,
     tiles: new Uint8Array(N), floor: new Uint8Array(N), deco: new Uint8Array(N), furn: new Uint8Array(N),
     bld: new Int16Array(N).fill(-1), safe: new Uint8Array(N), contAt: new Int32Array(N).fill(-1),
-    buildings: [], containers: [], doors: {}, cars: [], props: [], safeRect: null, spawn: null, fixtures: {},
+    buildings: [], containers: [], doors: {}, cars: [], props: [], safeRect: null, spawn: null, fixtures: {}, zones: [], lamps: [], fires: [],
   };
   const I = (x, y) => y * W + x;
   const inb = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
@@ -67,7 +67,9 @@ export function generateWorld(seed) {
       if (SOLID[t] || t === T.DOOR || t === T.GATE) return;
     }
     const cid = withLoot ? addCont(x, y, 'car') : -1;
-    world.cars.push({ x, y, w, h, color: rng.pick(CAR_COLORS), cid, wrecked: rng.chance(0.3) });
+    const car = { x, y, w, h, color: rng.pick(CAR_COLORS), cid, wrecked: rng.chance(0.3) };
+    world.cars.push(car);
+    if (car.wrecked && rng.chance(0.2)) { car.burning = true; world.fires.push({ x: (x + w / 2) * 32, y: (y + h / 2) * 32 }); }
     for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) { obj(xx, yy, T.CAR); if (cid >= 0) world.contAt[I(xx, yy)] = cid; }
   };
   const prop = (x, y, w, h, kind) => world.props.push({ x, y, w, h, kind, v: rng.int(0, 3) });
@@ -93,6 +95,11 @@ export function generateWorld(seed) {
       const edge = x === bx || y === by || x === bx + bw - 1 || y === by + bh - 1;
       ground(x, y, edge ? T.SIDEWALK : T.GRASS);
     }
+    for (const [lx2, ly2] of [[bx, by], [bx + bw - 1, by], [bx, by + bh - 1], [bx + bw - 1, by + bh - 1], [bx + (bw >> 1), by], [bx + (bw >> 1), by + bh - 1], [bx, by + (bh >> 1)], [bx + bw - 1, by + (bh >> 1)]]) {
+      const broken = rng.chance(0.35);
+      world.lamps.push({ x: (lx2 + 0.5) * 32, y: (ly2 + 0.5) * 32, broken, flicker: !broken && rng.chance(0.2), ph: rng.next() * 9 });
+      prop(lx2 + 0.3, ly2 + 0.3, 0.4, 0.4, broken ? 'lampx' : 'lamp');
+    }
     blocks.push({ i, j, x: bx + 1, y: by + 1, w: bw - 2, h: bh - 2 });
   }
   const ci = Math.floor((xs.length - 1) / 2), cj = Math.floor((ys.length - 1) / 2);
@@ -103,7 +110,11 @@ export function generateWorld(seed) {
   }
   // shuffle
   for (let k = others.length - 1; k > 0; k--) { const r = rng.int(0, k); [others[k], others[r]] = [others[r], others[k]]; }
-  const forced = ['grocery', 'pharmacy', 'hardware', 'police', 'gas', 'grocery', 'pharmacy', 'hardware', 'police', 'parking', 'park'];
+  { // military goes to the block farthest from the safehouse
+    let fi = 0, fd = -1; others.forEach((b, k) => { const d = Math.hypot(b.x + b.w / 2 - cx, b.y + b.h / 2 - cy); if (d > fd) { fd = d; fi = k; } });
+    others.unshift(others.splice(fi, 1)[0]);
+  }
+  const forced = ['military', 'hospital', 'grocery', 'pharmacy', 'hardware', 'police', 'gas', 'grocery', 'pharmacy', 'hardware', 'police', 'parking', 'park', 'hospital', 'res', 'res', 'gas'];
   others.forEach((b, k) => {
     if (k < forced.length) { b.type = forced[k]; return; }
     const d = Math.hypot(b.x + b.w / 2 - cx, b.y + b.h / 2 - cy) / maxD;
@@ -120,6 +131,8 @@ export function generateWorld(seed) {
       case 'park': buildPark(b, false); break;
       case 'camp': buildPark(b, true); break;
       case 'parking': buildParking(b); break;
+      case 'hospital': buildHospital(b); break;
+      case 'military': buildMilitary(b); break;
     }
   }
 
@@ -294,6 +307,8 @@ export function generateWorld(seed) {
     for (let yy = y + h; yy < b.y + b.h; yy++) for (let xx = b.x; xx < b.x + b.w; xx++) ground(xx, yy, T.CONCRETE);
     for (let xx = b.x; xx < b.x + b.w; xx++) ground(xx, b.y, T.CONCRETE);
     for (let xx = b.x + 1; xx < b.x + b.w - 2; xx += 3) if (rng.chance(0.3)) addCar(xx, y + h + 1, true);
+    prop(b.x + b.w - 3, b.y + b.h - 2, 1.6, 1, 'dumpster');
+    if (rng.chance(0.3)) barrel(b.x + 1, b.y + b.h - 2);
     yardDeco(b.x, b.y, b.w, b.h);
   }
 
@@ -337,13 +352,82 @@ export function generateWorld(seed) {
     }
     const mx = b.x + Math.floor(b.w / 2), my = b.y + Math.floor(b.h / 2);
     for (let yy = my - 2; yy <= my + 2; yy++) for (let xx = mx - 3; xx <= mx + 3; xx++) ground(xx, yy, T.DIRT);
-    if (camp) { addCont(mx - 2, my - 1, 'crate'); addCont(mx + 2, my + 1, 'crate'); prop(mx - 1, my - 2, 1.4, 1.2, 'tent'); prop(mx, my, 0.8, 0.8, 'fire'); }
+    if (camp) { addCont(mx - 2, my - 1, 'crate'); addCont(mx + 2, my + 1, 'crate'); prop(mx - 1, my - 2, 1.4, 1.2, 'tent'); prop(mx, my, 0.8, 0.8, 'fire'); world.fires.push({ x: (mx + 0.4) * 32, y: (my + 0.4) * 32, small: true }); }
     else {
       for (let xx = b.x; xx < b.x + b.w; xx++) ground(xx, my, T.DIRT);
       for (let yy = b.y; yy < b.y + b.h; yy++) ground(mx, yy, T.DIRT);
       prop(mx - 3, my - 2, 1.2, 0.5, 'bench'); prop(mx + 2, my + 2, 1.2, 0.5, 'bench');
       if (rng.chance(0.5)) addCont(mx + 3, my - 2, 'crate');
     }
+  }
+
+  function barrel(x, y) { prop(x, y, 0.7, 0.7, 'barrel'); world.fires.push({ x: (x + 0.35) * 32, y: (y + 0.35) * 32, small: true }); }
+
+  function buildHospital(b) {
+    const w = Math.min(b.w - 2, 22), h = Math.min(b.h - 5, 16), x = b.x + Math.floor((b.w - w) / 2), y = b.y + 2;
+    const id = addBuilding(x, y, w, h, 'hospital', 'Hospital');
+    shell(x, y, w, h, id, T.TILE);
+    const mx = x + Math.floor(w / 2);
+    door(mx - 1, y, false); door(mx, y, false);
+    // reception
+    addCont(x + 2, y + 2, 'register'); addCont(x + 3, y + 2, 'medcab'); addCont(x + w - 3, y + 2, 'medcab');
+    prop(mx - 2, y + 2, 4, 1, 'table');
+    const wy = y + 5;
+    for (let xx = x + 1; xx < x + w - 1; xx++) obj(xx, wy, T.WALL);
+    // wards
+    let wx = x + 1; const wards = [];
+    while (wx < x + w - 1) {
+      let ww = Math.min(6, x + w - 1 - wx); if (x + w - 1 - (wx + ww) < 4) ww = x + w - 1 - wx;
+      wards.push([wx, ww]);
+      door(wx + Math.floor(ww / 2), wy, false);
+      if (wx + ww < x + w - 1) for (let yy = wy + 1; yy < y + h - 1; yy++) obj(wx + ww, yy, T.WALL);
+      wx += ww + 1;
+    }
+    wards.forEach(([ax, aw], k) => {
+      const pharm = k === wards.length - 1;
+      for (let yy = wy + 1; yy < y + h - 1; yy++) for (let xx = ax; xx < ax + aw; xx++) ground(xx, yy, pharm ? T.TILE : T.FLOOR);
+      if (pharm) { for (let yy = wy + 3; yy < y + h - 2; yy += 2) { addCont(ax, yy, 'medcab'); if (aw > 3) addCont(ax + aw - 1, yy, 'medcab'); } }
+      else {
+        for (let yy = wy + 2; yy < y + h - 2; yy += 3) { prop(ax + 0.1, yy, 1.4, 2, 'hbed'); if (aw > 4) prop(ax + aw - 1.5, yy, 1.4, 2, 'hbed'); }
+        addCont(ax + Math.floor(aw / 2), y + h - 2, 'medcab');
+      }
+    });
+    windows(x, y, w, h, 0.5);
+    for (let xx = b.x; xx < b.x + b.w; xx++) { ground(xx, b.y, T.CONCRETE); ground(xx, b.y + 1, T.CONCRETE); }
+    for (let yy = y + h; yy < b.y + b.h; yy++) for (let xx = b.x; xx < b.x + b.w; xx++) ground(xx, yy, T.CONCRETE);
+    for (let k = 0; k < 3; k++) { const n = world.cars.length; addCar(b.x + 2 + k * 4, y + h + 1, true); if (world.cars.length > n) { world.cars[n].color = '#e4e4e0'; world.cars[n].ambulance = true; } }
+    prop(b.x + b.w - 3, y + h + 1, 1.6, 1, 'dumpster');
+    world.zones.push({ x: (x + w / 2) * 32, y: (y + h / 2) * 32, r: 15 * 32, kind: 'hospital', name: 'Hospital Grounds' });
+  }
+
+  function buildMilitary(b) {
+    for (let yy = b.y; yy < b.y + b.h; yy++) for (let xx = b.x; xx < b.x + b.w; xx++) {
+      const edge = xx === b.x || yy === b.y || xx === b.x + b.w - 1 || yy === b.y + b.h - 1;
+      ground(xx, yy, rng.chance(0.3) ? T.DIRT : T.CONCRETE); if (edge) obj(xx, yy, T.FENCE);
+    }
+    const gx = b.x + Math.floor(b.w / 2) - 1;
+    for (const xx of [gx, gx + 1]) { ground(xx, b.y, T.GATE); ground(xx, b.y + b.h - 1, T.GATE); }
+    prop(gx - 2, b.y + 1, 1.6, 0.6, 'sandbag'); prop(gx + 2.4, b.y + 1, 1.6, 0.6, 'sandbag');
+    prop(gx - 2, b.y + b.h - 1.6, 1.6, 0.6, 'sandbag'); prop(gx + 2.4, b.y + b.h - 1.6, 1.6, 0.6, 'sandbag');
+    // barracks
+    const w = Math.min(b.w - 6, 14), h = 8, x = b.x + 3, y = b.y + 3;
+    const id = addBuilding(x, y, w, h, 'military', 'Barracks');
+    shell(x, y, w, h, id, T.CONCRETE);
+    door(x + Math.floor(w / 2), y + h - 1, false);
+    for (let xx = x + 1; xx < x + w - 1; xx += 2) { addCont(xx, y + 1, 'milcrate'); }
+    for (let xx = x + 2; xx < x + w - 2; xx += 3) prop(xx, y + 3, 1.2, 2, 'bed');
+    windows(x, y, w, h, 0.4);
+    // tents, crates, trucks
+    const ty2 = y + h + 2;
+    for (let k = 0; k < 3; k++) {
+      const tx2 = b.x + 3 + k * 6; if (tx2 + 3 >= b.x + b.w - 1 || ty2 + 3 >= b.y + b.h - 1) continue;
+      prop(tx2, ty2, 3, 2.4, 'mtent'); addCont(tx2 + 1, ty2 + 3, 'milcrate');
+    }
+    for (let k = 0; k < 2; k++) { const n = world.cars.length; addCar(b.x + b.w - 4 - k * 3, b.y + 3, true); if (world.cars.length > n) { world.cars[n].color = '#4a5230'; world.cars[n].military = true; } }
+    prop(b.x + 1.2, b.y + 1.2, 1.6, 1.6, 'tower'); prop(b.x + b.w - 2.8, b.y + b.h - 2.8, 1.6, 1.6, 'tower');
+    barrel(b.x + b.w - 3, b.y + b.h - 5);
+    world.lamps.push({ x: (b.x + 2) * 32, y: (b.y + 2) * 32, flood: true, ph: 0 }, { x: (b.x + b.w - 2) * 32, y: (b.y + b.h - 2) * 32, flood: true, ph: 0 });
+    world.zones.push({ x: (b.x + b.w / 2) * 32, y: (b.y + b.h / 2) * 32, r: 16 * 32, kind: 'military', name: 'Military Zone' });
   }
 
   function buildParking(b) {

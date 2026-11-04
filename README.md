@@ -14,6 +14,13 @@ npm run build    # single-file build in dist/index.html (open directly or host a
 
 WASD move · Shift sprint · Mouse aim · Click attack · Space shove · E search/open · Tab inventory · 1–6 / wheel weapons · R reload · H quick heal · C sneak · F flashlight · G noise maker · X pipe bomb · M map · Esc pause
 
+## World
+
+- 240×240 tile town: ~80 houses, grocery, pharmacy and hardware stores, police stations, gas stations, parks, parking lots, forest camps.
+- **Hospital**: reception, wards and a pharmacy. Medical Cabinets are full of bandages, antibiotics and first aid kits. Crowded with runners and brutes.
+- **Military Zone** (far from the safehouse): fenced base with barracks, tents, trucks and watchtowers. Military Crates hold rifles, shotguns, ammo, vests, rucksacks and pipe bombs. Guarded by armored soldier zombies whose corpses carry ammo and rations.
+- Street lamps (some broken or flickering), burning wrecks and fire barrels light the night; morning mist, rain haze, ambient birds, crickets and distant screams, gunfire and sirens.
+
 ## Stealth and sound
 
 - Zombies build suspicion (yellow ?) before they chase. Light, flashlight, sneaking, standing still, bushes and rain change how visible you are (HUD: Hidden / Low profile / Exposed / Detected).

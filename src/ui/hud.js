@@ -133,7 +133,8 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   const w = s.world; const ti = Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE);
   const bid = w.bld[ti]; const safe = w.safe[ti];
   ctx.font = '600 12px system-ui, sans-serif'; ctx.fillStyle = safe ? '#9fe09f' : '#bbb';
-  ctx.fillText((safe ? 'SAFE ZONE' : bid >= 0 ? w.buildings[bid].name : 'Outside') + (s.weather && s.weather.rain > 0.3 ? '  ·  Raining' : ''), 20, 50);
+  const zn = w.zones.find((z) => Math.hypot(z.x - p.x, z.y - p.y) < z.r);
+  ctx.fillText((safe ? 'SAFE ZONE' : bid >= 0 ? w.buildings[bid].name : zn ? zn.name : 'Outside') + (s.weather && s.weather.rain > 0.3 ? '  ·  Raining' : ''), 20, 50);
   const ob = OBJECTIVES[s.obj];
   ctx.fillStyle = '#ffd27a'; ctx.font = '600 12px system-ui, sans-serif';
   ctx.fillText(ob ? `▸ ${ob.text}` : '▸ Survive. Haul. Repeat.', 20, 69);

@@ -10,8 +10,9 @@ export const ZT = {
   walker: { hp: 60, spd: 36, dmg: 8, sight: 7, r: 10 },
   runner: { hp: 45, spd: 80, dmg: 7, sight: 9, r: 9 },
   brute: { hp: 240, spd: 30, dmg: 20, sight: 6, r: 14 },
+  soldier: { hp: 120, spd: 40, dmg: 11, sight: 8, r: 11 },
 };
-const SEARCH_TIME = { zombie: 0.7, car: 1.4, locker: 1.2, crate: 1.2, body: 0.6, pile: 0.3 };
+const SEARCH_TIME = { zombie: 0.7, zsoldier: 0.9, milcrate: 1.3, medcab: 1, car: 1.4, locker: 1.2, crate: 1.2, body: 0.6, pile: 0.3 };
 const rnd = Math.random;
 const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return Math.abs(d); };
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -40,7 +41,7 @@ export function createState(seed, fresh = true) {
   };
   s.dawnIdx = dawnIndex(s);
   s.baseConts = world.containers.length;
-  if (fresh) for (let k = 0; k < 300; k++) spawnRandomZombie(s, 22, false);
+  if (fresh) { for (let k = 0; k < 520; k++) spawnRandomZombie(s, 22, false); for (const zn of world.zones) spawnInZone(s, zn, zn.kind === 'military' ? 45 : 28); }
   initRuntime(s);
   return s;
 }
@@ -101,8 +102,9 @@ export function step(s, inputs, dt) {
   if (s.spawnT <= 0) {
     s.spawnT = 4;
     const night = daylight(s) < 0.3;
-    const target = Math.min(520, 260 + day * 25) + (night ? 60 : 0);
-    for (let k = 0; k < 4 && s.zombies.length < target; k++) spawnRandomZombie(s, 30, night);
+    const target = Math.min(900, 480 + day * 35) + (night ? 90 : 0);
+    for (let k = 0; k < 5 && s.zombies.length < target; k++) spawnRandomZombie(s, 30, night);
+    for (const zn of s.world.zones) { let n = 0; for (const z of s.zombies) if (Math.abs(z.x - zn.x) < zn.r && Math.abs(z.y - zn.y) < zn.r) n++; if (n < (zn.kind === 'military' ? 35 : 22)) spawnInZone(s, zn, 2, 30); }
   }
   for (const n of s.noises) if (n.pl && n.r >= 2 * TILE) ev(s, { type: 'noise', x: n.x, y: n.y, r: n.r });
   s.noises.length = 0;
@@ -117,7 +119,7 @@ function onDawn(s) {
   const ps = Object.values(s.players);
   let n = 0;
   for (const c of s.world.containers) {
-    if (!c || !c.searched || ['stash', 'bench', 'bed', 'radio', 'body', 'pile'].includes(c.type)) continue;
+    if (!c || !c.searched || ['stash', 'bench', 'bed', 'radio', 'body', 'pile', 'zombie', 'zsoldier'].includes(c.type)) continue;
     const pos = contPos(c);
     if (ps.some((p) => dist(p, pos) < 25 * TILE)) continue;
     if (rnd() < 0.12) { c.items = null; c.searched = false; c.salt = (c.salt || 0) + 1; n++; }
@@ -424,9 +426,9 @@ function damageZombie(s, z, dmg, kx, ky, knock, p, crit, melee = false, silent =
   if (z.hp <= 0) {
     ev(s, { type: 'zdie', x: z.x, y: z.y, ztype: z.type, ang: Math.atan2(ky, kx) });
     s.stats.kills++; completeObjective(s, 'kill');
-    const corpse = makeLoose(s, z.x, z.y, 'zombie', null); corpse.searched = false;
+    const corpse = makeLoose(s, z.x, z.y, z.type === 'soldier' ? 'zsoldier' : 'zombie', null); corpse.searched = false;
     if (z.type === 'brute') corpse.salt = 7;
-    const corpses = s.loose.filter((id) => s.world.containers[id] && s.world.containers[id].type === 'zombie');
+    const corpses = s.loose.filter((id) => s.world.containers[id] && (s.world.containers[id].type === 'zombie' || s.world.containers[id].type === 'zsoldier'));
     if (corpses.length > 120) { const old = corpses[0]; s.world.containers[old] = null; s.loose = s.loose.filter((id) => id !== old); }
   }
 }
@@ -557,6 +559,14 @@ function spawnRandomZombie(s, minD, night) {
   const r = rnd();
   const type = r < (night ? 0.22 : 0.08) ? 'runner' : r > 0.95 ? 'brute' : 'walker';
   spawnZombie(s, pos.x, pos.y, type);
+}
+function spawnInZone(s, zn, n, minD = 0) {
+  for (let k = 0; k < n; k++) {
+    const pos = randomTile(s, minD, zn, (Math.random() * zn.r) / TILE); if (!pos) continue;
+    const r = rnd();
+    const type = zn.kind === 'military' ? (r < 0.55 ? 'soldier' : r < 0.65 ? 'brute' : 'walker') : (r < 0.2 ? 'runner' : r < 0.3 ? 'brute' : 'walker');
+    spawnZombie(s, pos.x, pos.y, type);
+  }
 }
 function spawnHorde(s) {
   const p = Object.values(s.players).find((q) => !q.dead); if (!p) return;

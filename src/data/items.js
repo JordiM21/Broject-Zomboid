@@ -161,5 +161,9 @@ export function itemStats(it) {
 
 export const CAT_ORDER = ['gun', 'melee', 'ammo', 'med', 'food', 'throw', 'bag', 'armor', 'mat', 'val'];
 
+LOOT.medcab = { rolls: [1, 3], t: [['bandage', 5], ['painkillers', 4], ['antibiotics', 3], ['medkit', 1.6], ['rag', 2], ['water', 1]] };
+LOOT.milcrate = { rolls: [1, 3], t: [['ammo9', 4], ['ammo308', 3], ['shells', 3], ['mre', 3], ['pistol', 1], ['shotgun', 0.8], ['rifle', 0.8], ['vest', 1], ['milbag', 0.6], ['pipebomb', 1], ['machete', 0.8], ['bandage', 1]] };
+LOOT.zsoldier = { rolls: [1, 2], t: [['ammo9', 3], ['ammo308', 2], ['shells', 1], ['mre', 2], ['bandage', 2], ['pistol', 0.3], ['vest', 0.15], ['pipebomb', 0.3]] };
+CONTAINER_LABEL.medcab = 'Medical Cabinet'; CONTAINER_LABEL.milcrate = 'Military Crate'; CONTAINER_LABEL.zsoldier = 'Soldier Corpse';
 LOOT.zombie = { rolls: [0, 2], t: [['cash', 3], ['rag', 3], ['cloth', 2], ['bandage', 1.5], ['ammo9', 1.2], ['chips', 1], ['water', 1], ['watch', 0.8], ['painkillers', 0.8], ['shells', 0.5], ['jewelry', 0.4], ['tape', 0.5]] };
 CONTAINER_LABEL.zombie = 'Zombie Corpse';

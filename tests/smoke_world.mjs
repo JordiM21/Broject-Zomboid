@@ -1,0 +1,15 @@
+import { createRequire } from 'module'; const require = createRequire(import.meta.url); const { chromium } = require(process.env.PW || 'playwright');
+import path from 'path';
+const out = process.argv[2] || '.';
+const b = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] }); const pg = await b.newPage({ viewport: { width: 1280, height: 760 } }); const errs = [];
+pg.on('pageerror', (e) => errs.push(e.message));
+await pg.goto('file://' + path.resolve('dist/index.html'));
+await pg.click('#btnNew'); await pg.waitForTimeout(300);
+const shot = async (name, fn) => { await pg.evaluate(fn); await pg.waitForTimeout(900); await pg.screenshot({ path: out + '/' + name + '.png' }); };
+await shot('w_military', () => { const s = window.__game.state, z = s.world.zones.find((z) => z.kind === 'military'), p = s.players.p1; p.x = z.x; p.y = z.y + 140; s.time = 600 * (13 / 24); });
+await shot('w_hospital_night', () => { const s = window.__game.state, z = s.world.zones.find((z) => z.kind === 'hospital'), p = s.players.p1; p.x = z.x; p.y = z.y - 230; s.time = 600 * (15 / 24); });
+await shot('w_street_night', () => { const s = window.__game.state, p = s.players.p1, f = s.world.fires.find((f) => !f.small) || s.world.fires[0]; p.x = f.x + 60; p.y = f.y + 40; s.time = 600 * (15.5 / 24); });
+const fps = await pg.evaluate(() => new Promise((r) => { let n = 0; const t = performance.now(); const f = () => { n++; if (performance.now() - t < 1000) requestAnimationFrame(f); else r(n); }; requestAnimationFrame(f); }));
+await pg.evaluate(() => { window.__game.sfx.init(); window.__game.sfx.amb = { bird: 0, cricket: 0, far: 0 }; window.__game.sfx.update(0.1, { indoor: false, hp: 100, dead: false, day: 1 }); window.__game.sfx.update(0.1, { indoor: false, hp: 100, dead: false, day: 0 }); });
+console.log('fps', fps, errs.length ? errs.join('\n') : 'no errors');
+await b.close();

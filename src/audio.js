@@ -38,8 +38,9 @@ export class Sfx {
   setVolume(v) { this.volume = v; if (this.master) this.master.gain.value = v; }
   setRain(r) { if (this.rain) this.rain.g.gain.value = r * (this.indoor ? 0.03 : 0.07); }
   // per-frame listener update
-  update(dt, { indoor, hp, dead }) {
+  update(dt, { indoor, hp, dead, day = 1 }) {
     if (!this.ctx) return;
+    this.ambient(dt, day, indoor);
     this.indoor = indoor;
     const t = this.ctx.currentTime;
     this.roomG.gain.setTargetAtTime(indoor ? 0.5 : 0.05, t, 0.3);
@@ -48,6 +49,29 @@ export class Sfx {
     if (!dead && hp < 35) {
       this.hbT -= dt;
       if (this.hbT <= 0) { this.hbT = 0.55 + hp / 60; const o = this.bus(); this.tone(60, 40, 0.12, 'sine', 0.5, 0, o); this.tone(55, 38, 0.1, 'sine', 0.35, 0.16, o); }
+    }
+  }
+  // world ambience: birds by day, crickets by night, distant events any time
+  ambient(dt, day, indoor) {
+    this.amb = this.amb || { bird: 2, cricket: 1, far: 15 };
+    const a = this.amb, quiet = indoor ? 0.35 : 1;
+    const far = (vol) => this.bus(this.lx + (Math.random() - 0.5) * 1600, this.ly + (Math.random() - 0.5) * 1600, 99999, 0.9);
+    a.bird -= dt; a.cricket -= dt; a.far -= dt;
+    if (day > 0.5 && a.bird <= 0) {
+      a.bird = 3 + Math.random() * 7; const o = far(); o.gain.value = 0.35 * quiet; const f = 2400 + Math.random() * 1600;
+      for (let k = 0; k < 2 + (Math.random() * 3 | 0); k++) this.tone(f, f * (1.2 + Math.random() * 0.3), 0.07, 'sine', 0.06, k * 0.11, o);
+    }
+    if (day < 0.4 && a.cricket <= 0) {
+      a.cricket = 0.6 + Math.random() * 1.2; const o = far(); o.gain.value = 0.3 * quiet; const f = 4200 + Math.random() * 600;
+      for (let k = 0; k < 3; k++) this.tone(f, f, 0.025, 'sine', 0.035, k * 0.05, o);
+    }
+    if (a.far <= 0) {
+      a.far = 18 + Math.random() * 35; const o = far(); o.gain.value = 0.22 * quiet;
+      const r = Math.random();
+      if (r < 0.3) { this.voice(o, 260 + Math.random() * 80, 1.1, 0.25, 1200); }
+      else if (r < 0.55) { for (let k = 0; k < 2 + (Math.random() * 3 | 0); k++) { this.noise(0.2, 900, 'lowpass', 0.6, k * (0.3 + Math.random() * 0.4), o); } }
+      else if (r < 0.8) { for (let k = 0; k < 3; k++) this.voice(o, 300, 0.12, 0.2, 900, k * 0.35); }
+      else { const c = this.ctx, t = c.currentTime, osc = c.createOscillator(), g = c.createGain(); osc.type = 'triangle'; osc.frequency.setValueAtTime(650, t); for (let k = 0; k < 6; k++) osc.frequency.linearRampToValueAtTime(k % 2 ? 650 : 900, t + 0.6 * (k + 1)); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.05, t + 0.5); g.gain.linearRampToValueAtTime(0.0001, t + 3.6); osc.connect(g); g.connect(o); osc.start(t); osc.stop(t + 3.7); }
     }
   }
   // build a spatial bus for a world position: gain -> occlusion lowpass -> pan -> master (+ reverb send)
