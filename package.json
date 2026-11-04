@@ -1,0 +1,16 @@
+{
+  "name": "last-haul",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "smoke": "node tests/smoke.mjs"
+  },
+  "devDependencies": {
+    "vite": "^5.4.11",
+    "vite-plugin-singlefile": "^2.0.3"
+  }
+}

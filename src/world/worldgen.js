@@ -1,0 +1,381 @@
+import { RNG } from '../rng.js';
+import { WORLD_W, WORLD_H } from '../config.js';
+
+export const T = {
+  GRASS: 0, ROAD: 1, SIDEWALK: 2, FLOOR: 3, WALL: 4, DOOR: 5, WINDOW: 6, TREE: 7, FENCE: 8, YARD: 9,
+  DIRT: 10, TILE: 11, CARPET: 12, CONCRETE: 13, CAR: 14, BUSH: 15, GATE: 16, FURN: 17,
+};
+export const SOLID = new Uint8Array(32);
+[T.WALL, T.WINDOW, T.TREE, T.FENCE, T.CAR, T.FURN].forEach((t) => (SOLID[t] = 1));
+
+export const FURN_KINDS = ['none', 'fridge', 'counter', 'cabinet', 'wardrobe', 'dresser', 'shelf', 'toolbox',
+  'grocery', 'pharmacy', 'hardware', 'register', 'locker', 'crate', 'stash', 'bench', 'bed', 'radio'];
+const FK = Object.fromEntries(FURN_KINDS.map((k, i) => [k, i]));
+
+const CAR_COLORS = ['#7a2e2e', '#2e4a7a', '#5d6066', '#8a7a3a', '#3f6b4a', '#a8a8a8', '#4a3a5a'];
+const ROOF = { house: ['#5a3a32', '#4a4a52', '#3e4f5c', '#6a5038', '#58443c'], grocery: ['#556070'], pharmacy: ['#5f6e6a'], hardware: ['#6a5a40'], police: ['#2f3c52'], gas: ['#704038'], safe: ['#3d5a3d'] };
+
+export function generateWorld(seed) {
+  const W = WORLD_W, H = WORLD_H, N = W * H;
+  const rng = new RNG(seed);
+  const world = {
+    seed, w: W, h: H,
+    tiles: new Uint8Array(N), floor: new Uint8Array(N), deco: new Uint8Array(N), furn: new Uint8Array(N),
+    bld: new Int16Array(N).fill(-1), safe: new Uint8Array(N), contAt: new Int32Array(N).fill(-1),
+    buildings: [], containers: [], doors: {}, cars: [], props: [], safeRect: null, spawn: null, fixtures: {},
+  };
+  const I = (x, y) => y * W + x;
+  const inb = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
+  const ground = (x, y, t) => { if (inb(x, y)) { const i = I(x, y); world.tiles[i] = t; world.floor[i] = t; } };
+  const obj = (x, y, t) => { if (inb(x, y)) world.tiles[I(x, y)] = t; };
+  const tile = (x, y) => (inb(x, y) ? world.tiles[I(x, y)] : T.TREE);
+  const door = (x, y, open) => { const i = I(x, y); world.tiles[i] = T.DOOR; world.doors[i] = { open, hp: 60, broken: false }; };
+  const addCont = (x, y, type) => {
+    const id = world.containers.length;
+    world.containers.push({ id, x, y, type, items: type === 'stash' ? [] : null, searched: type === 'stash' });
+    if (type !== 'car') { const i = I(x, y); world.tiles[i] = T.FURN; world.furn[i] = FK[type] || 0; world.contAt[i] = id; }
+    return id;
+  };
+  const addBuilding = (x, y, w, h, type, name) => {
+    const id = world.buildings.length;
+    world.buildings.push({ id, x, y, w, h, type, name, roof: rng.pick(ROOF[type] || ROOF.house) });
+    return id;
+  };
+  const shell = (x, y, w, h, id, fl) => {
+    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
+      const edge = xx === x || yy === y || xx === x + w - 1 || yy === y + h - 1;
+      ground(xx, yy, fl); if (edge) obj(xx, yy, T.WALL);
+      world.bld[I(xx, yy)] = id;
+    }
+  };
+  const windows = (x, y, w, h, p) => {
+    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
+      const top = yy === y, bot = yy === y + h - 1, lef = xx === x, rig = xx === x + w - 1;
+      if (!(top || bot || lef || rig) || ((top || bot) && (lef || rig))) continue;
+      if (tile(xx, yy) !== T.WALL || !rng.chance(p)) continue;
+      const ix = xx + (lef ? 1 : rig ? -1 : 0), iy = yy + (top ? 1 : bot ? -1 : 0);
+      const inT = tile(ix, iy);
+      if (inT === T.WALL || inT === T.DOOR || inT === T.FURN) continue;
+      const a = (top || bot) ? [tile(xx - 1, yy), tile(xx + 1, yy)] : [tile(xx, yy - 1), tile(xx, yy + 1)];
+      if (a[0] === T.WALL || a[0] === T.WINDOW) if (a[1] === T.WALL || a[1] === T.WINDOW) obj(xx, yy, T.WINDOW);
+    }
+  };
+  const addCar = (x, y, vert, withLoot = true) => {
+    const w = vert ? 1 : 2, h = vert ? 2 : 1;
+    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
+      const t = tile(xx, yy);
+      if (SOLID[t] || t === T.DOOR || t === T.GATE) return;
+    }
+    const cid = withLoot ? addCont(x, y, 'car') : -1;
+    world.cars.push({ x, y, w, h, color: rng.pick(CAR_COLORS), cid, wrecked: rng.chance(0.3) });
+    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) { obj(xx, yy, T.CAR); if (cid >= 0) world.contAt[I(xx, yy)] = cid; }
+  };
+  const prop = (x, y, w, h, kind) => world.props.push({ x, y, w, h, kind, v: rng.int(0, 3) });
+
+  // ---------- base: grass + roads ----------
+  const RW = 4, M = 7;
+  const xs = [], ys = [];
+  for (let p = M; p + RW < W - M; p += RW + rng.int(22, 27)) xs.push(p);
+  for (let p = M; p + RW < H - M; p += RW + rng.int(22, 27)) ys.push(p);
+  const x0 = xs[0], x1 = xs[xs.length - 1] + RW, y0 = ys[0], y1 = ys[ys.length - 1] + RW;
+  for (const rx of xs) for (let y = y0; y < y1; y++) for (let k = 0; k < RW; k++) ground(rx + k, y, T.ROAD);
+  for (const ry of ys) for (let x = x0; x < x1; x++) for (let k = 0; k < RW; k++) ground(x, ry + k, T.ROAD);
+  const inRoadX = (x) => xs.some((r) => x >= r && x < r + RW);
+  const inRoadY = (y) => ys.some((r) => y >= r && y < r + RW);
+  for (const rx of xs) for (let y = y0; y < y1; y++) if (!inRoadY(y)) world.deco[I(rx + 1, y)] = 2;
+  for (const ry of ys) for (let x = x0; x < x1; x++) if (!inRoadX(x)) world.deco[I(x, ry + 1)] = 1;
+
+  // ---------- blocks ----------
+  const blocks = [];
+  for (let i = 0; i < xs.length - 1; i++) for (let j = 0; j < ys.length - 1; j++) {
+    const bx = xs[i] + RW, by = ys[j] + RW, bw = xs[i + 1] - bx, bh = ys[j + 1] - by;
+    for (let y = by; y < by + bh; y++) for (let x = bx; x < bx + bw; x++) {
+      const edge = x === bx || y === by || x === bx + bw - 1 || y === by + bh - 1;
+      ground(x, y, edge ? T.SIDEWALK : T.GRASS);
+    }
+    blocks.push({ i, j, x: bx + 1, y: by + 1, w: bw - 2, h: bh - 2 });
+  }
+  const ci = Math.floor((xs.length - 1) / 2), cj = Math.floor((ys.length - 1) / 2);
+  const cx = W / 2, cy = H / 2, maxD = Math.hypot(W / 2, H / 2);
+  const others = [];
+  for (const b of blocks) {
+    if (b.i === ci && b.j === cj) b.type = 'safe'; else others.push(b);
+  }
+  // shuffle
+  for (let k = others.length - 1; k > 0; k--) { const r = rng.int(0, k); [others[k], others[r]] = [others[r], others[k]]; }
+  const forced = ['grocery', 'pharmacy', 'hardware', 'police', 'gas', 'grocery', 'pharmacy', 'hardware', 'police', 'parking', 'park'];
+  others.forEach((b, k) => {
+    if (k < forced.length) { b.type = forced[k]; return; }
+    const d = Math.hypot(b.x + b.w / 2 - cx, b.y + b.h / 2 - cy) / maxD;
+    b.type = rng.weighted([['res', 60], ['park', 7], ['parking', 5], ['grocery', 3], ['hardware', 2], ['camp', d > 0.45 ? 8 : 1], ['gas', 2]]);
+  });
+
+  for (const b of blocks) {
+    switch (b.type) {
+      case 'safe': buildSafehouse(b); break;
+      case 'res': buildResidential(b); break;
+      case 'grocery': case 'pharmacy': case 'hardware': buildShop(b, b.type); break;
+      case 'police': buildPolice(b); break;
+      case 'gas': buildGas(b); break;
+      case 'park': buildPark(b, false); break;
+      case 'camp': buildPark(b, true); break;
+      case 'parking': buildParking(b); break;
+    }
+  }
+
+  // ---------- outskirts forest ----------
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const inside = x >= x0 && x < x1 && y >= y0 && y < y1;
+    if (x < 2 || y < 2 || x >= W - 2 || y >= H - 2) { ground(x, y, T.GRASS); obj(x, y, T.TREE); continue; }
+    if (inside) continue;
+    const t = tile(x, y);
+    if (t !== T.GRASS) continue;
+    const r = rng.next();
+    if (r < 0.3) obj(x, y, T.TREE); else if (r < 0.38) obj(x, y, T.BUSH); else if (r < 0.45) ground(x, y, T.DIRT);
+  }
+  // a few camps in the forest ring
+  for (let k = 0; k < 10; k++) {
+    const side = rng.int(0, 3);
+    const x = side === 0 ? rng.int(3, x0 - 3) : side === 1 ? rng.int(x1 + 2, W - 4) : rng.int(4, W - 5);
+    const y = side >= 2 ? (side === 2 ? rng.int(3, y0 - 3) : rng.int(y1 + 2, H - 4)) : rng.int(4, H - 5);
+    for (let yy = y - 1; yy <= y + 1; yy++) for (let xx = x - 1; xx <= x + 1; xx++) if (inb(xx, yy) && xx > 1 && yy > 1 && xx < W - 2 && yy < H - 2) ground(xx, yy, T.DIRT);
+    if (x > 2 && y > 2 && x < W - 3 && y < H - 3) { addCont(x, y, 'crate'); prop(x - 1, y + 1, 1, 1, 'tent'); }
+  }
+
+  // ---------- road cars ----------
+  for (const rx of xs) for (let y = y0 + 2; y < y1 - 3; y += rng.int(5, 14)) {
+    if (inRoadY(y) || inRoadY(y + 1) || inRoadY(y - 1) || inRoadY(y + 2)) continue;
+    if (rng.chance(0.45)) addCar(rx + (rng.chance(0.5) ? 0 : 3), y, true, rng.chance(0.8));
+  }
+  for (const ry of ys) for (let x = x0 + 2; x < x1 - 3; x += rng.int(5, 14)) {
+    if (inRoadX(x) || inRoadX(x + 1) || inRoadX(x - 1) || inRoadX(x + 2)) continue;
+    if (rng.chance(0.45)) addCar(x, ry + (rng.chance(0.5) ? 0 : 3), false, rng.chance(0.8));
+  }
+  return world;
+
+  // ================= builders =================
+  function buildHouse(x, y, w, h, face) {
+    const id = addBuilding(x, y, w, h, 'house', 'House');
+    shell(x, y, w, h, id, T.FLOOR);
+    const doors = [];
+    const fx = x + rng.int(2, w - 3), fy = face === 'N' ? y : y + h - 1;
+    door(fx, fy, false); doors.push([fx, fy]);
+    if (rng.chance(0.4)) { // back door
+      const bx = x + rng.int(2, w - 3), by = face === 'N' ? y + h - 1 : y;
+      door(bx, by, false); doors.push([bx, by]);
+    }
+    const leaves = [];
+    const split = (r, depth) => {
+      const canV = r.w >= 7, canH = r.h >= 7;
+      if (depth >= 3 || (!canV && !canH) || r.w * r.h < 20 || (depth > 0 && r.w * r.h < 36 && rng.chance(0.5))) { leaves.push(r); return; }
+      let vert = canV && (!canH || r.w >= r.h);
+      if (canV && canH && rng.chance(0.25)) vert = !vert;
+      for (let tries = 0; tries < 6; tries++) {
+        if (vert) {
+          const sx = r.x + rng.int(3, r.w - 4);
+          if (doors.some((d) => d[0] === sx && (d[1] === r.y - 1 || d[1] === r.y + r.h))) continue;
+          for (let yy = r.y; yy < r.y + r.h; yy++) obj(sx, yy, T.WALL);
+          const dy = r.y + rng.int(0, r.h - 1);
+          if (rng.chance(0.7)) door(sx, dy, rng.chance(0.5)); else obj(sx, dy, T.FLOOR);
+          doors.push([sx, dy]);
+          split({ x: r.x, y: r.y, w: sx - r.x, h: r.h }, depth + 1);
+          split({ x: sx + 1, y: r.y, w: r.x + r.w - sx - 1, h: r.h }, depth + 1);
+          return;
+        } else {
+          const sy = r.y + rng.int(3, r.h - 4);
+          if (doors.some((d) => d[1] === sy && (d[0] === r.x - 1 || d[0] === r.x + r.w))) continue;
+          for (let xx = r.x; xx < r.x + r.w; xx++) obj(xx, sy, T.WALL);
+          const dx = r.x + rng.int(0, r.w - 1);
+          if (rng.chance(0.7)) door(dx, sy, rng.chance(0.5)); else obj(dx, sy, T.FLOOR);
+          doors.push([dx, sy]);
+          split({ x: r.x, y: r.y, w: r.w, h: sy - r.y }, depth + 1);
+          split({ x: r.x, y: sy + 1, w: r.w, h: r.y + r.h - sy - 1 }, depth + 1);
+          return;
+        }
+      }
+      leaves.push(r);
+    };
+    split({ x: x + 1, y: y + 1, w: w - 2, h: h - 2 }, 0);
+    leaves.sort((a, b) => b.w * b.h - a.w * a.h);
+    const roles = leaves.length === 1 ? ['combo'] : leaves.length === 2 ? ['combo', 'bedroom'] : leaves.length === 3 ? ['living', 'kitchen', 'bedroom'] : ['living', 'kitchen', 'bedroom', ...Array(leaves.length - 4).fill('bedroom'), 'bathroom'];
+    leaves.forEach((r, k) => furnishRoom(r, roles[k]));
+    windows(x, y, w, h, 0.35);
+  }
+
+  function furnishRoom(r, role) {
+    const fl = role === 'kitchen' || role === 'bathroom' ? T.TILE : role === 'bedroom' ? T.CARPET : T.FLOOR;
+    for (let yy = r.y; yy < r.y + r.h; yy++) for (let xx = r.x; xx < r.x + r.w; xx++) ground(xx, yy, fl);
+    const list = { living: ['shelf', 'shelf'], kitchen: ['fridge', 'counter', 'counter'], bedroom: ['wardrobe', 'dresser'], bathroom: ['cabinet'], combo: ['fridge', 'counter', 'shelf'] }[role];
+    if (role === 'living' && rng.chance(0.35)) list.push('toolbox');
+    const cands = [];
+    for (let yy = r.y; yy < r.y + r.h; yy++) for (let xx = r.x; xx < r.x + r.w; xx++) {
+      const edge = xx === r.x || yy === r.y || xx === r.x + r.w - 1 || yy === r.y + r.h - 1;
+      if (!edge) continue;
+      const near = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => { const t = tile(xx + dx, yy + dy); return t === T.DOOR || (t !== T.WALL && t !== T.WINDOW && world.bld[I(xx + dx, yy + dy)] >= 0 && (xx + dx < r.x || yy + dy < r.y || xx + dx >= r.x + r.w || yy + dy >= r.y + r.h)); });
+      if (!near) cands.push([xx, yy]);
+    }
+    if (r.w < 3 || r.h < 3) return;
+    for (const k of list) {
+      if (!cands.length) break;
+      const ci2 = rng.int(0, cands.length - 1);
+      const [xx, yy] = cands.splice(ci2, 1)[0];
+      addCont(xx, yy, k);
+    }
+    const mx = r.x + Math.floor(r.w / 2), my = r.y + Math.floor(r.h / 2);
+    if (role === 'bedroom') prop(mx - 0.5, my - 1, 1.4, 2, 'bed');
+    else if (role === 'living' || role === 'combo') { prop(mx - 1, my - 0.5, 2.2, 1.6, 'rug'); prop(mx - 0.8, my - 0.6, 1.6, 0.7, 'sofa'); }
+    else if (role === 'kitchen') prop(mx - 0.6, my - 0.6, 1.2, 1.2, 'table');
+    else if (role === 'bathroom') prop(mx - 0.3, my - 0.3, 0.7, 0.8, 'toilet');
+  }
+
+  function yardDeco(x, y, w, h) {
+    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
+      if (tile(xx, yy) !== T.GRASS) continue;
+      const nearB = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => world.bld[I(xx + dx, yy + dy)] >= 0 || tile(xx + dx, yy + dy) === T.DIRT);
+      if (nearB) continue;
+      const r = rng.next();
+      if (r < 0.05) obj(xx, yy, T.TREE); else if (r < 0.1) obj(xx, yy, T.BUSH);
+    }
+  }
+
+  function buildResidential(b) {
+    const rowH = Math.floor(b.h / 2);
+    for (let row = 0; row < 2; row++) {
+      const ly = b.y + row * rowH, lh = row === 0 ? rowH : b.h - rowH;
+      const face = row === 0 ? 'N' : 'S';
+      let lx = b.x;
+      while (lx < b.x + b.w) {
+        let lw = rng.int(9, 13);
+        if (b.x + b.w - (lx + lw) < 8) lw = b.x + b.w - lx;
+        const hw = Math.min(lw - 2, rng.int(7, 11)), hh = Math.min(lh - 3, rng.int(7, 10));
+        const hx = lx + 1 + rng.int(0, Math.max(0, lw - 2 - hw));
+        const hy = face === 'N' ? ly + 2 : ly + lh - 2 - hh;
+        if (hw >= 6 && hh >= 6) {
+          buildHouse(hx, hy, hw, hh, face);
+          // path from front door to sidewalk
+          for (let xx = hx; xx < hx + hw; xx++) {
+            const dyy = face === 'N' ? hy : hy + hh - 1;
+            if (tile(xx, dyy) === T.DOOR) {
+              if (face === 'N') for (let yy = ly; yy < hy; yy++) ground(xx, yy, T.DIRT);
+              else for (let yy = hy + hh; yy < ly + lh; yy++) ground(xx, yy, T.DIRT);
+            }
+          }
+          if (rng.chance(0.2)) {
+            const sx = hx + hw + 0 < lx + lw - 1 ? hx + hw : hx - 2;
+            const cy2 = face === 'N' ? ly : ly + lh - 2;
+            if (sx >= lx && sx < lx + lw - 1) addCar(sx, cy2, true, true);
+          }
+        }
+        yardDeco(lx, ly, lw, lh);
+        lx += lw;
+      }
+    }
+  }
+
+  function buildShop(b, kind) {
+    const w = Math.min(b.w - 2, rng.int(16, 20)), h = Math.min(b.h - 5, rng.int(11, 14));
+    const x = b.x + Math.floor((b.w - w) / 2), y = b.y + 1;
+    const names = { grocery: 'Grocery Store', pharmacy: 'Pharmacy', hardware: 'Hardware Store' };
+    const id = addBuilding(x, y, w, h, kind, names[kind]);
+    shell(x, y, w, h, id, kind === 'hardware' ? T.CONCRETE : T.TILE);
+    const dx = x + Math.floor(w / 2) - 1;
+    door(dx, y, false); door(dx + 1, y, false);
+    door(x + w - 3, y + h - 1, false);
+    addCont(x + 2, y + 2, 'register'); obj(x + 3, y + 2, T.FURN); world.furn[I(x + 3, y + 2)] = FK.counter;
+    let n = 0;
+    for (let sx = x + 2; sx < x + w - 2; sx += 3) {
+      for (let sy = y + 4; sy < y + h - 2; sy++) {
+        if (sx >= dx - 1 && sx <= dx + 2 && sy < y + 5) continue;
+        if (n++ % 2 === 0) addCont(sx, sy, kind);
+        else { obj(sx, sy, T.FURN); world.furn[I(sx, sy)] = FK[kind]; }
+      }
+    }
+    windows(x, y, w, h, 0.6);
+    for (let yy = y + h; yy < b.y + b.h; yy++) for (let xx = b.x; xx < b.x + b.w; xx++) ground(xx, yy, T.CONCRETE);
+    for (let xx = b.x; xx < b.x + b.w; xx++) ground(xx, b.y, T.CONCRETE);
+    for (let xx = b.x + 1; xx < b.x + b.w - 2; xx += 3) if (rng.chance(0.3)) addCar(xx, y + h + 1, true);
+    yardDeco(b.x, b.y, b.w, b.h);
+  }
+
+  function buildPolice(b) {
+    const w = Math.min(b.w - 2, 16), h = Math.min(b.h - 4, 13);
+    const x = b.x + Math.floor((b.w - w) / 2), y = b.y + 2;
+    const id = addBuilding(x, y, w, h, 'police', 'Police Station');
+    shell(x, y, w, h, id, T.TILE);
+    const dx = x + Math.floor(w / 2) - 1;
+    door(dx, y, false); door(dx + 1, y, false);
+    const sy = y + 6;
+    for (let xx = x + 1; xx < x + w - 1; xx++) obj(xx, sy, T.WALL);
+    door(x + Math.floor(w / 2), sy, false);
+    for (let xx = x + 1; xx < x + w - 1; xx++) for (let yy = sy + 1; yy < y + h - 1; yy++) ground(xx, yy, T.CONCRETE);
+    for (let xx = x + 2; xx < x + w - 2; xx += 2) addCont(xx, y + h - 2, 'locker');
+    addCont(x + 1, sy + 2, 'locker'); addCont(x + w - 2, sy + 2, 'locker');
+    addCont(x + 2, y + 2, 'dresser'); addCont(x + w - 3, y + 2, 'shelf');
+    prop(x + 3, y + 3, 2, 1, 'table'); prop(x + w - 5, y + 3, 2, 1, 'table');
+    windows(x, y, w, h, 0.5);
+    for (let xx = b.x; xx < b.x + b.w; xx += 3) if (rng.chance(0.5)) addCar(xx, y + h + 1, true);
+  }
+
+  function buildGas(b) {
+    for (let yy = b.y; yy < b.y + b.h; yy++) for (let xx = b.x; xx < b.x + b.w; xx++) ground(xx, yy, T.CONCRETE);
+    const w = 10, h = 7, x = b.x + 2, y = b.y + b.h - h - 2;
+    const id = addBuilding(x, y, w, h, 'gas', 'Gas Station');
+    shell(x, y, w, h, id, T.TILE);
+    door(x + 4, y, false);
+    addCont(x + 1, y + 1, 'register');
+    for (let xx = x + 2; xx < x + w - 1; xx += 2) addCont(xx, y + 4, 'grocery');
+    addCont(x + w - 2, y + 1, 'fridge'); addCont(x + w - 2, y + 2, 'toolbox');
+    windows(x, y, w, h, 0.6);
+    for (let k = 0; k < 3; k++) prop(b.x + 4 + k * 5, b.y + 3, 1, 1, 'pump');
+    addCar(b.x + 6, b.y + 5, false); addCar(b.x + 14, b.y + 2, true);
+  }
+
+  function buildPark(b, camp) {
+    for (let yy = b.y; yy < b.y + b.h; yy++) for (let xx = b.x; xx < b.x + b.w; xx++) {
+      const r = rng.next();
+      if (r < (camp ? 0.3 : 0.08)) obj(xx, yy, T.TREE); else if (r < (camp ? 0.38 : 0.13)) obj(xx, yy, T.BUSH);
+    }
+    const mx = b.x + Math.floor(b.w / 2), my = b.y + Math.floor(b.h / 2);
+    for (let yy = my - 2; yy <= my + 2; yy++) for (let xx = mx - 3; xx <= mx + 3; xx++) ground(xx, yy, T.DIRT);
+    if (camp) { addCont(mx - 2, my - 1, 'crate'); addCont(mx + 2, my + 1, 'crate'); prop(mx - 1, my - 2, 1.4, 1.2, 'tent'); prop(mx, my, 0.8, 0.8, 'fire'); }
+    else {
+      for (let xx = b.x; xx < b.x + b.w; xx++) ground(xx, my, T.DIRT);
+      for (let yy = b.y; yy < b.y + b.h; yy++) ground(mx, yy, T.DIRT);
+      prop(mx - 3, my - 2, 1.2, 0.5, 'bench'); prop(mx + 2, my + 2, 1.2, 0.5, 'bench');
+      if (rng.chance(0.5)) addCont(mx + 3, my - 2, 'crate');
+    }
+  }
+
+  function buildParking(b) {
+    for (let yy = b.y; yy < b.y + b.h; yy++) for (let xx = b.x; xx < b.x + b.w; xx++) ground(xx, yy, T.CONCRETE);
+    for (let yy = b.y + 2; yy < b.y + b.h - 3; yy += 5) for (let xx = b.x + 1; xx < b.x + b.w - 1; xx += 2) if (rng.chance(0.4)) addCar(xx, yy, true);
+  }
+
+  function buildSafehouse(b) {
+    world.safeRect = { x: b.x, y: b.y, w: b.w, h: b.h };
+    for (let yy = b.y; yy < b.y + b.h; yy++) for (let xx = b.x; xx < b.x + b.w; xx++) {
+      const edge = xx === b.x || yy === b.y || xx === b.x + b.w - 1 || yy === b.y + b.h - 1;
+      ground(xx, yy, T.YARD); if (edge) obj(xx, yy, T.FENCE);
+      world.safe[I(xx, yy)] = 1;
+    }
+    const gx = b.x + Math.floor(b.w / 2) - 1, gy = b.y + Math.floor(b.h / 2) - 1;
+    for (const [xx, yy] of [[gx, b.y], [gx + 1, b.y], [gx, b.y + b.h - 1], [gx + 1, b.y + b.h - 1], [b.x, gy], [b.x, gy + 1], [b.x + b.w - 1, gy], [b.x + b.w - 1, gy + 1]]) ground(xx, yy, T.GATE);
+    const w = 12, h = 9, x = b.x + Math.floor((b.w - w) / 2), y = b.y + Math.floor((b.h - h) / 2) - 1;
+    const id = addBuilding(x, y, w, h, 'safe', 'Safehouse');
+    shell(x, y, w, h, id, T.FLOOR);
+    door(x + Math.floor(w / 2), y + h - 1, true);
+    door(x + Math.floor(w / 2), y, true);
+    world.fixtures.stash = addCont(x + 1, y + 1, 'stash');
+    addCont(x + 2, y + 1, 'stash'); world.containers.pop(); world.contAt[I(x + 2, y + 1)] = world.fixtures.stash;
+    world.fixtures.bench = addCont(x + w - 2, y + 1, 'bench');
+    world.fixtures.radio = addCont(x + w - 3, y + 1, 'radio');
+    world.fixtures.bed = addCont(x + 1, y + h - 2, 'bed');
+    prop(x + 4, y + 3, 4, 3, 'rug'); prop(x + 5, y + 4, 2, 1, 'table');
+    windows(x, y, w, h, 0.5);
+    world.spawn = { x: (x + Math.floor(w / 2) + 0.5) * 32, y: (y + h / 2 + 1) * 32 };
+    world.safeCenter = { x: (b.x + b.w / 2) * 32, y: (b.y + b.h / 2) * 32 };
+    world.gardenAt = { x: b.x + 3, y: b.y + 2 }; world.rainAt = { x: b.x + b.w - 5, y: b.y + 2 };
+    // Ensure path through gates to the house door
+    for (let yy = y + h; yy < b.y + b.h - 1; yy++) ground(x + Math.floor(w / 2), yy, T.DIRT);
+  }
+}

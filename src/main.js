@@ -1,0 +1,160 @@
+import './style.css';
+import { SIM_DT } from './config.js';
+import { createState, addPlayer, step, command, getInteract, spawnZombie, newPlayer, dayOf, weaponList } from './sim/sim.js';
+import { Renderer } from './render/renderer.js';
+import { Sfx } from './audio.js';
+import { drawHUD, Minimap } from './ui/hud.js';
+import { Panels } from './ui/panels.js';
+import { saveGame, loadGame, hasSave } from './save.js';
+
+const LOCAL = 'p1';
+const $ = (id) => document.getElementById(id);
+const rend = new Renderer($('game'));
+const sfx = new Sfx();
+let s = null, mm = null, running = false, paused = false;
+const keys = new Set(), pressed = new Set();
+const mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false };
+const ui = { messages: [], mouse, mouseWorld: { x: 0, y: 0 }, interact: null, bigMap: false, panelOpen: false, dt: 0 };
+let selPending = -1;
+
+const panels = new Panels({
+  state: () => s, player: () => s && s.players[LOCAL],
+  cmd: (c) => { command(s, LOCAL, c); drain(); },
+});
+const addMsg = (text, color = '#ddd') => { ui.messages.push({ text, color, t: 7 }); if (ui.messages.length > 30) ui.messages.shift(); };
+
+function drain() {
+  for (const e of s.events) {
+    rend.onEvent(e, LOCAL); sfx.play(e, LOCAL);
+    if (e.pid && e.pid !== LOCAL && e.type !== 'step') continue;
+    switch (e.type) {
+      case 'msg': addMsg(e.text, e.color); break;
+      case 'open': panels.show('inv'); if (e.first && e.empty) addMsg('Nothing useful here.', '#888'); break;
+      case 'close': if (panels.open === 'inv') panels.refresh(); break;
+      case 'ui': panels.show('base', e.tab); break;
+      case 'objective': addMsg(`✔ Objective complete: ${e.text}`, '#ffd27a'); sfx.play({ type: 'objective' }); break;
+      case 'slept': addMsg('You slept until morning.', '#9ab0ff'); break;
+      case 'pdie': showDeath(); break;
+    }
+  }
+  const dirty = panels.isOpen && s.events.some((e) => e.type !== 'step' && e.type !== 'groan');
+  s.events.length = 0;
+  if (dirty) panels.refresh();
+}
+
+function showDeath() {
+  panels.close();
+  $('deathText').innerHTML = `You survived until Day ${dayOf(s)}.<br>Everything you carried is on your body, marked <b style="color:#ffd25a">✕</b> on the map.<br>Your stash and base upgrades are safe.`;
+  setTimeout(() => $('death').classList.remove('hidden'), 1200);
+  save();
+}
+
+function begin(state, explored) {
+  s = state; rend.setWorld(s.world); rend.resize();
+  const p = s.players[LOCAL]; rend.cam.x = p.x; rend.cam.y = p.y;
+  mm = new Minimap(s.world, explored);
+  running = true; paused = false; ui.messages = [];
+  ['menu', 'death', 'pause', 'help'].forEach((id) => $(id).classList.add('hidden'));
+  if (p.dead) showDeath();
+}
+function newGame() {
+  const st = createState((Math.random() * 2 ** 31) | 0);
+  addPlayer(st, LOCAL);
+  begin(st, null);
+  addMsg('You wake up in the safehouse. Supplies are almost gone.', '#ffd27a');
+  addMsg('WASD move · Mouse aim · Click attack · E interact · Tab inventory', '#bbb');
+  addMsg('Loot the town and bring it back to the Stash. Zombies cannot enter the fence.', '#bbb');
+  save();
+}
+function save() { if (s) saveGame(s, mm && mm.explored); }
+
+// ---------- input ----------
+addEventListener('keydown', (e) => {
+  if (['Tab', 'Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
+  sfx.init();
+  if (!running) return;
+  if (e.code === 'Escape') {
+    if (panels.isOpen) panels.close();
+    else if (ui.bigMap) ui.bigMap = false;
+    else if (!$('death').classList.contains('hidden')) return;
+    else togglePause();
+    return;
+  }
+  if (paused) return;
+  if (!keys.has(e.code)) pressed.add(e.code);
+  keys.add(e.code);
+  if (e.code === 'Tab' || e.code === 'KeyI') panels.toggleInv();
+  if (e.code === 'KeyM') ui.bigMap = !ui.bigMap;
+  if (e.code.startsWith('Digit')) { const n = +e.code.slice(5); if (n >= 1 && n <= 6) selPending = n - 1; }
+});
+addEventListener('keyup', (e) => keys.delete(e.code));
+addEventListener('blur', () => { keys.clear(); mouse.down = false; });
+addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
+$('game').addEventListener('mousedown', (e) => { sfx.init(); if (e.button === 0) mouse.down = true; });
+addEventListener('mouseup', () => (mouse.down = false));
+addEventListener('contextmenu', (e) => e.preventDefault());
+$('game').addEventListener('wheel', (e) => {
+  if (!s) return; const p = s.players[LOCAL]; const l = weaponList(p); const i = Math.max(0, l.indexOf(p.wpn));
+  selPending = (i + (e.deltaY > 0 ? 1 : -1) + l.length) % l.length;
+}, { passive: true });
+addEventListener('resize', () => rend.resize());
+addEventListener('beforeunload', save);
+document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+
+function togglePause() { paused = !paused; $('pause').classList.toggle('hidden', !paused); if (paused) save(); }
+
+function buildInput(first) {
+  const k = (c) => keys.has(c), ed = (c) => first && pressed.has(c);
+  const inp = {
+    mx: ui.mouseWorld.x, my: ui.mouseWorld.y,
+    up: k('KeyW') || k('ArrowUp'), down: k('KeyS') || k('ArrowDown'), left: k('KeyA') || k('ArrowLeft'), right: k('KeyD') || k('ArrowRight'),
+    sprint: k('ShiftLeft') || k('ShiftRight'), attack: mouse.down && !ui.bigMap,
+    sneak: ed('KeyC'), interact: ed('KeyE'), reload: ed('KeyR'), shove: ed('Space'), flash: ed('KeyF'), heal: ed('KeyH'), throwN: ed('KeyG'), throwB: ed('KeyX'),
+    sel: first ? selPending : -1,
+  };
+  if (first) selPending = -1;
+  return inp;
+}
+
+// ---------- menus ----------
+$('btnNew').onclick = () => { if (hasSave() && !confirm('Start a new world? Your current save will be overwritten.')) return; sfx.init(); newGame(); };
+$('btnContinue').onclick = () => { sfx.init(); const r = loadGame(spawnZombie, newPlayer); if (r) begin(r.state, r.explored); else newGame(); };
+$('btnHelp').onclick = () => $('help').classList.remove('hidden');
+$('btnPauseHelp').onclick = () => $('help').classList.remove('hidden');
+$('btnHelpClose').onclick = () => $('help').classList.add('hidden');
+$('btnResume').onclick = () => togglePause();
+$('btnQuit').onclick = () => { save(); running = false; paused = false; $('pause').classList.add('hidden'); panels.close(); showMenu(); };
+$('btnRespawn').onclick = () => { command(s, LOCAL, { t: 'respawn' }); drain(); $('death').classList.add('hidden'); const p = s.players[LOCAL]; rend.cam.x = p.x; rend.cam.y = p.y; addMsg('You wake up at the safehouse.', '#ffd27a'); save(); };
+$('vol').oninput = (e) => sfx.setVolume(+e.target.value);
+function showMenu() { $('btnContinue').classList.toggle('hidden', !hasSave()); $('menu').classList.remove('hidden'); }
+
+// ---------- loop ----------
+let last = performance.now(), acc = 0, saveT = 0, revealT = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (!running) return;
+  ui.dt = paused ? 0 : dt;
+  ui.mouseWorld = rend.screenToWorld(mouse.x, mouse.y);
+  if (!paused) {
+    acc += dt; let first = true;
+    while (acc >= SIM_DT) { step(s, { [LOCAL]: buildInput(first) }, SIM_DT); first = false; acc -= SIM_DT; drain(); }
+    if (!first) pressed.clear();
+    for (const m of ui.messages) m.t -= dt;
+    ui.messages = ui.messages.filter((m) => m.t > 0);
+    saveT += dt; if (saveT > 30) { saveT = 0; save(); }
+    revealT -= dt;
+    const p = s.players[LOCAL];
+    if (revealT <= 0 && !p.dead) { revealT = 0.4; mm.reveal(p.x, p.y); if (panels.isOpen) panels.refresh(); }
+  }
+  const p = s.players[LOCAL];
+  ui.interact = !p.dead ? getInteract(s, p) : null;
+  ui.panelOpen = panels.isOpen;
+  sfx.lx = p.x; sfx.ly = p.y;
+  rend.render(s, LOCAL, ui);
+  drawHUD(rend.ctx, s, p, ui, rend, mm);
+}
+rend.resize();
+showMenu();
+requestAnimationFrame(frame);
+window.__game = { get state() { return s; }, newGame, command: (c) => { command(s, LOCAL, c); drain(); } };
