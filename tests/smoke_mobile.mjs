@@ -1,0 +1,14 @@
+import { createRequire } from 'module'; const require = createRequire(import.meta.url); const { chromium, devices } = require(process.env.PW || 'playwright');
+import path from 'path';
+const out = process.argv[2] || '.';
+const b = await chromium.launch();
+const ctx = await b.newContext({ ...devices['iPhone 13 landscape'] });
+const pg = await ctx.newPage(); const errs = [];
+pg.on('pageerror', (e) => errs.push(e.message));
+await pg.goto('file://' + path.resolve('dist/index.html'));
+await pg.tap('#btnNew'); await pg.waitForTimeout(300);
+await pg.evaluate(() => { const s = window.__game.state; s.weather.rain = 1; s.weather.target = 1; const p = s.players.p1; p.y += 300; });
+await pg.waitForTimeout(600);
+await pg.screenshot({ path: out + '/s_mobile.png' });
+console.log(errs.length ? errs.join('\n') : 'no errors');
+await b.close();

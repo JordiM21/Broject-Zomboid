@@ -45,7 +45,7 @@ function bar(ctx, x, y, w, v, col, label) {
 
 export function drawHUD(ctx, s, p, ui, rend, mm) {
   const SW = window.innerWidth, SH = window.innerHeight;
-  const small = SW < 700;
+  const small = SW < 700 || SH < 500;
   ctx.textBaseline = 'alphabetic';
   if (p.dead) return;
   // vignettes
@@ -87,7 +87,7 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   for (const [t, c] of tags) { const tw = ctx.measureText(t).width + 10; ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(tx, by - 20, tw, 15); ctx.fillStyle = c; ctx.fillText(t, tx + 5, by - 9); tx += tw + 4; }
   // hotbar
   const wl = weaponList(p);
-  const slot = small ? 44 : 54, gap = 6, hw = 6 * (slot + gap) - gap, hx = SW / 2 - hw / 2, hy = SH - slot - 14;
+  const slot = small ? 38 : 54, gap = small ? 4 : 6, hw = 6 * (slot + gap) - gap, hx = small ? Math.max(230, SW / 2 - hw / 2) : SW / 2 - hw / 2, hy = SH - slot - (small ? 8 : 14);
   for (let k = 0; k < 6; k++) {
     const x = hx + k * (slot + gap), it = wl[k];
     const sel = k < wl.length && wl[k] === p.wpn;
@@ -104,7 +104,7 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   }
   // prompt
   if (ui.interact && !p.search) {
-    const t = `[E] ${ui.interact.label}`; ctx.font = '600 14px system-ui, sans-serif'; ctx.textAlign = 'center';
+    const t = `[E] ${ui.interact.label}` + (ui.interact.kind === 'door' && ui.interact.label === 'Open Door' ? '   [B] Barricade' : ''); ctx.font = '600 14px system-ui, sans-serif'; ctx.textAlign = 'center';
     const tw = ctx.measureText(t).width + 20;
     ctx.fillStyle = 'rgba(10,12,16,0.75)'; ctx.fillRect(SW / 2 - tw / 2, hy - 44, tw, 26);
     ctx.fillStyle = '#ffe9b0'; ctx.fillText(t, SW / 2, hy - 26);
@@ -117,7 +117,7 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   const w = s.world; const ti = Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE);
   const bid = w.bld[ti]; const safe = w.safe[ti];
   ctx.font = '600 12px system-ui, sans-serif'; ctx.fillStyle = safe ? '#9fe09f' : '#bbb';
-  ctx.fillText(safe ? 'SAFE ZONE' : bid >= 0 ? w.buildings[bid].name : 'Outside', 20, 50);
+  ctx.fillText((safe ? 'SAFE ZONE' : bid >= 0 ? w.buildings[bid].name : 'Outside') + (s.weather && s.weather.rain > 0.3 ? '  ·  Raining' : ''), 20, 50);
   const ob = OBJECTIVES[s.obj];
   ctx.fillStyle = '#ffd27a'; ctx.font = '600 12px system-ui, sans-serif';
   ctx.fillText(ob ? `▸ ${ob.text}` : '▸ Survive. Haul. Repeat.', 20, 69);
@@ -147,15 +147,15 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   }
   // messages
   let my2 = by - 40;
-  ctx.textAlign = 'left'; ctx.font = '600 13px system-ui, sans-serif';
-  for (let k = ui.messages.length - 1; k >= 0 && k >= ui.messages.length - 6; k--) {
+  ctx.textAlign = 'left'; ctx.font = `600 ${small ? 11 : 13}px system-ui, sans-serif`;
+  for (let k = ui.messages.length - 1; k >= 0 && k >= ui.messages.length - (small ? 3 : 6); k--) {
     const m = ui.messages[k]; const a = Math.min(1, m.t / 1.5);
     ctx.globalAlpha = a; ctx.fillStyle = 'rgba(0,0,0,0.5)'; const tw = ctx.measureText(m.text).width;
     ctx.fillRect(12, my2 - 14, tw + 12, 19); ctx.fillStyle = m.color; ctx.fillText(m.text, 18, my2); my2 -= 22;
   }
   ctx.globalAlpha = 1;
   // crosshair
-  if (!ui.panelOpen) {
+  if (!ui.panelOpen && !ui.touch) {
     const { x, y } = ui.mouse; const gun = p.wpn && ITEMS[p.wpn.id].cat === 'gun';
     ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.5; ctx.beginPath();
     const r = gun ? 8 : 5; ctx.moveTo(x - r - 4, y); ctx.lineTo(x - r, y); ctx.moveTo(x + r, y); ctx.lineTo(x + r + 4, y); ctx.moveTo(x, y - r - 4); ctx.lineTo(x, y - r); ctx.moveTo(x, y + r); ctx.lineTo(x, y + r + 4); ctx.stroke();

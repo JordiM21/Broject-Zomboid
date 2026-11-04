@@ -17,7 +17,7 @@ export function saveGame(s, explored) {
     if (i >= s.baseConts) cont.push([i, c.items, 1, 0, c.px, c.py, c.type, c.label || null]);
     else if (c.items !== null || c.searched) cont.push([i, c.items, c.searched ? 1 : 0, c.salt || 0]);
   });
-  const doors = Object.entries(w.doors).map(([i, d]) => [+i, d.open ? 1 : 0, d.hp, d.broken ? 1 : 0]);
+  const doors = Object.entries(w.doors).map(([i, d]) => [+i, d.open ? 1 : 0, d.hp, d.broken ? 1 : 0, d.bar || 0]);
   const data = {
     v: 1, seed: s.seed, time: s.time, dawnIdx: s.dawnIdx, nextId: s.nextId, upgrades: s.upgrades, hordeDay: s.hordeDay, obj: s.obj,
     stats: s.stats, tradePoints: s.tradePoints, loose: s.loose, cont, doors,
@@ -45,7 +45,7 @@ export function loadGame(spawnZombie, newPlayer) {
       if (label) w.containers[i].label = label;
     } else { const k = w.containers[i]; k.items = items; k.searched = !!searched; k.salt = salt; }
   }
-  for (const [i, o, hp, b] of d.doors) if (w.doors[i]) Object.assign(w.doors[i], { open: !!o, hp, broken: !!b });
+  for (const [i, o, hp, b, bar] of d.doors) if (w.doors[i]) Object.assign(w.doors[i], { open: !!o, hp, broken: !!b, bar: bar || 0 });
   for (const pp of d.players) {
     const p = newPlayer(s, pp.id, 'none');
     Object.assign(p, pp); p.inv = pp.inv; p.wpn = pp.wpn >= 0 ? p.inv[pp.wpn] : null;

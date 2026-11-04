@@ -36,6 +36,7 @@ export function createState(seed, fresh = true) {
     seed, world, time: 0, dawnIdx: 0, players: {}, zombies: [], thrown: [], noises: [], events: [], nextId: 1,
     upgrades: Object.fromEntries(UPGRADES.map((u) => [u.id, 0])), spawnT: 0, hordeDay: 0, obj: 0,
     stats: { kills: 0, deaths: 0, hauled: 0, bestDay: 1 }, tradePoints: 0, loose: [],
+    weather: { rain: 0, target: 0, t: 120 },
   };
   s.dawnIdx = dawnIndex(s);
   s.baseConts = world.containers.length;
@@ -44,6 +45,7 @@ export function createState(seed, fresh = true) {
   return s;
 }
 export function initRuntime(s) {
+  s.weather = s.weather || { rain: 0, target: 0, t: 120 };
   s.flows = {}; s.events = s.events || []; s.noises = [];
 }
 
@@ -83,6 +85,9 @@ function completeObjective(s, id) {
 // ---------- step ----------
 export function step(s, inputs, dt) {
   s.time += dt;
+  const wx = s.weather; wx.t -= dt;
+  if (wx.t <= 0) { wx.t = DAY_LENGTH * (0.08 + rnd() * 0.2); wx.target = rnd() < 0.35 ? 0.5 + rnd() * 0.5 : 0; if (wx.target && !wx.rain) msg(s, 'It starts to rain. The noise covers your steps.', '#9ab0ff'); }
+  wx.rain += (wx.target - wx.rain) * Math.min(1, dt * 0.08);
   const di = dawnIndex(s);
   if (di > s.dawnIdx) { s.dawnIdx = di; onDawn(s); }
   const day = dayOf(s);
@@ -158,6 +163,20 @@ function contAction(s, c) {
   return (c.searched ? 'Open ' : 'Search ') + name + (c.searched && c.items && !c.items.length ? ' (empty)' : '');
 }
 
+function barricade(s, p) {
+  const it = getInteract(s, p);
+  if (!it || it.kind !== 'door') { msg(s, 'Face a door to barricade it.', '#aaa', p.id); return; }
+  const d = s.world.doors[it.i];
+  if (d.broken || d.open) { msg(s, d.broken ? 'The door is broken.' : 'Close the door first.', '#aaa', p.id); return; }
+  if ((d.bar || 0) >= 3) { msg(s, 'Already fully barricaded.', '#aaa', p.id); return; }
+  if (countItem(p.inv, 'plank') < 1 || countItem(p.inv, 'nails') < 3) { msg(s, 'Barricading needs 1 Wood Plank and 3 Nails.', '#ff8a6a', p.id); return; }
+  removeItem(p.inv, 'plank', 1); removeItem(p.inv, 'nails', 3);
+  d.bar = (d.bar || 0) + 1; d.hp += 70;
+  ev(s, { type: 'built', x: p.x, y: p.y });
+  s.noises.push({ x: p.x, y: p.y, r: 8 * TILE });
+  msg(s, `Door barricaded (${d.bar}/3).`, '#9fe09f', p.id);
+}
+
 function doInteract(s, p) {
   const it = getInteract(s, p); if (!it) return;
   const w = s.world;
@@ -208,8 +227,23 @@ function updatePlayer(s, p, inp, dt) {
   speed *= slow; if (p.channel) speed *= 0.4; if (p.reload > 0) speed *= 0.8;
   const tHere = w.tiles[Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE)];
   if (tHere === T.BUSH) speed *= 0.6;
+  const bx = p.x, by = p.y;
   p.x += mx * speed * dt; p.y += my * speed * dt;
   collide(p, PLAYER_R, (tx, ty) => solidAt(w, tx, ty));
+  // doorway assist: if blocked while moving along one axis, slide toward the open tile's center
+  if (p.moving && Math.hypot(p.x - bx, p.y - by) < speed * dt * 0.3 && (mx === 0 || my === 0)) {
+    const ax = mx === 0, cx = Math.floor(p.x / TILE), cy = Math.floor(p.y / TILE);
+    const ntx = cx + Math.sign(mx), nty = cy + Math.sign(my);
+    if (ax && !solidAt(w, cx, nty)) p.x += Math.sign((cx + 0.5) * TILE - p.x) * Math.min(Math.abs((cx + 0.5) * TILE - p.x), speed * dt);
+    else if (!ax && !solidAt(w, ntx, cy)) p.y += Math.sign((cy + 0.5) * TILE - p.y) * Math.min(Math.abs((cy + 0.5) * TILE - p.y), speed * dt);
+    collide(p, PLAYER_R, (tx, ty) => solidAt(w, tx, ty));
+  }
+  const safeNow = isSafe(w, p.x, p.y);
+  if (safeNow && p.wasSafe === false) {
+    const n = p.inv.filter((i) => i !== p.wpn).length;
+    msg(s, n ? `Back at the safehouse with ${n} item stack${n > 1 ? 's' : ''}. Put them in the Stash.` : 'Back at the safehouse.', '#9fe09f', p.id);
+  }
+  p.wasSafe = safeNow;
   if (p.moving) {
     p.stepT -= dt;
     if (p.stepT <= 0) {
@@ -236,6 +270,7 @@ function updatePlayer(s, p, inp, dt) {
     if (!c || dist(p, contPos(c)) > 72) { p.openCid = -1; ev(s, { type: 'close', pid: p.id }); }
   }
   if (inp.interact) doInteract(s, p);
+  if (inp.barricade) barricade(s, p);
   if (inp.reload) startReload(s, p);
   if (p.reload > 0) { p.reload -= dt; if (p.reload <= 0) finishReload(s, p); }
   if (inp.shove) shove(s, p);
@@ -373,6 +408,12 @@ function damageZombie(s, z, dmg, kx, ky, knock, p, crit) {
   if (z.hp <= 0) {
     ev(s, { type: 'zdie', x: z.x, y: z.y, ztype: z.type, ang: Math.atan2(ky, kx) });
     s.stats.kills++; completeObjective(s, 'kill');
+    if (rnd() < (z.type === 'brute' ? 0.6 : 0.12)) {
+      const pool = [['cash', 3], ['bandage', 2], ['ammo9', 2], ['rag', 2], ['watch', 1], ['painkillers', 1], ['shells', 1], ['electronics', 1]];
+      let t = 0; for (const e of pool) t += e[1]; let r = rnd() * t; let id = pool[0][0];
+      for (const e of pool) { r -= e[1]; if (r <= 0) { id = e[0]; break; } }
+      const d = ITEMS[id]; makeLoose(s, z.x, z.y, 'pile', [makeItem(id, d.roll ? d.roll[0] + ((rnd() * (d.roll[1] - d.roll[0] + 1)) | 0) : 1)]).label = 'Zombie Remains';
+    }
   }
 }
 
@@ -571,7 +612,7 @@ function updateZombies(s, dt) {
     }
     for (const n of s.noises) {
       if (z.state === 'chase' && !n.lure) continue;
-      if (Math.hypot(n.x - z.x, n.y - z.y) < n.r) {
+      if (Math.hypot(n.x - z.x, n.y - z.y) < n.r * (1 - 0.35 * s.weather.rain)) {
         z.state = 'investigate'; z.tx = n.x + (rnd() - 0.5) * 48; z.ty = n.y + (rnd() - 0.5) * 48; z.stuck = 0;
       }
     }
@@ -624,6 +665,7 @@ function updateZombies(s, dt) {
         z.bash += dt;
         if (z.bash >= 1) {
           z.bash = 0; const door = w.doors[ai]; door.hp -= z.type === 'brute' ? 25 : 8;
+          if (door.bar) door.bar = Math.min(door.bar, Math.ceil(Math.max(0, door.hp - 60) / 70));
           ev(s, { type: 'bash', x: (ax + 0.5) * TILE, y: (ay + 0.5) * TILE });
           s.noises.push({ x: z.x, y: z.y, r: 6 * TILE });
           if (door.hp <= 0) { door.broken = true; door.open = true; ev(s, { type: 'doorbreak', x: (ax + 0.5) * TILE, y: (ay + 0.5) * TILE }); }

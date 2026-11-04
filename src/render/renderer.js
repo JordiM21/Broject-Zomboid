@@ -293,6 +293,21 @@ export class Renderer {
     if (this.parts.length > 600) this.parts.splice(0, this.parts.length - 600);
     // lighting
     if (p && !p.dead) this.lighting(s, p, camX, camY, dl, R);
+    // rain
+    const rain = s.weather ? s.weather.rain : 0;
+    if (rain > 0.03) {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = `rgba(20,30,50,${0.18 * rain})`; ctx.fillRect(0, 0, SW, SH);
+      if (!this.drops) this.drops = Array.from({ length: 260 }, () => ({ x: Math.random() * SW, y: Math.random() * SH, v: 700 + Math.random() * 400 }));
+      ctx.strokeStyle = 'rgba(170,190,220,0.35)'; ctx.lineWidth = 1; ctx.beginPath();
+      const n = Math.floor(this.drops.length * rain);
+      for (let k = 0; k < n; k++) {
+        const d = this.drops[k]; d.y += d.v * dt; d.x += d.v * 0.15 * dt;
+        if (d.y > SH) { d.y = -20; d.x = Math.random() * SW; } if (d.x > SW) d.x -= SW;
+        ctx.moveTo(d.x, d.y); ctx.lineTo(d.x - 3, d.y - 16);
+      }
+      ctx.stroke();
+    }
     // roofs drawn over the fog so buildings read clearly from outside
     ctx.setTransform(z * dpr, 0, 0, z * dpr, (SW / 2 - camX * z) * dpr, (SH / 2 - camY * z) * dpr);
     const inB = p ? w.bld[Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE)] : -1;
@@ -362,6 +377,7 @@ export class Renderer {
     if (!d.open) {
       if (horiz) { ctx.fillRect(X, Y + 11, TILE, 10); ctx.fillStyle = '#8a5e36'; ctx.fillRect(X + 2, Y + 13, TILE - 4, 6); ctx.fillStyle = '#d0b060'; ctx.fillRect(X + TILE - 8, Y + 15, 3, 3); }
       else { ctx.fillRect(X + 11, Y, 10, TILE); ctx.fillStyle = '#8a5e36'; ctx.fillRect(X + 13, Y + 2, 6, TILE - 4); ctx.fillStyle = '#d0b060'; ctx.fillRect(X + 15, Y + TILE - 8, 3, 3); }
+      if (d.bar) { ctx.fillStyle = '#9a7a4a'; for (let k = 0; k < d.bar; k++) { ctx.save(); ctx.translate(X + 16, Y + 16); ctx.rotate((horiz ? 0 : Math.PI / 2) + (k - 1) * 0.35); ctx.fillRect(-18, -3, 36, 6); ctx.fillStyle = '#666'; ctx.fillRect(-14, -1, 2, 2); ctx.fillRect(12, -1, 2, 2); ctx.fillStyle = '#9a7a4a'; ctx.restore(); } }
     } else {
       if (horiz) ctx.fillRect(X + 1, Y + 14, 5, 26); else ctx.fillRect(X + 14, Y + 1, 26, 5);
     }

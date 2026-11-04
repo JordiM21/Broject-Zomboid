@@ -1,0 +1,26 @@
+import { createRequire } from 'module'; const require = createRequire(import.meta.url); const { chromium } = require(process.env.PW || 'playwright');
+import path from 'path';
+const out = process.argv[2] || '.';
+const b = await chromium.launch();
+const ctx = await b.newContext({ viewport: { width: 1280, height: 760 } });
+const pg = await ctx.newPage();
+const errs = [];
+pg.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
+const url = 'http://localhost:4173/';
+await pg.goto(url);
+await pg.click('#btnNew'); await pg.waitForTimeout(300);
+const before = await pg.evaluate(() => { const s = window.__game.state, p = s.players.p1; p.x += 64; s.world.containers[5].items = [{ id: 'axe', n: 1, dur: 50 }]; s.world.containers[5].searched = true; s.upgrades.bed = 1; s.time = 300; return { x: Math.round(p.x), zs: s.zombies.length }; });
+// die
+await pg.evaluate(() => { const p = window.__game.state.players.p1; p.hp = -1; });
+await pg.waitForTimeout(1800);
+const deathShown = await pg.isVisible('#death');
+await pg.screenshot({ path: out + '/s_death.png' });
+await pg.click('#btnRespawn'); await pg.waitForTimeout(200);
+await pg.keyboard.press('Escape'); await pg.waitForTimeout(100);
+await pg.click('#btnQuit'); await pg.waitForTimeout(200);
+await pg.reload(); await pg.waitForTimeout(300);
+await pg.click('#btnContinue'); await pg.waitForTimeout(300);
+const after = await pg.evaluate(() => { const s = window.__game.state; return { c5: JSON.stringify(s.world.containers[5].items), bed: s.upgrades.bed, t: Math.round(s.time), zs: s.zombies.length, bodies: s.loose.length, deaths: s.stats.deaths }; });
+console.log('death screen', deathShown, JSON.stringify(before), JSON.stringify(after));
+console.log(errs.length ? errs.join('\n') : 'no errors');
+await b.close();

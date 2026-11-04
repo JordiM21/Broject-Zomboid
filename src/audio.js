@@ -15,7 +15,12 @@ export class Sfx {
     const g = c.createGain(); g.gain.value = 0.035;
     const lfo = c.createOscillator(); lfo.frequency.value = 0.08; const lg = c.createGain(); lg.gain.value = 150; lfo.connect(lg); lg.connect(f.frequency); lfo.start();
     src.connect(f); f.connect(g); g.connect(this.master); src.start();
+    const rs = c.createBufferSource(); rs.buffer = buf; rs.loop = true;
+    const rf = c.createBiquadFilter(); rf.type = 'highpass'; rf.frequency.value = 1200;
+    this.rainGain = c.createGain(); this.rainGain.gain.value = 0;
+    rs.connect(rf); rf.connect(this.rainGain); this.rainGain.connect(this.master); rs.start(0, 0.5);
   }
+  setRain(r) { if (this.rainGain) this.rainGain.gain.value = r * 0.07; }
   setVolume(v) { this.volume = v; if (this.master) this.master.gain.value = v; }
   noise(dur, freq, type, gain, delay = 0) {
     const c = this.ctx, t = c.currentTime + delay;

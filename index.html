@@ -30,6 +30,7 @@
       <div><b>H</b> quick heal</div><div><b>C</b> toggle sneak</div>
       <div><b>F</b> flashlight</div><div><b>M</b> map</div>
       <div><b>G</b> throw Noise Maker</div><div><b>X</b> throw Pipe Bomb</div>
+      <div><b>B</b> barricade a closed door (plank + 3 nails)</div><div><b>Esc</b> pause</div>
     </div>
     <p>Your <b>Safehouse</b> is the fenced compound in the middle of town. Zombies can't enter it. Everything else is theirs.</p>
     <p>Loot houses, stores, cars and the police station. Bring materials back and put them in the <b>Stash</b> to build upgrades at the <b>Workbench</b>.</p>
@@ -60,6 +61,14 @@
 <div id="inv" class="panel hidden"><div id="invBody"></div></div>
 <div id="base" class="panel hidden"><h3>Safehouse</h3><div id="baseBody"></div></div>
 
+<div id="touch" class="hidden">
+  <div class="tbtns">
+    <button data-k="KeyE">E</button><button data-k="inv">Bag</button><button data-k="KeyH">Heal</button>
+    <button data-k="Space">Shove</button><button data-k="KeyR">Reload</button><button data-k="wpn">Weapon</button>
+    <button data-k="ShiftLeft" data-hold="1">Run</button><button data-k="KeyF">Light</button><button data-k="map">Map</button><button data-k="Escape">II</button>
+  </div>
+  <div class="thint">Left thumb: move · Right thumb: aim + attack</div>
+</div>
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>

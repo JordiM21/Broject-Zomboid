@@ -109,11 +109,47 @@ function buildInput(first) {
     mx: ui.mouseWorld.x, my: ui.mouseWorld.y,
     up: k('KeyW') || k('ArrowUp'), down: k('KeyS') || k('ArrowDown'), left: k('KeyA') || k('ArrowLeft'), right: k('KeyD') || k('ArrowRight'),
     sprint: k('ShiftLeft') || k('ShiftRight'), attack: mouse.down && !ui.bigMap,
-    sneak: ed('KeyC'), interact: ed('KeyE'), reload: ed('KeyR'), shove: ed('Space'), flash: ed('KeyF'), heal: ed('KeyH'), throwN: ed('KeyG'), throwB: ed('KeyX'),
+    sneak: ed('KeyC'), interact: ed('KeyE'), reload: ed('KeyR'), shove: ed('Space'), flash: ed('KeyF'), heal: ed('KeyH'), throwN: ed('KeyG'), throwB: ed('KeyX'), barricade: ed('KeyB'),
     sel: first ? selPending : -1,
   };
   if (first) selPending = -1;
+  if (touch.move) {
+    const dx = (touch.move.x - touch.move.ox) / 45, dy = (touch.move.y - touch.move.oy) / 45;
+    inp.left = dx < -0.35; inp.right = dx > 0.35; inp.up = dy < -0.35; inp.down = dy > 0.35;
+  }
+  if (touch.aim && s) {
+    const p = s.players[LOCAL], dx = touch.aim.x - touch.aim.ox, dy = touch.aim.y - touch.aim.oy;
+    if (Math.hypot(dx, dy) > 12) { const a = Math.atan2(dy, dx); inp.mx = p.x + Math.cos(a) * 160; inp.my = p.y + Math.sin(a) * 160; inp.attack = Math.hypot(dx, dy) > 40; }
+  }
   return inp;
+}
+
+// ---------- touch ----------
+const touch = { move: null, aim: null };
+if (matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window) {
+  $('touch').classList.remove('hidden'); ui.touch = true;
+  const cv = $('game');
+  cv.addEventListener('touchstart', (e) => {
+    e.preventDefault(); sfx.init();
+    for (const t of e.changedTouches) {
+      const o = { id: t.identifier, ox: t.clientX, oy: t.clientY, x: t.clientX, y: t.clientY };
+      if (t.clientX < innerWidth / 2) { if (!touch.move) touch.move = o; } else if (!touch.aim) touch.aim = o;
+    }
+  }, { passive: false });
+  cv.addEventListener('touchmove', (e) => { e.preventDefault(); for (const t of e.changedTouches) for (const k of ['move', 'aim']) if (touch[k] && touch[k].id === t.identifier) { touch[k].x = t.clientX; touch[k].y = t.clientY; } }, { passive: false });
+  const end = (e) => { for (const t of e.changedTouches) for (const k of ['move', 'aim']) if (touch[k] && touch[k].id === t.identifier) touch[k] = null; };
+  cv.addEventListener('touchend', end); cv.addEventListener('touchcancel', end);
+  for (const btn of document.querySelectorAll('#touch button')) {
+    const k = btn.dataset.k;
+    btn.addEventListener('touchstart', (e) => {
+      e.preventDefault(); e.stopPropagation(); sfx.init();
+      if (k === 'inv') panels.toggleInv(); else if (k === 'map') ui.bigMap = !ui.bigMap;
+      else if (k === 'wpn') { const p = s.players[LOCAL], l = weaponList(p); selPending = (Math.max(0, l.indexOf(p.wpn)) + 1) % l.length; }
+      else if (k === 'Escape') dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape' }));
+      else { pressed.add(k); keys.add(k); }
+    }, { passive: false });
+    btn.addEventListener('touchend', () => { if (btn.dataset.hold || !['inv', 'map', 'wpn', 'Escape'].includes(k)) keys.delete(k); });
+  }
 }
 
 // ---------- menus ----------
@@ -150,7 +186,7 @@ function frame(now) {
   const p = s.players[LOCAL];
   ui.interact = !p.dead ? getInteract(s, p) : null;
   ui.panelOpen = panels.isOpen;
-  sfx.lx = p.x; sfx.ly = p.y;
+  sfx.lx = p.x; sfx.ly = p.y; sfx.setRain(s.weather ? s.weather.rain : 0);
   rend.render(s, LOCAL, ui);
   drawHUD(rend.ctx, s, p, ui, rend, mm);
 }
