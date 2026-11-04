@@ -476,8 +476,8 @@ function fire(s, p, wd) {
   s.noises.push({ pl: 1, x: p.x, y: p.y, r: wd.noise * TILE });
 }
 
-const SPEED = { pistol: 1500, smg: 1400, shotgun: 1150, rifle: 2400, crossbow: 760 };
-const BLOOM = { pistol: 0.22, smg: 0.1, shotgun: 0.55, rifle: 0.7, crossbow: 0.25 };
+const SPEED = { carbine: 1900, pistol: 1500, smg: 1400, shotgun: 1150, rifle: 2400, crossbow: 760 };
+const BLOOM = { carbine: 0.15, pistol: 0.22, smg: 0.1, shotgun: 0.55, rifle: 0.7, crossbow: 0.25 };
 // travelling projectiles: swept against walls and zombies each tick
 function updateBullets(s, dt) {
   const w = s.world;

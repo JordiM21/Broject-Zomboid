@@ -30,15 +30,17 @@ export const ITEMS = {
   katana: { name: 'Katana', cat: 'melee', w: 1.2, dmg: 58, range: 56, arc: 1.9, cd: 0.36, stam: 6, dur: 140, knock: 70, silent: true },
   sledge: { name: 'Sledgehammer', cat: 'melee', w: 4, dmg: 85, range: 52, arc: 1.7, cd: 1.15, stam: 18, dur: 160, knock: 340, stun: 1.2 },
   spear: { name: 'Spear', cat: 'melee', w: 1.6, dmg: 40, range: 74, arc: 0.55, cd: 0.45, stam: 6, dur: 90, knock: 100 },
-  crossbow: { name: 'Crossbow', cat: 'gun', w: 2.5, dmg: 100, ammo: 'bolt', mag: 1, cd: 0.5, reload: 1.3, spread: 0.008, noise: 3, range: 720, pellets: 1, pierce: 2 },
+  carbine: { name: 'Carbine', cat: 'gun', w: 3, dmg: 34, ammo: 'ammomed', mag: 24, cd: 0.13, reload: 2.0, spread: 0.035, noise: 28, range: 640, pellets: 1, pierce: 1 },
+  crossbow: { name: 'Crossbow', cat: 'gun', w: 2.5, dmg: 100, ammo: 'ammomed', mag: 1, cd: 0.5, reload: 1.3, spread: 0.008, noise: 3, range: 720, pellets: 1, pierce: 2 },
   smg: { name: 'SMG', cat: 'gun', w: 2.2, dmg: 22, ammo: 'ammo9', mag: 30, cd: 0.075, reload: 1.8, spread: 0.1, noise: 26, range: 480, pellets: 1, pierce: 1 },
   bolt: { name: 'Crossbow Bolts', cat: 'ammo', w: 0.05, stack: 20, roll: [2, 5] },
   pistol: { name: 'Pistol', cat: 'gun', w: 0.9, dmg: 40, ammo: 'ammo9', mag: 12, cd: 0.22, reload: 1.3, spread: 0.05, noise: 22, range: 560, pellets: 1, pierce: 1 },
   shotgun: { name: 'Shotgun', cat: 'gun', w: 3, dmg: 24, ammo: 'shells', mag: 5, cd: 0.85, reload: 2.4, spread: 0.24, noise: 28, range: 320, pellets: 7, pierce: 1 },
   rifle: { name: 'Hunting Rifle', cat: 'gun', w: 3.5, dmg: 120, ammo: 'ammo308', mag: 5, cd: 1.1, reload: 2.4, spread: 0.01, noise: 34, range: 900, pellets: 1, pierce: 3 },
-  ammo9: { name: '9mm Rounds', cat: 'ammo', w: 0.02, stack: 60, roll: [4, 12] },
-  shells: { name: 'Shotgun Shells', cat: 'ammo', w: 0.05, stack: 30, roll: [2, 6] },
-  ammo308: { name: '.308 Rounds', cat: 'ammo', w: 0.05, stack: 30, roll: [2, 5] },
+  ammo9: { name: 'Light Ammo', cat: 'ammo', w: 0.02, stack: 60, roll: [5, 14] },
+  ammomed: { name: 'Medium Ammo', cat: 'ammo', w: 0.03, stack: 50, roll: [4, 10] },
+  shells: { name: 'Shotgun Ammo', cat: 'ammo', w: 0.05, stack: 30, roll: [2, 6] },
+  ammo308: { name: 'Heavy Ammo', cat: 'ammo', w: 0.05, stack: 30, roll: [2, 5] },
 
   schoolbag: { name: 'School Bag', cat: 'bag', w: 0.5, cap: 8 },
   hikingbag: { name: 'Hiking Pack', cat: 'bag', w: 1, cap: 16 },
@@ -90,8 +92,8 @@ export const LOOT = {
   pharmacy: { rolls: [1, 3], t: [['bandage', 4], ['painkillers', 3], ['antibiotics', 2], ['medkit', 1], ['rag', 2]] },
   hardware: { rolls: [1, 3], t: [['sledge', 0.3], ['spear', 0.2], ['nails', 4], ['plank', 4], ['scrap', 3], ['tape', 3], ['electronics', 2], ['crowbar', 0.5], ['axe', 0.4], ['machete', 0.3]] },
   register: { rolls: [0, 2], t: [['cash', 5], ['watch', 0.6], ['jewelry', 0.4]] },
-  locker: { rolls: [1, 2], t: [['helmet', 0.4], ['boots', 0.4], ['riotgear', 0.25], ['smg', 0.2], ['ammo9', 4], ['shells', 3], ['pistol', 1.2], ['shotgun', 0.7], ['rifle', 0.3], ['ammo308', 1], ['vest', 0.6], ['bandage', 2]] },
-  crate: { rolls: [1, 3], t: [['crossbow', 0.25], ['bolt', 0.8], ['ghillie', 0.2], ['spear', 0.4], ['energy', 0.6], ['mre', 2], ['water', 3], ['hikingbag', 0.6], ['milbag', 0.2], ['machete', 0.6], ['ammo308', 1], ['shells', 1], ['bandage', 2], ['rifle', 0.15]] },
+  locker: { rolls: [1, 2], t: [['carbine', 0.25], ['ammomed', 1.5], ['helmet', 0.4], ['boots', 0.4], ['riotgear', 0.25], ['smg', 0.2], ['ammo9', 4], ['shells', 3], ['pistol', 1.2], ['shotgun', 0.7], ['rifle', 0.3], ['ammo308', 1], ['vest', 0.6], ['bandage', 2]] },
+  crate: { rolls: [1, 3], t: [['crossbow', 0.25], ['ammomed', 1], ['ghillie', 0.2], ['spear', 0.4], ['energy', 0.6], ['mre', 2], ['water', 3], ['hikingbag', 0.6], ['milbag', 0.2], ['machete', 0.6], ['ammo308', 1], ['shells', 1], ['bandage', 2], ['rifle', 0.15]] },
 };
 
 export const CONTAINER_LABEL = {
@@ -120,12 +122,14 @@ export const RECIPES = [
   { id: 'pipebomb', out: ['pipebomb', 1], cost: { scrap: 2, electronics: 1, tape: 1 } },
   { id: 'ammo9', out: ['ammo9', 8], cost: { scrap: 2 }, needs: 'locker' },
   { id: 'shells', out: ['shells', 4], cost: { scrap: 2, cloth: 1 }, needs: 'locker' },
+  { id: 'ammomed', out: ['ammomed', 6], cost: { scrap: 3 }, needs: 'locker' },
+  { id: 'ammo308', out: ['ammo308', 3], cost: { scrap: 3, electronics: 1 }, needs: 'locker' },
   { id: 'medkit', out: ['medkit', 1], cost: { bandage: 3, painkillers: 1, tape: 1 } },
   { id: 'plank', out: ['plank', 1], cost: { scrap: 1, nails: 2 } },
 ];
 
 export const TRADE_COST = 12; // valuable points per supply drop
-export const TRADE_POOL = [['ammo9', 14], ['shells', 6], ['bandage', 3], ['antibiotics', 1], ['mre', 2], ['electronics', 2], ['tape', 2], ['medkit', 1]];
+export const TRADE_POOL = [['ammo9', 14], ['ammomed', 10], ['ammo308', 5], ['shells', 6], ['bandage', 3], ['antibiotics', 1], ['mre', 2], ['electronics', 2], ['tape', 2], ['medkit', 1]];
 
 export const OBJECTIVES = [
   { id: 'search', text: 'Search a container [E]' },
@@ -140,7 +144,7 @@ export const OBJECTIVES = [
 export const DESC_NEW = 1;
 export const DESC = {
   katana: 'Fast, long and silent. Kills unaware zombies in one cut, even without sneaking.', sledge: 'Slow and exhausting, but stuns everything it hits and sends zombies flying.',
-  spear: 'Longest reach of any melee weapon. Narrow thrust: keep zombies at a distance.', crossbow: 'Near-silent and pierces two zombies. One bolt per reload.',
+  spear: 'Longest reach of any melee weapon. Narrow thrust: keep zombies at a distance.', crossbow: 'Near-silent and pierces two zombies. One shot per reload.', carbine: 'Accurate semi-auto rifle. The all-rounder for medium range.', ammomed: 'Medium ammo for carbines and crossbows.',
   smg: 'Hold the trigger to empty 30 rounds fast. Inaccurate and very loud.', bolt: 'Ammo for the Crossbow.',
   riotgear: 'Best protection in the game, but heavy: 10% slower.', ghillie: 'Camouflage: zombies have a much harder time seeing you.',
   adrenaline: 'For 20 s: +30% speed, +25% damage, no stamina drain.', energy: 'For 90 s: stamina recovers twice as fast. Also quenches thirst.',
@@ -160,7 +164,7 @@ export const DESC = {
   spikedbat: 'A bat with nails. Hits much harder.', crowbar: 'Very durable. Lasts a long time.',
   machete: 'Fast, deadly blade with good reach.', axe: 'Huge damage but slow and tiring. Kills most zombies in one hit.',
   pistol: 'Reliable, but every shot is heard 22 tiles away.', shotgun: 'Devastating up close. Very loud.',
-  rifle: 'Pierces through lines of zombies. Extremely loud.', ammo9: 'Ammo for the Pistol.', shells: 'Ammo for the Shotgun.', ammo308: 'Ammo for the Hunting Rifle.',
+  rifle: 'Pierces through lines of zombies. Extremely loud.', ammo9: 'Light ammo for pistols and SMGs.', shells: 'Shotgun ammo.', ammo308: 'Heavy ammo for the hunting rifle.',
   schoolbag: 'Wear to carry more.', hikingbag: 'Wear to carry a lot more.', milbag: 'The best bag. Haul everything home.',
   jacket: 'Cuts damage and protects against bites.', vest: 'Heavy protection. Bites rarely get through.',
   noisemaker: 'Throw [G] to lure zombies away for 10 s.', pipebomb: 'Throw [X]. Explodes after 2 s. Lure a crowd first.',
@@ -174,7 +178,7 @@ export function itemStats(it) {
     s.push(['Damage', d.dmg], ['Speed', (1 / d.cd).toFixed(1) + '/s'], ['Reach', d.range < 40 ? 'Short' : d.range < 49 ? 'Medium' : 'Long'], ['Knockback', d.knock >= 130 ? 'High' : d.knock >= 80 ? 'Medium' : 'Low']);
     if (it.dur !== undefined) s.push(['Durability', `${it.dur}/${d.dur}`]);
   } else if (d.cat === 'gun') {
-    s.push(['Damage', d.pellets > 1 ? `${d.dmg}×${d.pellets}` : d.dmg], ['Magazine', `${it.mag ?? 0}/${d.mag}`], ['Ammo', ITEMS[d.ammo].name], ['Noise', `${d.noise} tiles`]);
+    s.push(['Ammo type', ITEMS[d.ammo].name], ['Damage', d.pellets > 1 ? `${d.dmg}×${d.pellets}` : d.dmg], ['Magazine', `${it.mag ?? 0}/${d.mag}`], ['Noise', `${d.noise} tiles`]);
     if (d.pierce > 1) s.push(['Pierce', d.pierce]);
   } else if (d.cat === 'food') {
     if (d.hunger) s.push(['Food', (d.hunger > 0 ? '+' : '') + d.hunger]);
@@ -191,6 +195,7 @@ export function itemStats(it) {
   if (d.silent) s.push(['Perk', 'Silent kills']);
   if (d.stun) s.push(['Stun', d.stun + ' s']);
   else if (d.cat === 'val') s.push(['Trade value', d.val]);
+  else if (d.cat === 'ammo') s.push(['Used by', Object.values(ITEMS).filter((g) => g.ammo === it.id).map((g) => g.name).join(', ') || '—']);
   s.push(['Weight', d.w + ' kg']);
   return s;
 }
@@ -199,8 +204,8 @@ export const PERK_NAME = { nvg: 'Night vision', headlamp: 'Head light', quiet: '
 export const CAT_ORDER = ['gun', 'melee', 'ammo', 'perk', 'buff', 'med', 'food', 'throw', 'bag', 'armor', 'mat', 'val'];
 
 LOOT.medcab = { rolls: [1, 3], t: [['adrenaline', 0.5], ['reviver', 0.08], ['bandage', 5], ['painkillers', 4], ['antibiotics', 3], ['medkit', 1.6], ['rag', 2], ['water', 1]] };
-LOOT.milcrate = { rolls: [1, 3], t: [['milhelmet', 0.6], ['nvg', 0.3], ['kevlarpants', 0.35], ['boots', 0.5], ['smg', 0.5], ['riotgear', 0.3], ['crossbow', 0.3], ['bolt', 0.8], ['adrenaline', 0.5], ['reviver', 0.12], ['ammo9', 4], ['ammo308', 3], ['shells', 3], ['mre', 3], ['pistol', 1], ['shotgun', 0.8], ['rifle', 0.8], ['vest', 1], ['milbag', 0.6], ['pipebomb', 1], ['machete', 0.8], ['bandage', 1]] };
-LOOT.zsoldier = { rolls: [1, 2], t: [['ammo9', 3], ['ammo308', 2], ['shells', 1], ['mre', 2], ['bandage', 2], ['pistol', 0.3], ['vest', 0.15], ['pipebomb', 0.3]] };
+LOOT.milcrate = { rolls: [1, 3], t: [['carbine', 0.6], ['ammomed', 2], ['milhelmet', 0.6], ['nvg', 0.3], ['kevlarpants', 0.35], ['boots', 0.5], ['smg', 0.5], ['riotgear', 0.3], ['crossbow', 0.3], ['ammomed', 1], ['adrenaline', 0.5], ['reviver', 0.12], ['ammo9', 4], ['ammo308', 3], ['shells', 3], ['mre', 3], ['pistol', 1], ['shotgun', 0.8], ['rifle', 0.8], ['vest', 1], ['milbag', 0.6], ['pipebomb', 1], ['machete', 0.8], ['bandage', 1]] };
+LOOT.zsoldier = { rolls: [1, 2], t: [['ammomed', 2], ['ammo9', 3], ['ammo308', 2], ['shells', 1], ['mre', 2], ['bandage', 2], ['pistol', 0.3], ['vest', 0.15], ['pipebomb', 0.3]] };
 CONTAINER_LABEL.medcab = 'Medical Cabinet'; CONTAINER_LABEL.milcrate = 'Military Crate'; CONTAINER_LABEL.zsoldier = 'Soldier Corpse';
 LOOT.stove = { rolls: [0, 2], t: [['beans', 3], ['chips', 1], ['knife', 1], ['rag', 1], ['mre', 0.2]] };
 LOOT.sink = { rolls: [0, 2], t: [['rag', 3], ['cloth', 2], ['tape', 1], ['bandage', 0.6], ['water', 1]] };
@@ -213,4 +218,4 @@ Object.assign(CONTAINER_LABEL, { rack: 'Weapon Rack (test)',  stove: 'Stove', si
 LOOT.zombie = { rolls: [0, 2], t: [['cash', 3], ['rag', 3], ['cloth', 2], ['bandage', 1.5], ['ammo9', 1.2], ['chips', 1], ['water', 1], ['watch', 0.8], ['painkillers', 0.8], ['shells', 0.5], ['jewelry', 0.4], ['tape', 0.5]] };
 CONTAINER_LABEL.zombie = 'Zombie Corpse';
 
-export const RACK_ITEMS = [['katana',1],['sledge',1],['spear',1],['crossbow',1],['bolt',20],['smg',1],['ammo9',60],['ammo9',60],['pistol',1],['shotgun',1],['shells',30],['rifle',1],['ammo308',30],['axe',1],['machete',1],['spikedbat',1],['crowbar',1],['bat',1],['riotgear',1],['ghillie',1],['vest',1],['jacket',1],['milbag',1],['adrenaline',3],['energy',3],['reviver',1],['pipebomb',3],['noisemaker',3],['medkit',2],['helmet',1],['milhelmet',1],['nvg',1],['headlamp',1],['jeans',1],['cargo',1],['kevlarpants',1],['sneakers',1],['boots',1],['runners',1],['hikingbag',1],['schoolbag',1]];
+export const RACK_ITEMS = [['katana',1],['sledge',1],['spear',1],['crossbow',1],['ammomed',40],['carbine',1],['smg',1],['ammo9',60],['ammo9',60],['pistol',1],['shotgun',1],['shells',30],['rifle',1],['ammo308',30],['axe',1],['machete',1],['spikedbat',1],['crowbar',1],['bat',1],['riotgear',1],['ghillie',1],['vest',1],['jacket',1],['milbag',1],['adrenaline',3],['energy',3],['reviver',1],['pipebomb',3],['noisemaker',3],['medkit',2],['helmet',1],['milhelmet',1],['nvg',1],['headlamp',1],['jeans',1],['cargo',1],['kevlarpants',1],['sneakers',1],['boots',1],['runners',1],['hikingbag',1],['schoolbag',1]];

@@ -40,13 +40,14 @@ export function drawWeapon(g, id) {
     case 'spear': limb(g, [-12, 0], [32, 0], 2.2, '#9a7044'); poly(g, [30, -1.6, 33, -1.6, 33, 1.6, 30, 1.6], '#3a3a3a'); poly(g, [33, -3.2, 43, 0, 33, 3.2], '#d4dade'); break;
     case 'crossbow': poly(g, [-10, -2.2, 16, -2.2, 16, 2.2, -10, 2.2], '#6a4a2c'); g.strokeStyle = OUT; g.lineWidth = 3.6; g.beginPath(); g.moveTo(12, -12); g.quadraticCurveTo(18, 0, 12, 12); g.stroke(); g.strokeStyle = '#3a3f46'; g.lineWidth = 2.2; g.stroke();
       g.strokeStyle = 'rgba(230,230,210,0.9)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(12, -12); g.lineTo(4, 0); g.lineTo(12, 12); g.stroke(); poly(g, [4, -0.8, 20, -0.8, 23, 0, 20, 0.8, 4, 0.8], '#c8ccd0'); break;
+    case 'carbine': poly(g, [-10, -2.4, 0, -2.4, 0, 2.4, -10, 2.4], '#3a3f46'); poly(g, [0, -2.6, 18, -2.6, 18, 2.6, 0, 2.6], '#4a5058'); limb(g, [18, 0], [28, 0], 1.8, '#2a2d31'); poly(g, [6, 2.6, 9.5, 2.6, 10.5, 9, 7, 9], '#2a2d31'); poly(g, [3, -4.4, 11, -4.4, 11, -2.6, 3, -2.6], '#1e1e1e'); break;
     case 'smg': poly(g, [-4, -2.6, 14, -2.6, 14, 2.6, -4, 2.6], '#4a5058'); poly(g, [14, -1.4, 19, -1.4, 19, 1.4, 14, 1.4], '#2a2d31'); poly(g, [4, 2.6, 7.5, 2.6, 7.5, 10, 4, 10], '#2a2d31'); poly(g, [-10, -1.6, -4, -1.6, -4, 1.6, -10, 1.6], '#3a3f46'); break;
     case 'pistol': poly(g, [-2, -2, 12, -2, 12, 2, -2, 2], '#3a3f46'); g.fillStyle = '#6a7078'; g.fillRect(0, -1.2, 11, 1); break;
     case 'shotgun': poly(g, [-10, -2.4, 2, -2.4, 2, 2.4, -10, 2.4], '#6a4a2c'); limb(g, [0, 0], [26, 0], 2.6, '#3a3f46'); poly(g, [11, -2.6, 17, -2.6, 17, 2.6, 11, 2.6], '#5a3e26'); break;
     case 'rifle': poly(g, [-10, -2.4, 4, -2.2, 4, 2.2, -10, 2.4], '#7a5434'); limb(g, [2, 0], [30, 0], 2.2, '#3a3f46'); poly(g, [5, -4.5, 14, -4.5, 14, -1.5, 5, -1.5], '#1e1e1e'); break;
   }
 }
-const GUN_TIP = { pistol: 13, shotgun: 27, rifle: 31, smg: 20, crossbow: 23 };
+const GUN_TIP = { carbine: 29, pistol: 13, shotgun: 27, rifle: 31, smg: 20, crossbow: 23 };
 
 // ---------- figure ----------
 function drawFigure(g, P, L) {
@@ -76,7 +77,7 @@ function drawFigure(g, P, L) {
 }
 
 // ---------- player ----------
-const WCLASS = { knife: 'knife', bat: 'one', spikedbat: 'one', crowbar: 'one', machete: 'one', axe: 'axe', pistol: 'pistol', shotgun: 'long', rifle: 'long', katana: 'katana', sledge: 'sledge', spear: 'spear', crossbow: 'long', smg: 'smg' };
+const WCLASS = { knife: 'knife', bat: 'one', spikedbat: 'one', crowbar: 'one', machete: 'one', axe: 'axe', pistol: 'pistol', shotgun: 'long', rifle: 'long', katana: 'katana', sledge: 'sledge', spear: 'spear', crossbow: 'long', smg: 'smg', carbine: 'long' };
 const GRIP = {
   fists: { lh: [9, -7], rh: [9, 7], wa: 0 },
   knife: { lh: [6, -8], rh: [9, 7], wa: 0.35 },

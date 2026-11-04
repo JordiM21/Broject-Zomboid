@@ -270,7 +270,7 @@ export class Renderer {
         this.flashes.push({ x: e.x, y: e.y, t: e.gun === 'shotgun' || e.gun === 'rifle' ? 0.09 : 0.06, r: e.gun === 'shotgun' ? 330 : e.gun === 'smg' ? 200 : 260 });
         P.push({ x: e.x, y: e.y, vx: Math.cos(e.ang + 1.6) * 90, vy: Math.sin(e.ang + 1.6) * 90, life: 0.5, max: 0.5, c: '#d9b35a', s: 2 });
         for (let k = 0; k < 3; k++) P.push({ x: e.x, y: e.y, vx: Math.cos(e.ang) * 60 + (Math.random() - 0.5) * 30, vy: Math.sin(e.ang) * 60 + (Math.random() - 0.5) * 30, life: 0.6, max: 0.6, c: 'rgba(180,180,180,0.4)', s: 5, smoke: true });
-        if (e.pid === localId) { this.shake = Math.max(this.shake, e.gun === 'shotgun' ? 7 : e.gun === 'rifle' ? 6 : 3); const K = { pistol: 5, smg: 2.5, shotgun: 11, rifle: 13, crossbow: 3 }[e.gun] || 4; this.kick.x -= Math.cos(e.ang) * K; this.kick.y -= Math.sin(e.ang) * K; }
+        if (e.pid === localId) { this.shake = Math.max(this.shake, e.gun === 'shotgun' ? 7 : e.gun === 'rifle' ? 6 : 3); const K = { carbine: 6, pistol: 5, smg: 2.5, shotgun: 11, rifle: 13, crossbow: 3 }[e.gun] || 4; this.kick.x -= Math.cos(e.ang) * K; this.kick.y -= Math.sin(e.ang) * K; }
         break;
       case 'explode':
         this.flashes.push({ x: e.x, y: e.y, t: 0.25, r: 420 }); this.shake = 16; this.booms.push({ x: e.x, y: e.y, t: 0 });

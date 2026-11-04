@@ -20,6 +20,7 @@ await pg.evaluate(() => {
   row('katana', (t) => playerFrame('katana', 'ghillie', null, 'attack', t), 8);
   row('sledge', (t) => playerFrame('sledge', 'riotgear', null, 'attack', t), 8);
   row('spear', (t) => playerFrame('spear', null, null, 'attack', t), 8);
+  row('carbine', (t) => playerFrame('carbine', 'vest', null, t < 0.6 ? 'attack' : 'reload', t < 0.6 ? t / 0.6 : (t - 0.6) / 0.4), 8);
   row('crossbow/smg', (t) => t < 0.5 ? playerFrame('crossbow', null, null, 'attack', t * 2) : playerFrame('smg', null, null, 'attack', (t - 0.5) * 2), 8);
   row('heal / shove', (t) => t < 0.5 ? playerFrame('fists', null, null, 'heal', t * 2) : playerFrame('fists', null, null, 'shove', (t - 0.5) * 2), 9);
   for (const [ty, v] of [['walker', 0], ['brute', 0]]) {

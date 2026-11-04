@@ -27,6 +27,10 @@ WASD move · Shift sprint · Mouse aim · Click attack · Space shove · E searc
 
 - Guns fire real projectiles with travel time (rifle fastest, crossbow bolts visibly slowest), pierce, and shotgun damage falloff. Sustained fire blooms your spread (the crosshair widens), moving makes it worse, sneaking tightens it. Recoil kicks the camera; impacts spark and leave bullet holes, and bolts stick in walls.
 
+## Ammo
+
+Four types only: **Light** (Pistol, SMG), **Medium** (Carbine, Crossbow), **Heavy** (Hunting Rifle), **Shotgun** (Shotgun). Each gun's details panel shows its ammo type, and each ammo shows which guns use it. With the Armory Locker you can craft all four.
+
 ## Dropped items
 
 - Dropping anything puts it in a backpack on the ground (marked on the map). It stays until you empty it.
