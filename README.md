@@ -35,6 +35,11 @@ WASD move · Shift sprint · Mouse aim · Click attack · Space shove · E searc
 3. Put loot in the Stash. Spend materials on base upgrades: stash shelving, workbench (crafting), bed (sleep through the night), rain collector and garden (daily supplies), armory locker (respawn kit), ham radio (trade valuables for supply drops).
 4. Die and everything you carried stays on your body, marked on the map.
 
+## Art
+
+- Characters and zombies are frame-by-frame sprites generated from pose keyframes at load (`src/render/sprites.js`): player idle, walk, per-weapon attacks, reloads, healing and shove for every weapon/armor/bag combo; walker, runner, brute and soldier variants with walk, idle, attack, hit and death.
+- Crates, sandbags, barrels, oil spills, the tank wreck and explosion/smoke animations come from Kenney's Top-down Tanks Redux (CC0) in `src/assets/kenney/`.
+
 ## Architecture
 
 - `src/world/` procedural town generation (seeded) and tile queries (collision, line of sight, flow fields).
