@@ -14,6 +14,13 @@ npm run build    # single-file build in dist/index.html (open directly or host a
 
 WASD move · Shift sprint · Mouse aim · Click attack · Space shove · E search/open · Tab inventory · 1–6 / wheel weapons · R reload · H quick heal · C sneak · F flashlight · G noise maker · X pipe bomb · M map · Esc pause
 
+## Stealth and sound
+
+- Zombies build suspicion (yellow ?) before they chase. Light, flashlight, sneaking, standing still, bushes and rain change how visible you are (HUD: Hidden / Low profile / Exposed / Detected).
+- Unaware zombies barely see behind them. Sneak up (C) and hit one from behind with a weapon for a silent kill.
+- Your noises show as faint rings. Unseen zombie sounds show as arrows at the screen edge.
+- Audio is spatial: stereo panning, distance falloff, muffling through walls, indoor/outdoor reverb, surface-specific footsteps for you and nearby zombies.
+
 ## Core loop
 
 1. Leave the safehouse, search houses, stores, cars, the police station and forest camps.

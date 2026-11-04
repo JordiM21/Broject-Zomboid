@@ -22,7 +22,7 @@ export class Renderer {
     this.canvas = canvas; this.ctx = canvas.getContext('2d');
     this.fog = document.createElement('canvas'); this.night = document.createElement('canvas');
     this.chunks = new Map(); this.parts = []; this.floaters = []; this.flashes = []; this.tracers = [];
-    this.cam = { x: 0, y: 0, zoom: 1.5 }; this.doorAnim = new Map(); this.dying = []; this.trails = []; this.dt = 0.016; this.hlCol = '#fff'; this.shake = 0; this.dpr = 1; this.world = null; this.time = 0;
+    this.cam = { x: 0, y: 0, zoom: 1.5 }; this.doorAnim = new Map(); this.dying = []; this.trails = []; this.rings = []; this.dt = 0.016; this.hlCol = '#fff'; this.shake = 0; this.dpr = 1; this.world = null; this.time = 0;
   }
   setWorld(w) { this.world = w; this.chunks.clear(); this.doorAnim = new Map(); this.dying = []; this.roofs = new Map(); }
   resize() {
@@ -189,6 +189,8 @@ export class Renderer {
         break;
       }
       case 'zdie': this.dying.push({ x: e.x, y: e.y, ang: e.ang, type: e.ztype, t: 0.3 }); this.blood(e.x, e.y, 6, 8); for (let k = 0; k < 12; k++) { const a2 = e.ang + (Math.random() - 0.5) * 1.6, v = 80 + Math.random() * 180; P.push({ x: e.x, y: e.y, vx: Math.cos(a2) * v, vy: Math.sin(a2) * v, life: 0.5, max: 0.5, c: '#7a0c0c', s: 3 }); } break;
+      case 'noise': this.rings.push({ x: e.x, y: e.y, r: e.r, t: 0.7 }); break;
+      case 'silentKill': this.floaters.push({ x: e.x, y: e.y - 16, t: 1.1, text: 'SILENT KILL', c: '#9ab0ff' }); break;
       case 'swing': this.trails.push({ x: e.x, y: e.y, ang: e.ang, arc: e.arc || 1.4, range: e.range || 30, t: 0.14 }); break;
       case 'pickup': if (e.text) this.floaters.push({ x: e.x, y: e.y - 20, t: 1.2, text: e.text, c: '#cfe8a0' }); break;
       case 'zdown': for (let k = 0; k < 6; k++) P.push({ x: e.x, y: e.y, vx: (Math.random() - 0.5) * 90, vy: (Math.random() - 0.5) * 90, life: 0.4, max: 0.4, c: 'rgba(180,170,150,0.4)', s: 5, smoke: true }); break;
@@ -297,6 +299,8 @@ export class Renderer {
       ctx.strokeStyle = `rgba(255,255,255,${0.45 * a})`; ctx.lineWidth = 5 * a + 1; ctx.beginPath(); ctx.arc(t.x, t.y, t.range * 0.85, t.ang - t.arc / 2, t.ang - t.arc / 2 + t.arc * (1 - a * 0.6)); ctx.stroke();
     }
     this.trails = this.trails.filter((t) => t.t > 0);
+    for (const g of this.rings) { g.t -= dt; const k = 1 - g.t / 0.7; ctx.strokeStyle = `rgba(200,220,255,${0.22 * (1 - k)})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(g.x, g.y, g.r * (0.3 + 0.7 * k), 0, 7); ctx.stroke(); }
+    this.rings = this.rings.filter((g) => g.t > 0);
     for (const id in s.players) { const q = s.players[id]; if (!q.dead) this.player(ctx, q); }
     // tracers & particles
     ctx.lineCap = 'round';
@@ -495,6 +499,7 @@ export class Renderer {
     ctx.fillStyle = SKIN[z.skin]; ctx.beginPath(); ctx.arc(hX, hY, r * 0.55, 0, 7); ctx.fill();
     if (wn >= 3) { ctx.fillStyle = 'rgba(110,10,10,0.8)'; ctx.fillRect(hX - 2, hY - 3, 3, 2); }
     if (z.type === 'runner' || z.state === 'chase') { ctx.fillStyle = z.type === 'runner' ? '#ff4a3a' : '#c0c060'; ctx.fillRect(hX + r * 0.33, hY - 3, 2, 2); ctx.fillRect(hX + r * 0.33, hY + 1, 2, 2); }
+    if (z.state !== 'chase' && z.sus > 0.12) { ctx.restore(); ctx.save(); ctx.fillStyle = `rgba(255,${Math.round(220 - z.sus * 120)},80,${Math.min(1, z.sus + 0.2)})`; ctx.font = `bold ${10 + z.sus * 6}px system-ui`; ctx.textAlign = 'center'; ctx.fillText('?', z.x, z.y - r - 6); ctx.restore(); ctx.save(); ctx.translate(z.x, z.y); ctx.rotate(z.ang); }
     if (z.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${Math.min(0.7, z.flash * 7)})`; ctx.beginPath(); ctx.ellipse(hx * 1.5, hy * 1.5, r, r * 1.05, 0, 0, 7); ctx.fill(); }
     ctx.restore();
     // health bar (shown briefly after taking damage)

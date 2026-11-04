@@ -83,6 +83,10 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   const wt = carried(p), cap = capacity(p);
   ctx.font = '600 11px system-ui, sans-serif'; ctx.textAlign = 'left';
   ctx.fillStyle = wt > cap ? '#ff8a6a' : '#bbb'; ctx.fillText(`Carry ${wt.toFixed(1)} / ${cap}`, bx, by + 76);
+  const hunted = s.zombies.some((z) => z.state === 'chase' && z.pid === p.id && Math.abs(z.x - p.x) < 600 && Math.abs(z.y - p.y) < 600);
+  const v = p.vis ?? 1;
+  const [vt, vc] = hunted ? ['DETECTED', '#ff5a4a'] : v < 0.4 ? ['HIDDEN', '#7ad07a'] : v < 0.8 ? ['LOW PROFILE', '#d0c04a'] : ['EXPOSED', '#ffa05a'];
+  ctx.textAlign = 'right'; ctx.fillStyle = vc; ctx.fillText(`◉ ${vt}`, bx + 196, by + 76); ctx.textAlign = 'left';
   const tags = [];
   if (p.bleeding) tags.push(['BLEEDING', '#ff5a5a']);
   if (p.infection > 0) tags.push([`INFECTED ${Math.round(p.infection)}%`, '#b6ff5a']);
@@ -157,6 +161,21 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
     ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(x - 10, y - 10, size + 20, size + 20);
     ctx.fillStyle = '#07080a'; ctx.fillRect(x, y, size, size); drawMap(x, y, size, true);
   }
+  // sound pings: where unseen zombie noises come from
+  for (const g of ui.pings) {
+    g.t -= ui.dt; const a = Math.min(1, g.t), q = rend.worldToScreen(g.x, g.y);
+    const col = g.danger ? '255,90,70' : '225,225,205', m = 46;
+    if (q.x < m || q.y < m || q.x > SW - m || q.y > SH - m) {
+      const ang = Math.atan2(q.y - SH / 2, q.x - SW / 2);
+      const k = Math.min((SW / 2 - m) / Math.abs(Math.cos(ang) || 1e-6), (SH / 2 - m) / Math.abs(Math.sin(ang) || 1e-6));
+      ctx.save(); ctx.translate(SW / 2 + Math.cos(ang) * k, SH / 2 + Math.sin(ang) * k); ctx.rotate(ang);
+      ctx.fillStyle = `rgba(${col},${0.85 * a})`; ctx.beginPath(); ctx.moveTo(12, 0); ctx.lineTo(-6, -8); ctx.lineTo(-2, 0); ctx.lineTo(-6, 8); ctx.fill(); ctx.restore();
+    } else {
+      ctx.strokeStyle = `rgba(${col},${0.7 * a})`; ctx.lineWidth = 2;
+      for (let j = 0; j < 2; j++) { ctx.beginPath(); ctx.arc(q.x, q.y, 6 + ((1.8 - g.t) * 26 + j * 10) % 30, 0, 7); ctx.stroke(); }
+    }
+  }
+  ui.pings = ui.pings.filter((g) => g.t > 0);
   // messages
   let my2 = by - 40;
   ctx.textAlign = 'left'; ctx.font = `600 ${small ? 11 : 13}px system-ui, sans-serif`;

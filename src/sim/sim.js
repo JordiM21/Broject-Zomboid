@@ -104,6 +104,7 @@ export function step(s, inputs, dt) {
     const target = Math.min(520, 260 + day * 25) + (night ? 60 : 0);
     for (let k = 0; k < 4 && s.zombies.length < target; k++) spawnRandomZombie(s, 30, night);
   }
+  for (const n of s.noises) if (n.pl && n.r >= 2 * TILE) ev(s, { type: 'noise', x: n.x, y: n.y, r: n.r });
   s.noises.length = 0;
 }
 
@@ -173,7 +174,7 @@ function barricade(s, p) {
   removeItem(p.inv, 'plank', 1); removeItem(p.inv, 'nails', 3);
   d.bar = (d.bar || 0) + 1; d.hp += 70;
   ev(s, { type: 'built', x: p.x, y: p.y });
-  s.noises.push({ x: p.x, y: p.y, r: 8 * TILE });
+  s.noises.push({ pl: 1, x: p.x, y: p.y, r: 8 * TILE });
   msg(s, `Door barricaded (${d.bar}/3).`, '#9fe09f', p.id);
 }
 
@@ -190,7 +191,7 @@ function doInteract(s, p) {
     }
     d.open = !d.open;
     ev(s, { type: 'door', x: (it.tx + 0.5) * TILE, y: (it.ty + 0.5) * TILE, open: d.open });
-    s.noises.push({ x: p.x, y: p.y, r: 2 * TILE });
+    s.noises.push({ pl: 1, x: p.x, y: p.y, r: 2 * TILE });
     return;
   }
   const c = getCont(s, it.cid);
@@ -198,13 +199,13 @@ function doInteract(s, p) {
   if (c.type === 'radio') { ev(s, { type: 'ui', pid: p.id, panel: 'base', tab: 'radio' }); return; }
   if (c.type === 'bed') { command(s, p.id, { t: 'sleep' }); return; }
   if (c.searched) openCont(s, p, c);
-  else p.search = { cid: c.id, t: 0, dur: SEARCH_TIME[c.type] || 0.8 };
+  else { p.search = { cid: c.id, t: 0, dur: SEARCH_TIME[c.type] || 0.8 }; const cp = contPos(c); ev(s, { type: 'searchStart', x: cp.x, y: cp.y, ctype: c.type, dur: p.search.dur, pid: p.id }); }
 }
 function openCont(s, p, c) {
   if (c.items === null) c.items = rollLoot(c.type, s.seed, c.id, c.salt || 0);
   const first = !c.searched;
   c.searched = true; p.openCid = c.id;
-  ev(s, { type: 'open', pid: p.id, cid: c.id, first, empty: !c.items.length });
+  ev(s, { type: 'open', pid: p.id, cid: c.id, first, empty: !c.items.length, ctype: c.type, x: p.x, y: p.y });
   if (c.type !== 'stash') completeObjective(s, 'search');
 }
 
@@ -249,11 +250,18 @@ function updatePlayer(s, p, inp, dt) {
     if (p.stepT <= 0) {
       p.stepT = p.sprinting ? 0.3 : p.sneak ? 0.6 : 0.45;
       const r = p.sprinting ? 6 : p.sneak ? 0 : 2.5;
-      if (r) s.noises.push({ x: p.x, y: p.y, r: r * TILE });
-      ev(s, { type: 'step', x: p.x, y: p.y, pid: p.id, loud: p.sprinting });
+      if (r) s.noises.push({ pl: 1, x: p.x, y: p.y, r: r * TILE });
+      ev(s, { type: 'step', x: p.x, y: p.y, pid: p.id, loud: p.sprinting, sneak: p.sneak, surf: tHere });
     }
   }
 
+  // stealth: how visible the player is to zombies
+  let vis = daylight(s) > 0.35 ? 1 : p.flashlight ? 1.15 : 0.5;
+  if (p.sneak) vis *= 0.55;
+  if (!p.moving) vis *= 0.75; else if (p.sprinting) vis *= 1.3;
+  if (tHere === T.BUSH) vis *= 0.4;
+  if (s.weather.rain > 0.4) vis *= 0.85;
+  p.vis = vis;
   // channel (applying meds)
   if (p.channel) {
     p.channel.t += dt;
@@ -317,21 +325,27 @@ function attack(s, p) {
   if (p.stamina < wd.stam) { mult = 0.5; p.atkCd *= 1.5; }
   p.stamina = Math.max(0, p.stamina - wd.stam);
   ev(s, { type: 'swing', x: p.x, y: p.y, ang: p.ang, pid: p.id, arc: wd.arc, range: wd.range });
-  let hit = false;
+  let hit = false, loud = false;
   for (const z of s.zombies) {
     if (z.hp <= 0) continue;
     const d = dist(p, z); const zr = ZT[z.type].r;
     if (d > wd.range + zr) continue;
     if (d > zr && angDiff(Math.atan2(z.y - p.y, z.x - p.x), p.ang) > wd.arc / 2) continue;
     if (!los(s.world, p.x, p.y, z.x, z.y)) continue;
+    const a = Math.atan2(z.y - p.y, z.x - p.x);
+    if (p.sneak && z.state !== 'chase' && angDiff(z.ang, a) < 1.3 && p.wpn) {
+      // sneak attack from behind an unaware zombie: instant, silent kill
+      damageZombie(s, z, z.hp + 1, Math.cos(a), Math.sin(a), 20, p, false, true, true);
+      ev(s, { type: 'silentKill', x: z.x, y: z.y, pid: p.id });
+      hit = true; continue;
+    }
     const crit = rnd() < 0.12;
     const dmg = wd.dmg * mult * (crit ? 2 : 1) * (0.9 + rnd() * 0.2);
-    const a = Math.atan2(z.y - p.y, z.x - p.x);
     damageZombie(s, z, dmg, Math.cos(a), Math.sin(a), wd.knock, p, crit, true);
-    hit = true;
+    hit = true; loud = true;
   }
+  if (loud) s.noises.push({ pl: 1, x: p.x, y: p.y, r: 3 * TILE });
   if (hit) {
-    s.noises.push({ x: p.x, y: p.y, r: 3 * TILE });
     if (p.wpn && p.wpn.dur !== undefined) {
       p.wpn.dur--;
       if (p.wpn.dur <= 0) { msg(s, `Your ${wd.name} broke!`, '#ff8a6a', p.id); const i = p.inv.indexOf(p.wpn); if (i >= 0) p.inv.splice(i, 1); p.wpn = null; ev(s, { type: 'break', x: p.x, y: p.y }); }
@@ -372,7 +386,7 @@ function fire(s, p, wd) {
     ev(s, { type: 'tracer', x0: ox, y0: oy, x1: ox + ca * end, y1: oy + sa * end, wall: end === maxD && maxD < wd.range });
   }
   ev(s, { type: 'gunshot', gun: p.wpn.id, x: ox, y: oy, ang: p.ang, pid: p.id });
-  s.noises.push({ x: p.x, y: p.y, r: wd.noise * TILE });
+  s.noises.push({ pl: 1, x: p.x, y: p.y, r: wd.noise * TILE });
 }
 
 function startReload(s, p) {
@@ -401,12 +415,12 @@ function shove(s, p) {
   }
 }
 
-function damageZombie(s, z, dmg, kx, ky, knock, p, crit, melee = false) {
+function damageZombie(s, z, dmg, kx, ky, knock, p, crit, melee = false, silent = false) {
   z.hp -= dmg; z.flash = 0.1; z.hitT = 0.28; z.hitDir = Math.atan2(ky, kx); z.hitAge = 0; z.wounds = Math.min(6, (z.wounds || 0) + 1);
   const res = z.type === 'brute' ? 0.35 : 1;
   z.vx += kx * knock * res; z.vy += ky * knock * res; z.stagger = Math.max(z.stagger, 0.3 * res); z.atk = 0;
   if (p) { z.state = 'chase'; z.pid = p.id; z.lx = p.x; z.ly = p.y; z.lost = 0; }
-  ev(s, { type: 'zhit', x: z.x, y: z.y, kx, ky, crit, dmg: Math.round(dmg), melee, pid: p ? p.id : null });
+  ev(s, { type: 'zhit', silent, w: melee ? (p && p.wpn ? p.wpn.id : 'fists') : 'gun', x: z.x, y: z.y, kx, ky, crit, dmg: Math.round(dmg), melee, pid: p ? p.id : null });
   if (z.hp <= 0) {
     ev(s, { type: 'zdie', x: z.x, y: z.y, ztype: z.type, ang: Math.atan2(ky, kx) });
     s.stats.kills++; completeObjective(s, 'kill');
@@ -426,7 +440,7 @@ function quickHeal(s, p) {
   else if (p.hp < 100) pick = (p.hp < 55 && has('medkit')) ? 'medkit' : ['bandage', 'painkillers', 'rag', 'medkit'].find(has);
   if (!pick) { msg(s, 'No useful medical items.', '#aaa', p.id); return; }
   p.channel = { id: pick, t: 0, dur: pick === 'medkit' ? 2.4 : 1.4 };
-  ev(s, { type: 'medStart', x: p.x, y: p.y });
+  ev(s, { type: 'medStart', x: p.x, y: p.y, id: p.channel.id, pid: p.id });
 }
 function applyMed(s, p, id) {
   const d = ITEMS[id];
@@ -435,7 +449,7 @@ function applyMed(s, p, id) {
   else if (d.stopBleed && p.bleeding) msg(s, 'The rag did not stop the bleeding.', '#ffb070', p.id);
   if (d.regen) p.regen += d.regen;
   if (d.cure && p.infection > 0) { p.infection = 0; msg(s, 'The infection is gone.', '#9fe09f', p.id); }
-  ev(s, { type: 'healed', x: p.x, y: p.y, pid: p.id });
+  ev(s, { type: 'healed', x: p.x, y: p.y, pid: p.id, id });
 }
 
 function throwItem(s, p, id, inp) {
@@ -604,9 +618,18 @@ function updateZombies(s, dt) {
     if (z.think <= 0 && p) {
       z.think = 0.2;
       const pSafe = isSafe(w, p.x, p.y);
-      let sight = zt.sight * TILE * (dark ? (p.flashlight ? 1.15 : 0.55) : 1) * (p.sneak ? 0.6 : 1);
+      let sight = zt.sight * TILE * (p.vis ?? 1);
+      // peripheral vision: unaware zombies barely see behind them
+      if (z.state !== 'chase' && angDiff(z.ang, Math.atan2(p.y - z.y, p.x - z.x)) > 1.4) sight *= 0.35;
       z.seen = !pSafe && d < sight && los(w, z.x, z.y, p.x, p.y);
-      if ((z.seen || (d < 1.6 * TILE && !pSafe)) && z.state !== 'chase') { z.state = 'chase'; z.pid = p.id; ev(s, { type: 'alert', x: z.x, y: z.y }); }
+      if (z.state !== 'chase') {
+        // suspicion builds faster when the player is close; fades when out of sight
+        if (z.seen) z.sus = (z.sus || 0) + 0.2 * (0.5 + 2.5 * (1 - d / sight)) * (z.type === 'runner' ? 1.4 : 1);
+        else z.sus = Math.max(0, (z.sus || 0) - 0.05);
+        if (d < 1.2 * TILE && !pSafe && !p.sneak) z.sus = 1;
+        if (z.sus >= 1) { z.state = 'chase'; z.pid = p.id; z.lx = p.x; z.ly = p.y; z.lost = 0; ev(s, { type: 'alert', x: z.x, y: z.y }); }
+        else if (z.seen && z.sus > 0.35 && z.state === 'idle') { z.state = 'investigate'; z.tx = p.x; z.ty = p.y; z.stuck = 0; }
+      }
       if (z.state === 'chase') {
         const tp = s.players[z.pid];
         if (!tp || tp.dead || isSafe(w, tp.x, tp.y)) { z.state = 'investigate'; z.tx = z.lx; z.ty = z.ly; }
@@ -624,7 +647,7 @@ function updateZombies(s, dt) {
     if (z.state === 'chase') {
       const tp = s.players[z.pid] || p;
       z.lost += z.seen ? 0 : dt;
-      if (z.lost > 7) { z.state = 'investigate'; z.tx = z.lx; z.ty = z.ly; }
+      if (z.lost > 7) { z.state = 'investigate'; z.tx = z.lx; z.ty = z.ly; z.sus = 0.5; }
       const dd = dist(z, tp);
       if (z.seen && dd < 8 * TILE) { gx = tp.x; gy = tp.y; }
       else {
@@ -735,14 +758,14 @@ export function command(s, pid, c) {
     case 'take': {
       if (!contOk) return; const it = cont.items[c.idx]; if (!it) return;
       cont.items.splice(c.idx, 1); addItem(p.inv, it);
-      ev(s, { type: 'pickup', x: p.x, y: p.y, pid: p.id, text: `+ ${ITEMS[it.id].name}${it.n > 1 ? ' x' + it.n : ''}` });
+      ev(s, { type: 'pickup', cat: ITEMS[it.id].cat, x: p.x, y: p.y, pid: p.id, text: `+ ${ITEMS[it.id].name}${it.n > 1 ? ' x' + it.n : ''}` });
       break;
     }
     case 'takeAll': {
       if (!contOk) return;
       const nTaken = cont.items.length;
       for (const it of cont.items) addItem(p.inv, it);
-      cont.items.length = 0; ev(s, { type: 'pickup', x: p.x, y: p.y, pid: p.id, text: nTaken ? `+ ${nTaken} item${nTaken > 1 ? 's' : ''}` : '' });
+      cont.items.length = 0; ev(s, { type: 'pickup', cat: 'bag', x: p.x, y: p.y, pid: p.id, text: nTaken ? `+ ${nTaken} item${nTaken > 1 ? 's' : ''}` : '' });
       break;
     }
     case 'put': case 'putAll': {
@@ -759,7 +782,7 @@ export function command(s, pid, c) {
       }
       if (moved && cont.type === 'stash') { s.stats.hauled += moved; completeObjective(s, 'deposit'); }
       if (!moved) msg(s, 'No room.', '#aaa', p.id);
-      ev(s, { type: 'pickup', x: p.x, y: p.y });
+      ev(s, { type: 'stow', cat: list[0] ? ITEMS[list[0].id].cat : 'bag', x: p.x, y: p.y, pid: p.id });
       break;
     }
     case 'use': {
@@ -770,7 +793,7 @@ export function command(s, pid, c) {
         if (d.thirst) p.thirst = Math.max(0, Math.min(100, p.thirst + d.thirst));
         it.n--; if (it.n <= 0) p.inv.splice(c.idx, 1);
         ev(s, { type: d.thirst > (d.hunger || 0) ? 'drink' : 'eat', x: p.x, y: p.y });
-      } else if (d.cat === 'med') { if (!p.channel) { p.channel = { id: it.id, t: 0, dur: it.id === 'medkit' ? 2.4 : 1.4 }; ev(s, { type: 'medStart', x: p.x, y: p.y }); } }
+      } else if (d.cat === 'med') { if (!p.channel) { p.channel = { id: it.id, t: 0, dur: it.id === 'medkit' ? 2.4 : 1.4 }; ev(s, { type: 'medStart', x: p.x, y: p.y, id: p.channel.id, pid: p.id }); } }
       else if (d.cat === 'melee' || d.cat === 'gun') { p.wpn = it; p.reload = 0; ev(s, { type: 'equip' }); }
       else if (d.cat === 'bag' || d.cat === 'armor') {
         const slot = d.cat === 'bag' ? 'bag' : 'armor';

@@ -2,6 +2,8 @@ import './style.css';
 import { SIM_DT } from './config.js';
 import { createState, addPlayer, step, command, getInteract, spawnZombie, newPlayer, dayOf, weaponList } from './sim/sim.js';
 import { Renderer } from './render/renderer.js';
+import { los } from './world/world.js';
+import { TILE } from './config.js';
 import { Sfx } from './audio.js';
 import { drawHUD, Minimap } from './ui/hud.js';
 import { Panels } from './ui/panels.js';
@@ -14,7 +16,9 @@ const sfx = new Sfx();
 let s = null, mm = null, running = false, paused = false;
 const keys = new Set(), pressed = new Set();
 const mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false };
-const ui = { messages: [], mouse, mouseWorld: { x: 0, y: 0 }, interact: null, bigMap: false, panelOpen: false, dt: 0 };
+const ui = { pings: [], messages: [], mouse, mouseWorld: { x: 0, y: 0 }, interact: null, bigMap: false, panelOpen: false, dt: 0 };
+const PING = { groan: 1, alert: 2, bash: 2, doorbreak: 2, zattack: 2, explode: 2, gunshot: 1 };
+const zSteps = new WeakMap();
 let selPending = -1, hitStop = 0;
 
 const panels = new Panels({
@@ -26,6 +30,7 @@ const addMsg = (text, color = '#ddd') => { ui.messages.push({ text, color, t: 7 
 function drain() {
   for (const e of s.events) {
     rend.onEvent(e, LOCAL); sfx.play(e, LOCAL);
+    if (PING[e.type]) { const p = s.players[LOCAL]; const d = Math.hypot(e.x - p.x, e.y - p.y); if (d > 100 && d < 1300 && (d > 15 * TILE || !los(s.world, p.x, p.y, e.x, e.y))) ui.pings.push({ x: e.x, y: e.y, t: 1.8, danger: PING[e.type] === 2 }); }
     if (e.type === 'zhit' && e.melee && e.pid === LOCAL) hitStop = Math.max(hitStop, e.crit ? 0.07 : 0.04);
     if (e.pid && e.pid !== LOCAL && e.type !== 'step') continue;
     switch (e.type) {
@@ -189,10 +194,22 @@ function frame(now) {
   ui.interact = !p.dead ? getInteract(s, p) : null;
   ui.panelOpen = panels.isOpen;
   sfx.lx = p.x; sfx.ly = p.y; sfx.setRain(s.weather ? s.weather.rain : 0);
+  const w = s.world, ti = Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE);
+  sfx.occl = (x, y) => !los(w, p.x, p.y, x, y);
+  sfx.update(ui.dt, { indoor: w.bld[ti] >= 0, hp: p.hp, dead: p.dead });
+  if (!paused && !p.dead) { // zombie footsteps near the player
+    let n = 0;
+    for (const z of s.zombies) {
+      if (z.state === 'idle' || z.atk > 0 || Math.abs(z.x - p.x) > 380 || Math.abs(z.y - p.y) > 380) continue;
+      let t = (zSteps.get(z) ?? Math.random() * 0.5) - dt;
+      if (t <= 0 && n < 4) { n++; t = z.type === 'runner' ? 0.26 : z.type === 'brute' ? 0.7 : 0.55; sfx.play({ type: 'zstep', x: z.x, y: z.y, surf: w.floor[Math.floor(z.y / TILE) * w.w + Math.floor(z.x / TILE)], run: z.type === 'runner' }, LOCAL); }
+      zSteps.set(z, t);
+    }
+  }
   rend.render(s, LOCAL, ui);
   drawHUD(rend.ctx, s, p, ui, rend, mm);
 }
 rend.resize();
 showMenu();
 requestAnimationFrame(frame);
-window.__game = { get state() { return s; }, newGame, command: (c) => { command(s, LOCAL, c); drain(); } };
+window.__game = { sfx, get state() { return s; }, newGame, command: (c) => { command(s, LOCAL, c); drain(); } };
