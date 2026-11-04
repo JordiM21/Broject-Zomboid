@@ -103,7 +103,7 @@ function drawLocations(ctx, s, mm, x, y, size, mouse) {
   }
   // legend
   ctx.textAlign = 'center'; ctx.font = '600 12px system-ui'; ctx.fillStyle = '#bbb';
-  ctx.fillText('Hover a place for details  ·  ■ dropped backpack  ·  ✕ your body  ·  [M] close', x + size / 2, y + size + 2 - 6 + 18);
+  ctx.fillText('Hover a place for details  ·  ■ dropped backpack  ·  ✕ a body  ·  [M] close', x + size / 2, y + size + 2 - 6 + 18);
 }
 function statIcon(ctx, kind, x, y, col, sc) {
   ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc); ctx.fillStyle = col; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1; ctx.beginPath();
@@ -224,6 +224,11 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
     for (const cid of s.loose) { const c = w.containers[cid]; if (!c || c.type !== 'body' || !c.items.length) continue; const q = pt(c.px, c.py); if (inside(q)) { ctx.fillStyle = '#ffd25a'; ctx.font = '700 12px system-ui'; ctx.textAlign = 'center'; ctx.fillText('✕', q[0], q[1] + 4); } }
     const q = pt(p.x, p.y);
     ctx.save(); ctx.translate(q[0], q[1]); ctx.rotate(p.ang); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(-4, -4); ctx.lineTo(-4, 4); ctx.fill(); ctx.restore();
+    for (const id in s.players) { // partner, pinned to the edge of the minimap when out of range
+      const m = s.players[id]; if (m === p || m.dead) continue;
+      const a = pt(m.x, m.y), ax = Math.max(x + 5, Math.min(x + size - 5, a[0])), ay = Math.max(y + 5, Math.min(y + size - 5, a[1]));
+      ctx.fillStyle = '#7ae0a0'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(ax, ay, 4.5, 0, 7); ctx.fill(); ctx.stroke();
+    }
   };
   ctx.save(); ctx.beginPath(); ctx.rect(mx, my, ms, ms); ctx.clip(); ctx.fillStyle = '#07080a'; ctx.fillRect(mx, my, ms, ms); drawMap(mx, my, ms, false); ctx.restore();
   ctx.fillStyle = '#888'; ctx.font = '600 10px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillText('[M] Map', SW - 14, my + ms + 16);
@@ -232,6 +237,16 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
     ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(x - 10, y - 10, size + 20, size + 20);
     ctx.fillStyle = '#07080a'; ctx.fillRect(x, y, size, size); drawMap(x, y, size, true);
     drawLocations(ctx, s, mm, x, y, size, ui.mouse);
+  }
+  // arrow at the screen edge pointing to a partner who is off-screen
+  for (const id in s.players) {
+    const m = s.players[id]; if (m === p || m.dead) continue;
+    const q = rend.worldToScreen(m.x, m.y), e = 60;
+    if (q.x > e && q.y > e && q.x < SW - e && q.y < SH - e) continue;
+    const ang = Math.atan2(q.y - SH / 2, q.x - SW / 2), k = Math.min((SW / 2 - e) / Math.abs(Math.cos(ang) || 1e-6), (SH / 2 - e) / Math.abs(Math.sin(ang) || 1e-6));
+    const ax = SW / 2 + Math.cos(ang) * k, ay = SH / 2 + Math.sin(ang) * k;
+    ctx.save(); ctx.translate(ax, ay); ctx.rotate(ang); ctx.fillStyle = '#7ae0a0'; ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(-7, -9); ctx.lineTo(-3, 0); ctx.lineTo(-7, 9); ctx.fill(); ctx.restore();
+    ctx.fillStyle = '#7ae0a0'; ctx.font = '700 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(`${Math.round(Math.hypot(m.x - p.x, m.y - p.y) / TILE)} m`, ax - Math.cos(ang) * 22, ay - Math.sin(ang) * 22 + 4);
   }
   // sound pings: where unseen zombie noises come from
   for (const g of ui.pings) {

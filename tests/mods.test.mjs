@@ -4,7 +4,7 @@ import { createState, addPlayer, step, command, spawnZombie, gunSpread, getCont 
 import { ITEMS, gunStats, MOD_STASH_ITEMS } from '../src/data/items.js';
 import { makeItem, invWeight, countItem } from '../src/sim/inventory.js';
 
-const s = createState(12345, false);
+const s = createState(12345, false, { testGear: true });
 const p = addPlayer(s, 'p1');
 const idx = (id) => p.inv.findIndex((i) => i.id === id);
 const give = (id, n = 1) => { const it = makeItem(id, n); p.inv.push(it); return it; };
@@ -113,7 +113,7 @@ const store = new Map();
 globalThis.localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
 const { saveGame, loadGame } = await import('../src/save.js');
 const { newPlayer } = await import('../src/sim/sim.js');
-const sv = createState(4242, false), q = addPlayer(sv, 'p1');
+const sv = createState(4242, false, { testGear: true }), q = addPlayer(sv, 'p1');
 const modded = makeItem('smg'); modded.mods = ['silencer', 'extmag']; modded.mag = 40; q.inv.push(modded); q.wpn = modded;
 command(sv, 'p1', { t: 'hotbar', slot: 3, idx: q.inv.indexOf(modded) });
 const st = getCont(sv, sv.world.fixtures.modstash); st.items.splice(0, 3);

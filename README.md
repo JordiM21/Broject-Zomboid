@@ -49,7 +49,36 @@ Four types only: **Light** (Pistol, SMG), **Medium** (Carbine, Crossbow), **Heav
 - Weapons: Katana (silent one-cut kills on unaware zombies), Sledgehammer (stuns, huge knockback), Spear (longest reach), Crossbow (near-silent, pierces), SMG (full auto), plus the originals. Each has its own animation.
 - Armor: Riot Gear (best protection, slower), Ghillie Suit (much harder to spot), Police Vest, Leather Jacket.
 - Buffs: Adrenaline Shot (20 s speed, damage, no stamina drain), Energy Drink (90 s double stamina regen). Perk: Self-Revive Kit (carry it; revives you once and blasts zombies away).
-- Test Weapon Rack in the safehouse holds one of everything.
+- With `?testgear`, the Weapon Rack in the safehouse holds one of everything.
+
+## Co-op
+
+Two players share one world: same zombies, stash, upgrades, doors and loot, each with their own character and inventory.
+
+1. On the main menu, choose **Play Together**, then **Host your world**. You get a 4-letter code. You can also choose **Invite a Partner** from the pause menu.
+2. Your partner opens the game, chooses **Play Together**, enters the code and joins.
+
+How you connect depends on the build:
+- **Live site:** nothing to set up. Browsers connect directly over WebRTC (`src/net/peer.js`). The free PeerJS service only introduces them, and falls back to its relay on strict networks.
+- **Development:** `npm run dev -- --host`, then open the Network address it prints. The relay runs inside the dev server.
+- **Your own relay (optional):** host `server/relay.mjs` somewhere that allows WebSockets (`PORT=8787 npm run relay`), and build with `VITE_RELAY=wss://your-relay/coop`.
+
+The host's browser runs the simulation and owns the save; it keeps running behind a pause menu or in a background tab. A partner who leaves keeps their character for next time. See `src/net/`: `sync.js` builds and applies the messages, `coop.js` handles connections and prediction, and `server/relay.mjs` only pairs players and passes messages along.
+
+## Loot economy
+
+`ECONOMY` in `src/data/items.js` sets how likely each weapon tier and mods are in each kind of place:
+
+| Tier | Weapons | Where |
+|---|---|---|
+| 1 Common | Knife, Bat, Crowbar | Kitchens, toolboxes, cars, hardware stores |
+| 2 Uncommon | Machete, Spear, Axe, Pistol | Police, camps, rarely houses and cars |
+| 3 Rare | Sledgehammer, Crossbow, Shotgun, SMG | Military, police, rarely elsewhere |
+| 4 Very rare | Katana, Carbine, Hunting Rifle | Mostly military |
+
+Silencers and Extended Mags are found as items, mostly at military and police sites. At the Workbench you can craft the Crossbow, Spear, Silencer and Extended Mag. Basic materials are the most common loot and stack to 100.
+
+Add `?testgear` to the URL before starting a new world to get the Weapon Rack and Mod Stash in the safehouse, with free gear for trying things out.
 
 ## View and peeking
 
@@ -61,7 +90,7 @@ Four types only: **Light** (Pistol, SMG), **Medium** (Carbine, Crossbow), **Heav
 - `MODS` in `src/data/items.js` is the mod table. **Silencer**: shots are heard 70% less far, only 40% of zombies in earshot react, and there is no muzzle flash. **Extended Mag**: 50% more rounds. Neither fits the Crossbow.
 - Mods belong to the individual gun, so two pistols can differ. The icon shows the parts and S/M tags; the details panel lists them and shows the changed stats.
 - Attach: drag a mod onto a gun, press E on it, or right-click it. Remove: right-click the gun or use the details panel. Rounds that no longer fit go back to your inventory.
-- Test Mod Stash in the safehouse holds 4 of each.
+- With `?testgear`, the Mod Stash in the safehouse holds 4 of each.
 - Hold right-click with a gun to aim down sights: spread drops to 40% and the crosshair tightens.
 - Silenced guns sound different by ammo (`SUPPRESSED` in `src/audio.js`): Light is a soft "pft", Medium a sharp "tsst" with a crack, Heavy a deep "thoomp" with a crack, Shotgun a wide "fwump". Each gun adds its own action (`SILENCED_ACTION`), like the rifle's hand-worked bolt or the shotgun's pump.
 
@@ -97,4 +126,4 @@ Four types only: **Light** (Pistol, SMG), **Medium** (Carbine, Crossbow), **Heav
 - `src/ui/` HUD (canvas) and DOM panels (inventory, base).
 - `src/save.js` saves to localStorage as seed + deltas.
 
-Tests: `node tests/sim.test.mjs` (headless sim), `node tests/mods.test.mjs` (mods and ADS), `tests/ui_audit.js` (paste in the browser console: panel stability and overflow), `tests/smoke*.mjs` (Playwright, needs `npm run build`).
+Tests: `node tests/sim.test.mjs` (headless sim), `node tests/mods.test.mjs` (mods and ADS), `node tests/coop.test.mjs` (relay, sync, prediction, traffic and loot rates), `tests/ui_audit.js` (paste in the browser console: panel stability and overflow), `tests/smoke*.mjs` (Playwright, needs `npm run build`).

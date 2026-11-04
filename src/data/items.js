@@ -13,12 +13,12 @@ export const ITEMS = {
   antibiotics: { name: 'Antibiotics', cat: 'med', w: 0.1, stack: 5, cure: 1 },
   medkit: { name: 'First Aid Kit', cat: 'med', w: 0.8, stack: 2, heal: 45, stopBleed: 1 },
 
-  scrap: { name: 'Scrap Metal', cat: 'mat', w: 0.5, stack: 20, roll: [1, 3] },
-  plank: { name: 'Wood Plank', cat: 'mat', w: 0.8, stack: 10, roll: [1, 2] },
-  nails: { name: 'Nails', cat: 'mat', w: 0.05, stack: 40, roll: [3, 9] },
-  cloth: { name: 'Cloth', cat: 'mat', w: 0.1, stack: 20, roll: [1, 3] },
-  tape: { name: 'Duct Tape', cat: 'mat', w: 0.2, stack: 10 },
-  electronics: { name: 'Electronics', cat: 'mat', w: 0.3, stack: 10 },
+  scrap: { name: 'Scrap Metal', cat: 'mat', w: 0.5, stack: 100, roll: [2, 5] },
+  plank: { name: 'Wood Plank', cat: 'mat', w: 0.8, stack: 100, roll: [1, 3] },
+  nails: { name: 'Nails', cat: 'mat', w: 0.05, stack: 100, roll: [4, 12] },
+  cloth: { name: 'Cloth', cat: 'mat', w: 0.1, stack: 100, roll: [2, 4] },
+  tape: { name: 'Duct Tape', cat: 'mat', w: 0.2, stack: 100, roll: [1, 2] },
+  electronics: { name: 'Electronics', cat: 'mat', w: 0.3, stack: 100, roll: [1, 2] },
 
   knife: { name: 'Kitchen Knife', cat: 'melee', w: 0.3, dmg: 22, range: 34, arc: 1.3, cd: 0.3, stam: 4, dur: 45, knock: 40 },
   bat: { name: 'Baseball Bat', cat: 'melee', w: 1.2, dmg: 30, range: 50, arc: 2.0, cd: 0.6, stam: 9, dur: 60, knock: 150 },
@@ -150,6 +150,10 @@ export const RECIPES = [
   { id: 'ammo308', out: ['ammo308', 3], cost: { scrap: 3, electronics: 1 }, needs: 'locker' },
   { id: 'medkit', out: ['medkit', 1], cost: { bandage: 3, painkillers: 1, tape: 1 } },
   { id: 'plank', out: ['plank', 1], cost: { scrap: 1, nails: 2 } },
+  { id: 'spear', out: ['spear', 1], cost: { plank: 2, knife: 1, tape: 1 } },
+  { id: 'crossbow', out: ['crossbow', 1], cost: { plank: 3, scrap: 2, cloth: 3, tape: 2 } },
+  { id: 'silencer', out: ['silencer', 1], cost: { scrap: 5, cloth: 4, tape: 3 } },
+  { id: 'extmag', out: ['extmag', 1], cost: { scrap: 6, nails: 6, electronics: 1 } },
 ];
 
 export const TRADE_COST = 12; // valuable points per supply drop
@@ -251,5 +255,41 @@ LOOT.filing = { rolls: [0, 2], t: [['cash', 1], ['tape', 1], ['electronics', 1],
 Object.assign(CONTAINER_LABEL, { rack: 'Weapon Rack (test)', modstash: 'Mod Stash (test)', stove: 'Stove', sink: 'Sink Cabinet', nightstand: 'Nightstand', bookshelf: 'Bookshelf', tvstand: 'TV Stand', desk: 'Desk', filing: 'Filing Cabinet' });
 LOOT.zombie = { rolls: [0, 2], t: [['cash', 3], ['rag', 3], ['cloth', 2], ['bandage', 1.5], ['ammo9', 1.2], ['chips', 1], ['water', 1], ['watch', 0.8], ['painkillers', 0.8], ['shells', 0.5], ['jewelry', 0.4], ['tape', 0.5]] };
 CONTAINER_LABEL.zombie = 'Zombie Corpse';
+
+// ---------- loot economy ----------
+// Weapons and mods are placed by location, not listed per table: each place says how likely each tier is there.
+// Common tools turn up everywhere; the top tier is close to military-only. Tune the game's economy here.
+export const WEAPON_TIERS = [
+  ['knife', 'bat', 'crowbar'], // 1: common
+  ['machete', 'spear', 'axe', 'pistol'], // 2: uncommon
+  ['sledge', 'crossbow', 'shotgun', 'smg'], // 3: rare
+  ['katana', 'carbine', 'rifle'], // 4: very rare
+];
+const MOD_IDS = Object.keys(MODS);
+// tiers: total weight per tier. mods: total weight for mods. guns: false for places that only hold hand tools.
+const ECONOMY = {
+  milcrate: { tiers: [0.2, 1.2, 1.4, 0.5], mods: 0.8 }, // military outposts
+  locker: { tiers: [0.8, 2, 0.8, 0.12], mods: 0.5 }, // police stations
+  zsoldier: { tiers: [0, 0.3, 0.15, 0.04], mods: 0.08 },
+  crate: { tiers: [0.5, 0.8, 0.3, 0.06], mods: 0.15 }, // forest camps
+  hardware: { tiers: [1.2, 0.8, 0.3, 0], mods: 0.05, guns: false },
+  toolbox: { tiers: [0.8, 0.25, 0.03, 0], mods: 0.04, guns: false },
+  counter: { tiers: [0.8, 0, 0, 0], mods: 0, guns: false },
+  stove: { tiers: [0.5, 0, 0, 0], mods: 0, guns: false },
+  dresser: { tiers: [0.1, 0.12, 0.02, 0.005], mods: 0.01 }, // houses: rare
+  nightstand: { tiers: [0.05, 0.12, 0.015, 0.003], mods: 0.01 },
+  wardrobe: { tiers: [0.2, 0.05, 0.01, 0.002], mods: 0 },
+  car: { tiers: [0.5, 0.15, 0.04, 0.008], mods: 0.03 },
+};
+const GUNS_OR_MODS = new Set([...WEAPON_TIERS.flat(), ...MOD_IDS]);
+const isHandTool = (id) => ITEMS[id].cat !== 'gun' && id !== 'katana';
+for (const tab of Object.values(LOOT)) tab.t = tab.t.filter(([id]) => !GUNS_OR_MODS.has(id)).map(([id, w]) => [id, ITEMS[id].cat === 'mat' ? w * 1.6 : w]); // basic materials turn up more
+for (const [place, { tiers, mods, guns = true }] of Object.entries(ECONOMY)) {
+  tiers.forEach((weight, tier) => {
+    const ids = WEAPON_TIERS[tier].filter((id) => guns || isHandTool(id));
+    if (weight > 0) for (const id of ids) LOOT[place].t.push([id, weight / ids.length]);
+  });
+  if (mods > 0) for (const id of MOD_IDS) LOOT[place].t.push([id, mods / MOD_IDS.length]);
+}
 
 export const RACK_ITEMS = [['katana',1],['sledge',1],['spear',1],['crossbow',1],['ammomed',40],['carbine',1],['smg',1],['ammo9',60],['ammo9',60],['pistol',1],['shotgun',1],['shells',30],['rifle',1],['ammo308',30],['axe',1],['machete',1],['spikedbat',1],['crowbar',1],['bat',1],['riotgear',1],['ghillie',1],['vest',1],['jacket',1],['milbag',1],['adrenaline',3],['energy',3],['reviver',1],['pipebomb',3],['noisemaker',3],['medkit',2],['helmet',1],['milhelmet',1],['nvg',1],['headlamp',1],['jeans',1],['cargo',1],['kevlarpants',1],['sneakers',1],['boots',1],['runners',1],['hikingbag',1],['schoolbag',1]];

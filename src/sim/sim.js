@@ -31,18 +31,20 @@ export function daylight(s) {
 const dawnIndex = (s) => Math.floor((hoursTotal(s) - 6) / 24);
 
 // ---------- state ----------
-export function createState(seed, fresh = true) {
-  const world = generateWorld(seed);
+export function createState(seed, fresh = true, { testGear = false } = {}) {
+  const world = generateWorld(seed, { testGear });
   const s = {
-    seed, world, time: 0, dawnIdx: 0, players: {}, zombies: [], thrown: [], noises: [], events: [], nextId: 1,
+    seed, world, testGear, time: 0, dawnIdx: 0, players: {}, zombies: [], thrown: [], noises: [], events: [], nextId: 1,
     upgrades: Object.fromEntries(UPGRADES.map((u) => [u.id, 0])), spawnT: 0, hordeDay: 0, obj: 0,
     stats: { kills: 0, deaths: 0, hauled: 0, bestDay: 1 }, tradePoints: 0, loose: [],
     weather: { rain: 0, target: 0, t: 120 },
   };
   s.dawnIdx = dawnIndex(s);
   s.baseConts = world.containers.length;
-  { const rk = world.containers[world.fixtures.rack]; rk.items = []; rk.searched = true; for (const [id, n] of RACK_ITEMS) { const it = makeItem(id, n); if (ITEMS[id].cat === 'gun') it.mag = ITEMS[id].mag; rk.items.push(it); } }
-  { const ms = world.containers[world.fixtures.modstash]; ms.searched = true; ms.items = MOD_STASH_ITEMS.map((id) => makeItem(id)); }
+  if (testGear) { // ?testgear in the URL: free gear in the safehouse for trying things out
+    const rk = world.containers[world.fixtures.rack]; rk.items = []; rk.searched = true; for (const [id, n] of RACK_ITEMS) { const it = makeItem(id, n); if (ITEMS[id].cat === 'gun') it.mag = ITEMS[id].mag; rk.items.push(it); }
+    const ms = world.containers[world.fixtures.modstash]; ms.searched = true; ms.items = MOD_STASH_ITEMS.map((id) => makeItem(id));
+  }
   if (fresh) { for (let k = 0; k < 520; k++) spawnRandomZombie(s, 22, false); for (const zn of world.zones) spawnInZone(s, zn, zn.kind === 'military' ? 45 : 28); }
   initRuntime(s);
   return s;
@@ -71,8 +73,19 @@ export function newPlayer(s, id, kit = 'start') {
   return p;
 }
 export function addPlayer(s, id) { s.players[id] = newPlayer(s, id); return s.players[id]; }
+// co-op: a partner who leaves steps out of the world and gets their character back when they return
+export function parkPlayer(s, id) { const p = s.players[id]; if (!p) return; (s.parked = s.parked || {})[id] = p; delete s.players[id]; }
+export function joinPlayer(s, id) {
+  if (s.parked && s.parked[id]) { s.players[id] = s.parked[id]; delete s.parked[id]; }
+  if (s.players[id]) { const b = s.players[id]; Object.assign(b, { openCid: -1, search: null, channel: null, peek: null, climb: null, pry: null, reload: 0 }); return b; } // nothing left half-done from last time
+  const p = addPlayer(s, id); p.x += 40; // next to the host's start, not on top of them
+  return p;
+}
 
 const ev = (s, e) => s.events.push(e);
+// Mark whose action an event came from, so a partner's menu sounds stay theirs. These belong to everyone.
+const SHARED_EVENTS = new Set(['msg', 'objective', 'slept', 'horde', 'built']);
+function stampEvents(s, from, pid) { for (let i = from; i < s.events.length; i++) { const e = s.events[i]; if (e.pid === undefined && !SHARED_EVENTS.has(e.type)) e.pid = pid; } }
 const msg = (s, text, color = '#ddd', pid = null) => ev(s, { type: 'msg', text, color, pid });
 export const getCont = (s, cid) => s.world.containers[cid];
 export const stashCont = (s) => s.world.containers[s.world.fixtures.stash];
@@ -126,7 +139,7 @@ export function step(s, inputs, dt) {
   if (day > s.stats.bestDay) s.stats.bestDay = day;
   const h = hourOf(s);
   if (h >= 22 && day >= 2 && s.hordeDay < day) { s.hordeDay = day; spawnHorde(s); }
-  for (const id in s.players) updatePlayer(s, s.players[id], inputs[id] || {}, dt);
+  for (const id in s.players) { const n = s.events.length; updatePlayer(s, s.players[id], inputs[id] || {}, dt); stampEvents(s, n, id); }
   updateBullets(s, dt);
   updateThrown(s, dt);
   updateZombies(s, dt);
@@ -282,18 +295,8 @@ function openCont(s, p, c) {
   if (c.type !== 'stash') completeObjective(s, 'search');
 }
 
-function updatePlayer(s, p, inp, dt) {
-  if (p.dead) return;
-  const w = s.world;
-  p.atkCd -= dt; p.swing -= dt; p.invuln -= dt; p.hurt -= dt; p.muzzle -= dt;
-  p.bloom = Math.max(0, (p.bloom || 0) - dt * 1.6);
-  p.buffs = p.buffs || {}; for (const k in p.buffs) { p.buffs[k] -= dt; if (p.buffs[k] <= 0) { delete p.buffs[k]; msg(s, k === 'adrenaline' ? 'The adrenaline wears off.' : 'The energy boost fades.', '#aaa', p.id); } }
-  if (inp.mx !== undefined) p.ang = Math.atan2(inp.my - p.y, inp.mx - p.x);
-  if (inp.sneak) { p.sneak = !p.sneak; msg(s, p.sneak ? 'Sneaking: quieter, harder to spot.' : 'Walking.', '#aaa', p.id); }
-  if (inp.flash) { p.flashlight = !p.flashlight; ev(s, { type: 'click', x: p.x, y: p.y }); }
-  if (inp.sel !== undefined && inp.sel >= 0) activateHot(s, p, inp.sel, inp);
-  if (inp.hotEquip !== undefined && inp.hotEquip >= 0) { const it = resolveHot(p, inp.hotEquip); if (it && ['melee', 'gun'].includes(ITEMS[it.id].cat)) { p.wpn = it; p.reload = 0; ev(s, { type: 'equip', pid: p.id }); } }
-
+// Movement is split out so a co-op partner can predict their own character with exactly the host's rules.
+function moveIntent(p, inp) {
   let mx = (inp.right ? 1 : 0) - (inp.left ? 1 : 0), my = (inp.down ? 1 : 0) - (inp.up ? 1 : 0);
   const ml = Math.hypot(mx, my); if (ml > 0) { mx /= ml; my /= ml; }
   if (inp.relative && ml > 0) { // rotating view: W is wherever the character faces, A/D strafe
@@ -301,10 +304,46 @@ function updatePlayer(s, p, inp, dt) {
     mx = fwd * c - side * n; my = fwd * n + side * c;
   }
   p.moving = ml > 0;
-  updatePeek(s, p, inp);
-  const over = carried(p) / capacity(p);
-  const slow = over > 1 ? Math.max(0.4, 1 - (over - 1) * 1.2) : 1;
   p.sprinting = !!inp.sprint && p.moving && p.stamina > 3 && !p.channel && !p.sneak;
+  return [mx, my];
+}
+function applyMove(s, p, mx, my, dt) {
+  const w = s.world, over = carried(p) / capacity(p), slow = over > 1 ? Math.max(0.4, 1 - (over - 1) * 1.2) : 1;
+  let speed = p.sneak ? 62 : p.sprinting ? (hasPerk(p, 'sprinter') ? 192 : 172) : 112;
+  speed *= slow * gearStats(p).slow; if (p.buffs && p.buffs.adrenaline) speed *= 1.3; if (p.channel) speed *= 0.4; if (p.reload > 0) speed *= 0.8; if (p.peek) speed *= 0.5;
+  if (w.tiles[Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE)] === T.BUSH) speed *= 0.6;
+  const bx = p.x, by = p.y;
+  p.x += mx * speed * dt; p.y += my * speed * dt;
+  collide(p, PLAYER_R, (tx, ty) => solidAt(w, tx, ty));
+  // doorway assist: if blocked while moving along one axis, slide toward the open tile's center
+  if (p.moving && Math.hypot(p.x - bx, p.y - by) < speed * dt * 0.3 && (Math.abs(mx) < 0.35 || Math.abs(my) < 0.35)) { // nearly axis-aligned, so it also works in the rotating view
+    const ax = Math.abs(mx) < 0.35, cx = Math.floor(p.x / TILE), cy = Math.floor(p.y / TILE);
+    const ntx = cx + Math.sign(mx), nty = cy + Math.sign(my);
+    if (ax && !solidAt(w, cx, nty)) p.x += Math.sign((cx + 0.5) * TILE - p.x) * Math.min(Math.abs((cx + 0.5) * TILE - p.x), speed * dt);
+    else if (!ax && !solidAt(w, ntx, cy)) p.y += Math.sign((cy + 0.5) * TILE - p.y) * Math.min(Math.abs((cy + 0.5) * TILE - p.y), speed * dt);
+    collide(p, PLAYER_R, (tx, ty) => solidAt(w, tx, ty));
+  }
+}
+export function predictMove(s, p, inp, dt) {
+  if (inp.ang !== undefined) p.ang = inp.ang;
+  const [mx, my] = moveIntent(p, inp);
+  if (!p.climb) applyMove(s, p, mx, my, dt);
+}
+
+function updatePlayer(s, p, inp, dt) {
+  if (p.dead) return;
+  const w = s.world;
+  p.atkCd -= dt; p.swing -= dt; p.invuln -= dt; p.hurt -= dt; p.muzzle -= dt;
+  p.bloom = Math.max(0, (p.bloom || 0) - dt * 1.6);
+  p.buffs = p.buffs || {}; for (const k in p.buffs) { p.buffs[k] -= dt; if (p.buffs[k] <= 0) { delete p.buffs[k]; msg(s, k === 'adrenaline' ? 'The adrenaline wears off.' : 'The energy boost fades.', '#aaa', p.id); } }
+  if (inp.ang !== undefined) p.ang = inp.ang; else if (inp.mx !== undefined) p.ang = Math.atan2(inp.my - p.y, inp.mx - p.x);
+  if (inp.sneak) { p.sneak = !p.sneak; msg(s, p.sneak ? 'Sneaking: quieter, harder to spot.' : 'Walking.', '#aaa', p.id); }
+  if (inp.flash) { p.flashlight = !p.flashlight; ev(s, { type: 'click', x: p.x, y: p.y }); }
+  if (inp.sel !== undefined && inp.sel >= 0) activateHot(s, p, inp.sel, inp);
+  if (inp.hotEquip !== undefined && inp.hotEquip >= 0) { const it = resolveHot(p, inp.hotEquip); if (it && ['melee', 'gun'].includes(ITEMS[it.id].cat)) { p.wpn = it; p.reload = 0; ev(s, { type: 'equip', pid: p.id }); } }
+
+  const [mx, my] = moveIntent(p, inp);
+  updatePeek(s, p, inp);
   if (p.climb) {
     const c = p.climb; c.t += dt; const k = Math.min(1, c.t / c.dur);
     p.x = c.x0 + (c.x1 - c.x0) * k; p.y = c.y0 + (c.y1 - c.y0) * k; p.moving = true;
@@ -323,21 +362,8 @@ function updatePlayer(s, p, inp, dt) {
       msg(s, 'Door pried open.', '#9fe09f', p.id); p.pry = null;
     }
   }
-  let speed = p.sneak ? 62 : p.sprinting ? (hasPerk(p, 'sprinter') ? 192 : 172) : 112;
-  const gs = gearStats(p); speed *= slow * gs.slow; if (p.buffs.adrenaline) speed *= 1.3; if (p.channel) speed *= 0.4; if (p.reload > 0) speed *= 0.8; if (p.peek) speed *= 0.5;
-  const tHere = w.tiles[Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE)];
-  if (tHere === T.BUSH) speed *= 0.6;
-  const bx = p.x, by = p.y;
-  p.x += mx * speed * dt; p.y += my * speed * dt;
-  collide(p, PLAYER_R, (tx, ty) => solidAt(w, tx, ty));
-  // doorway assist: if blocked while moving along one axis, slide toward the open tile's center
-  if (p.moving && Math.hypot(p.x - bx, p.y - by) < speed * dt * 0.3 && (Math.abs(mx) < 0.35 || Math.abs(my) < 0.35)) { // nearly axis-aligned, so it also works in the rotating view
-    const ax = Math.abs(mx) < 0.35, cx = Math.floor(p.x / TILE), cy = Math.floor(p.y / TILE);
-    const ntx = cx + Math.sign(mx), nty = cy + Math.sign(my);
-    if (ax && !solidAt(w, cx, nty)) p.x += Math.sign((cx + 0.5) * TILE - p.x) * Math.min(Math.abs((cx + 0.5) * TILE - p.x), speed * dt);
-    else if (!ax && !solidAt(w, ntx, cy)) p.y += Math.sign((cy + 0.5) * TILE - p.y) * Math.min(Math.abs((cy + 0.5) * TILE - p.y), speed * dt);
-    collide(p, PLAYER_R, (tx, ty) => solidAt(w, tx, ty));
-  }
+  applyMove(s, p, mx, my, dt);
+  const gs = gearStats(p), tHere = w.tiles[Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE)];
   const safeNow = isSafe(w, p.x, p.y);
   if (safeNow && p.wasSafe === false) {
     const n = p.inv.filter((i) => i !== p.wpn).length;
@@ -659,11 +685,12 @@ function killPlayer(s, p) {
   const items = [...p.inv]; if (p.bag) items.push(p.bag); for (const k of GEAR_SLOTS) if (p.gear[k]) items.push(p.gear[k]);
   if (items.length) {
     const c = makeLoose(s, p.x, p.y, 'body', items);
-    c.label = `Your Body (Day ${dayOf(s)})`;
+    c.label = `Body (Day ${dayOf(s)})`;
   }
   p.inv = []; p.bag = null; p.gear = { head: null, body: null, legs: null, feet: null }; p.hotbar = p.hotbar.map(() => null); p.wpn = null; p.openCid = -1; p.channel = null; p.search = null;
   s.stats.deaths++;
   ev(s, { type: 'pdie', pid: p.id, x: p.x, y: p.y });
+  if (Object.keys(s.players).length > 1) msg(s, 'A survivor is down! Their gear is on their body, marked on the map.', '#ff8a6a');
 }
 function makeLoose(s, x, y, type, items) {
   const id = s.world.containers.length;
@@ -719,8 +746,8 @@ function spawnInZone(s, zn, n, minD = 0) {
   }
 }
 function spawnHorde(s) {
-  const p = Object.values(s.players).find((q) => !q.dead); if (!p) return;
-  const n = 10 + dayOf(s) * 3;
+  const alive = Object.values(s.players).filter((q) => !q.dead); if (!alive.length) return;
+  const p = alive[(rnd() * alive.length) | 0], n = 10 + dayOf(s) * 3;
   const center = randomTile(s, 26, p, 34); if (!center) return;
   for (let k = 0; k < n; k++) {
     const z = spawnZombie(s, center.x + (rnd() - 0.5) * 120, center.y + (rnd() - 0.5) * 120, rnd() < 0.25 ? 'runner' : rnd() < 0.08 ? 'brute' : 'walker');
@@ -756,8 +783,8 @@ function updateZombies(s, dt) {
     if (z.hitT > 0) z.hitT -= dt;
     z.hitAge = (z.hitAge ?? 99) + dt;
     const zt = ZT[z.type];
-    let p = null, d = 1e9;
-    for (const q of players) { const dq = dist(z, q); if (dq < d) { d = dq; p = q; } }
+    let p = null, d = 1e9, seek = null, seekD = 1e9; // nearest player, and nearest one outside the safehouse
+    for (const q of players) { const dq = dist(z, q); if (dq < d) { d = dq; p = q; } if (dq < seekD && !isSafe(w, q.x, q.y)) { seekD = dq; seek = q; } }
     if (d > 55 * TILE) { // far: cheap wander
       z.wanderT -= dt;
       if (z.wanderT <= 0) { z.wanderT = 3 + rnd() * 5; const a = rnd() * 6.28; z.wx = Math.cos(a); z.wy = Math.sin(a); if (rnd() < 0.5) z.wx = z.wy = 0; }
@@ -777,23 +804,30 @@ function updateZombies(s, dt) {
     z.think -= dt;
     if (z.think <= 0 && p) {
       z.think = 0.2;
-      const pSafe = isSafe(w, p.x, p.y);
-      let sight = zt.sight * TILE * (p.vis ?? 1);
+      // watch whoever it's chasing; otherwise the nearest player it could actually reach
+      const chased = z.state === 'chase' ? s.players[z.pid] : null;
+      const o = chased && !chased.dead ? chased : seek || p, od = dist(z, o);
+      const pSafe = isSafe(w, o.x, o.y);
+      let sight = zt.sight * TILE * (o.vis ?? 1);
       // peripheral vision: unaware zombies barely see behind them
-      if (z.state !== 'chase' && angDiff(z.ang, Math.atan2(p.y - z.y, p.x - z.x)) > 1.4) sight *= 0.35;
-      z.seen = !pSafe && d < sight && los(w, z.x, z.y, p.x, p.y);
+      if (z.state !== 'chase' && angDiff(z.ang, Math.atan2(o.y - z.y, o.x - z.x)) > 1.4) sight *= 0.35;
+      z.seen = !pSafe && od < sight && los(w, z.x, z.y, o.x, o.y);
       if (z.state !== 'chase') {
         // suspicion builds faster when the player is close; fades when out of sight
-        if (z.seen) z.sus = (z.sus || 0) + 0.2 * (0.5 + 2.5 * (1 - d / sight)) * (z.type === 'runner' ? 1.4 : 1);
+        if (z.seen) z.sus = (z.sus || 0) + 0.2 * (0.5 + 2.5 * (1 - od / sight)) * (z.type === 'runner' ? 1.4 : 1);
         else z.sus = Math.max(0, (z.sus || 0) - 0.05);
-        if (d < 1.2 * TILE && !pSafe && !p.sneak) z.sus = 1;
-        if (z.sus >= 1) { z.state = 'chase'; z.pid = p.id; z.lx = p.x; z.ly = p.y; z.lost = 0; ev(s, { type: 'alert', x: z.x, y: z.y }); }
-        else if (z.seen && z.sus > 0.35 && z.state === 'idle') { z.state = 'investigate'; z.tx = p.x; z.ty = p.y; z.stuck = 0; }
+        if (od < 1.2 * TILE && !pSafe && !o.sneak) z.sus = 1;
+        if (z.sus >= 1) { z.state = 'chase'; z.pid = o.id; z.lx = o.x; z.ly = o.y; z.lost = 0; ev(s, { type: 'alert', x: z.x, y: z.y }); }
+        else if (z.seen && z.sus > 0.35 && z.state === 'idle') { z.state = 'investigate'; z.tx = o.x; z.ty = o.y; z.stuck = 0; }
       }
       if (z.state === 'chase') {
         const tp = s.players[z.pid];
         if (!tp || tp.dead || isSafe(w, tp.x, tp.y)) { z.state = 'investigate'; z.tx = z.lx; z.ty = z.ly; }
-        else if (tp === p && z.seen) { z.lx = p.x; z.ly = p.y; z.lost = 0; }
+        else {
+          if (tp === o && z.seen) { z.lx = o.x; z.ly = o.y; z.lost = 0; }
+          // someone much closer and in plain sight takes over as the target
+          if (seek && seek !== tp && seekD < 5 * TILE && seekD < dist(z, tp) * 0.6 && los(w, z.x, z.y, seek.x, seek.y)) { z.pid = seek.id; z.lx = seek.x; z.ly = seek.y; z.lost = 0; }
+        }
       }
     }
     for (const n of s.noises) {
@@ -909,7 +943,8 @@ export function costStatus(s, p, cost) {
   return Object.entries(cost).map(([id, n]) => ({ id, n, have: countItem(p.inv, id) + (isSafe(s.world, p.x, p.y) ? countItem(stashItems(s), id) : 0) }));
 }
 
-export function command(s, pid, c) {
+export function command(s, pid, c) { const n = s.events.length; runCommand(s, pid, c); stampEvents(s, n, pid); }
+function runCommand(s, pid, c) {
   const p = s.players[pid]; if (!p) return;
   const w = s.world;
   if (c.t === 'respawn') {
@@ -1072,10 +1107,12 @@ export function command(s, pid, c) {
       if (!s.upgrades.bed) { msg(s, 'Build a Proper Bed at the Workbench first.', '#aaa', p.id); return; }
       const h = hourOf(s);
       if (h < 19 && h >= 6) { msg(s, "You're not tired. Sleep after 19:00.", '#aaa', p.id); return; }
-      if (s.zombies.some((z) => z.state === 'chase' && dist(z, p) < 12 * TILE)) { msg(s, "You can't sleep with zombies nearby.", '#ff8a6a', p.id); return; }
+      const sleepers = Object.values(s.players).filter((q) => !q.dead);
+      if (sleepers.some((q) => !isSafe(w, q.x, q.y))) { msg(s, 'Everyone has to be back at the safehouse to sleep.', '#ffb070', p.id); return; } // sleeping skips the night for the whole world
+      if (s.zombies.some((z) => z.state === 'chase' && sleepers.some((q) => dist(z, q) < 12 * TILE))) { msg(s, "You can't sleep with zombies nearby.", '#ff8a6a', p.id); return; }
       const ht = hoursTotal(s); let target = Math.floor(ht / 24) * 24 + 7; if (target <= ht) target += 24;
       s.time += ((target - ht) / 24) * DAY_LENGTH;
-      p.hp = Math.min(100, p.hp + 50); p.hunger = Math.max(5, p.hunger - 15); p.thirst = Math.max(5, p.thirst - 20); p.stamina = 100;
+      for (const q of sleepers) { q.hp = Math.min(100, q.hp + 50); q.hunger = Math.max(5, q.hunger - 15); q.thirst = Math.max(5, q.thirst - 20); q.stamina = 100; }
       ev(s, { type: 'slept' });
       break;
     }

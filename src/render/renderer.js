@@ -40,6 +40,8 @@ export class Renderer {
     const z = this.cam.zoom * this.dpr, c = Math.cos(this.rot), n = Math.sin(this.rot), hw = (window.innerWidth / 2) * this.dpr, hh = (window.innerHeight / 2) * this.dpr;
     g.setTransform(z * c, z * n, -z * n, z * c, hw - z * (c * camX - n * camY), hh - z * (n * camX + c * camY));
   }
+  // a partner's fight across town shouldn't shake your screen
+  nearMe(e, r) { return Math.hypot(e.x - this.cam.x, e.y - this.cam.y) < r; }
   // draw something at a world point that stays upright on screen whatever the view rotation
   upright(ctx, x, y, fn) { ctx.save(); ctx.translate(x, y); ctx.rotate(-this.rot); fn(); ctx.restore(); }
 
@@ -246,7 +248,7 @@ export class Renderer {
         for (let k = 0; k < 6; k++) P.push({ x: e.x, y: e.y, vx: (Math.random() - 0.5) * 50, vy: (Math.random() - 0.5) * 50, life: 0.5, max: 0.5, c: 'rgba(140,10,10,0.35)', s: 9, smoke: true });
         if (e.ztype === 'soldier') { P.push({ x: e.x, y: e.y, vx: Math.cos(a0) * 160, vy: Math.sin(a0) * 160, life: 0.8, max: 0.8, c: '#4a5236', s: 9, helmet: true }); for (let k = 0; k < 6; k++) P.push({ x: e.x, y: e.y, vx: (Math.random() - 0.5) * 220, vy: (Math.random() - 0.5) * 220, life: 0.25, max: 0.25, c: '#ffd890', s: 2 }); }
         this.splat(e.x, e.y, a0, big ? 1.8 : fast ? 1.2 : 1);
-        if (big) this.shake = Math.max(this.shake, 10); else this.shake = Math.max(this.shake, 3);
+        if (this.nearMe(e, 500)) this.shake = Math.max(this.shake, big ? 10 : 3);
         this.floaters.push({ x: e.x, y: e.y - 20, t: 0.6, text: big ? 'BRUTE DOWN' : e.ztype === 'soldier' ? 'SOLDIER DOWN' : '', c: '#ff8a6a' });
         this.dying.push({ x: e.x, y: e.y, ang: e.face ?? e.ang + Math.PI, type: e.ztype, v: e.zid || 0, t: 0 }); this.blood(e.x, e.y, 6, 8); for (let k = 0; k < 12; k++) { const a2 = e.ang + (Math.random() - 0.5) * 1.6, v = 80 + Math.random() * 180; P.push({ x: e.x, y: e.y, vx: Math.cos(a2) * v, vy: Math.sin(a2) * v, life: 0.5, max: 0.5, c: '#7a0c0c', s: 3 }); } break; }
       case 'glass':
@@ -264,8 +266,8 @@ export class Renderer {
       case 'dropbag': for (let k = 0; k < 6; k++) P.push({ x: e.x, y: e.y + 4, vx: (Math.random() - 0.5) * 70, vy: (Math.random() - 0.5) * 30, life: 0.4, max: 0.4, c: 'rgba(170,160,140,0.4)', s: 4, smoke: true }); break;
       case 'noise': this.rings.push({ x: e.x, y: e.y, r: e.r, t: 0.7 }); break;
       case 'silentKill': this.floaters.push({ x: e.x, y: e.y - 16, t: 1.1, text: 'SILENT KILL', c: '#9ab0ff' }); break;
-      case 'slam': this.rings2.push({ x: e.x, y: e.y, t: 0.35, r: 70, c: '220,200,160' }); this.shake = Math.max(this.shake, 7); for (let k = 0; k < 12; k++) { const a = Math.random() * 6.28; P.push({ x: e.x, y: e.y, vx: Math.cos(a) * 160, vy: Math.sin(a) * 160, life: 0.45, max: 0.45, c: 'rgba(170,160,140,0.45)', s: 6, smoke: true }); } break;
-      case 'revive': this.rings2.push({ x: e.x, y: e.y, t: 0.6, r: 160, c: '255,110,180' }); this.flashes.push({ x: e.x, y: e.y, t: 0.3, r: 300 }); this.shake = 12; this.floaters.push({ x: e.x, y: e.y - 24, t: 1.6, text: 'SECOND CHANCE', c: '#ff6ab0' }); for (let k = 0; k < 40; k++) { const a = Math.random() * 6.28, v = 100 + Math.random() * 260; P.push({ x: e.x, y: e.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.8, max: 0.8, c: k % 2 ? '#ff6ab0' : '#fff', s: 3 }); } break;
+      case 'slam': this.rings2.push({ x: e.x, y: e.y, t: 0.35, r: 70, c: '220,200,160' }); if (this.nearMe(e, 500)) this.shake = Math.max(this.shake, 7); for (let k = 0; k < 12; k++) { const a = Math.random() * 6.28; P.push({ x: e.x, y: e.y, vx: Math.cos(a) * 160, vy: Math.sin(a) * 160, life: 0.45, max: 0.45, c: 'rgba(170,160,140,0.45)', s: 6, smoke: true }); } break;
+      case 'revive': this.rings2.push({ x: e.x, y: e.y, t: 0.6, r: 160, c: '255,110,180' }); this.flashes.push({ x: e.x, y: e.y, t: 0.3, r: 300 }); if (this.nearMe(e, 500)) this.shake = 12; this.floaters.push({ x: e.x, y: e.y - 24, t: 1.6, text: 'SECOND CHANCE', c: '#ff6ab0' }); for (let k = 0; k < 40; k++) { const a = Math.random() * 6.28, v = 100 + Math.random() * 260; P.push({ x: e.x, y: e.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.8, max: 0.8, c: k % 2 ? '#ff6ab0' : '#fff', s: 3 }); } break;
       case 'buff': this.rings2.push({ x: e.x, y: e.y, t: 0.5, r: 60, c: e.buff === 'adrenaline' ? '255,80,80' : '90,208,200' }); this.floaters.push({ x: e.x, y: e.y - 22, t: 1.2, text: e.buff === 'adrenaline' ? 'ADRENALINE' : 'ENERGY', c: e.buff === 'adrenaline' ? '#ff6a6a' : '#5ad0c8' }); break;
       case 'swing': this.trails.push({ x: e.x, y: e.y, ang: e.ang, arc: e.arc || 1.4, range: e.range || 30, t: 0.14, katana: e.arc > 1.85 && e.range > 54 }); break;
       case 'pickup': if (e.text) this.floaters.push({ x: e.x, y: e.y - 20, t: 1.2, text: e.text, c: '#cfe8a0' }); break;
@@ -280,7 +282,7 @@ export class Renderer {
         if (e.pid === localId) { this.shake = Math.max(this.shake, e.gun === 'shotgun' ? 7 : e.gun === 'rifle' ? 6 : 3); const K = { carbine: 6, pistol: 5, smg: 2.5, shotgun: 11, rifle: 13, crossbow: 3 }[e.gun] || 4; this.kick.x -= Math.cos(e.ang) * K; this.kick.y -= Math.sin(e.ang) * K; }
         break;
       case 'explode':
-        this.flashes.push({ x: e.x, y: e.y, t: 0.25, r: 420 }); this.shake = 16; this.booms.push({ x: e.x, y: e.y, t: 0 });
+        this.flashes.push({ x: e.x, y: e.y, t: 0.25, r: 420 }); if (this.nearMe(e, 1100)) this.shake = 16; this.booms.push({ x: e.x, y: e.y, t: 0 });
         for (let k = 0; k < 40; k++) { const a = Math.random() * 6.28, v = 60 + Math.random() * 260; P.push({ x: e.x, y: e.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.7, max: 0.7, c: k % 3 ? '#ff9a3a' : '#555', s: 3 + Math.random() * 4, smoke: k % 3 === 0 }); }
         this.decal(e.x, e.y, (g) => { g.fillStyle = 'rgba(10,10,10,0.55)'; g.beginPath(); g.arc(e.x, e.y, 46, 0, 7); g.fill(); });
         break;
@@ -388,6 +390,7 @@ export class Renderer {
       if (dl > 0.6) return 1;
       let l = Math.max(dl, 0.22);
       if (d < 90) l = 1;
+      for (const id in s.players) { const q = s.players[id]; if (q !== p && !q.dead && Math.hypot(x - q.x, y - q.y) < 110) l = 1; } // a partner's light shows what's around them
       if (p.flashlight && d < 380) { let a = Math.atan2(y - p.y, x - p.x) - p.ang; while (a > Math.PI) a -= 6.283; while (a < -Math.PI) a += 6.283; if (Math.abs(a) < 0.48) l = 1; }
       for (const f of this.flashes) if (Math.hypot(x - f.x, y - f.y) < f.r) l = 1;
       return l;
@@ -482,6 +485,15 @@ export class Renderer {
       ctx.fillStyle = roofDim; ctx.fillRect(rx, ry, rw, rh);
       if (pv) ctx.restore();
     }
+    // partner tag, drawn over roofs so you can always find each other
+    for (const id in s.players) {
+      const q = s.players[id]; if (id === localId || q.dead) continue;
+      this.upright(ctx, q.x, q.y, () => {
+        ctx.textAlign = 'center'; ctx.font = 'bold 10px system-ui, sans-serif'; ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(-20, -33, 40, 16);
+        ctx.fillStyle = '#7ae0a0'; ctx.fillText('Partner', 0, -24);
+        ctx.fillStyle = q.hp > 30 ? '#7ae07a' : '#e0503a'; ctx.fillRect(-18, -21, 36 * Math.max(0, q.hp) / 100, 2);
+      });
+    }
     // floaters
     ctx.textAlign = 'center'; ctx.font = 'bold 11px system-ui, sans-serif';
     for (const f of this.floaters) { f.t -= dt; f.y -= dt * 20; ctx.globalAlpha = Math.max(0, Math.min(1, f.t * 2)); ctx.fillStyle = f.c; this.upright(ctx, f.x, f.y, () => ctx.fillText(f.text, 0, 0)); }
@@ -513,10 +525,12 @@ export class Renderer {
       toWorld(g); g.globalCompositeOperation = 'destination-out';
       const light = (x, y, r, a = 1) => { const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, `rgba(0,0,0,${a})`); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); };
       light(p.x, p.y, headId === 'headlamp' ? 240 : 110, 0.85);
-      if (p.flashlight) {
-        const gr = g.createRadialGradient(p.x, p.y, 10, p.x, p.y, 400); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.7, 'rgba(0,0,0,0.75)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
-        g.fillStyle = gr; g.beginPath(); g.moveTo(p.x, p.y); g.arc(p.x, p.y, 400, p.ang - 0.45, p.ang + 0.45); g.closePath(); g.fill();
-      }
+      const beam = (q) => {
+        const gr = g.createRadialGradient(q.x, q.y, 10, q.x, q.y, 400); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(0.7, 'rgba(0,0,0,0.75)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = gr; g.beginPath(); g.moveTo(q.x, q.y); g.arc(q.x, q.y, 400, q.ang - 0.45, q.ang + 0.45); g.closePath(); g.fill();
+      };
+      if (p.flashlight) beam(p);
+      for (const id in s.players) { const q = s.players[id]; if (q === p || q.dead) continue; light(q.x, q.y, 110, 0.85); if (q.flashlight) beam(q); }
       for (const f of this.flashes) light(f.x, f.y, f.r, Math.min(1, f.t * 12));
       fillPeek(g, 'rgba(0,0,0,0.65)');
       if (w.safeCenter) light(w.safeCenter.x, w.safeCenter.y, 260, 0.7);

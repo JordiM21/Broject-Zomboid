@@ -7,10 +7,15 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "smoke": "node tests/smoke.mjs"
+    "smoke": "node tests/smoke.mjs",
+    "relay": "node server/relay.mjs"
   },
   "devDependencies": {
     "vite": "^5.4.11",
     "vite-plugin-singlefile": "^2.0.3"
+  },
+  "dependencies": {
+    "peerjs": "^1.5.5",
+    "ws": "^8.22.1"
   }
 }

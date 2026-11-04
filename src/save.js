@@ -21,9 +21,9 @@ export function saveGame(s, explored) {
   const doors = Object.entries(w.doors).map(([i, d]) => [+i, d.open ? 1 : 0, d.hp, d.broken ? 1 : 0, d.bar || 0, d.locked ? 1 : 0]);
   const windows = Object.entries(w.windows).filter(([, v]) => v.open || v.broken || v.hp < 20).map(([i, v]) => [+i, v.open ? 1 : 0, v.broken ? 1 : 0, v.hp]);
   const data = {
-    v: 1, seed: s.seed, time: s.time, dawnIdx: s.dawnIdx, nextId: s.nextId, upgrades: s.upgrades, hordeDay: s.hordeDay, obj: s.obj,
+    v: 1, seed: s.seed, testGear: s.testGear, time: s.time, dawnIdx: s.dawnIdx, nextId: s.nextId, upgrades: s.upgrades, hordeDay: s.hordeDay, obj: s.obj,
     stats: s.stats, tradePoints: s.tradePoints, loose: s.loose, cont, doors, windows,
-    players: Object.values(s.players).map(packPlayer),
+    players: [...Object.values(s.players).map(packPlayer), ...Object.values(s.parked || {}).map((p) => ({ ...packPlayer(p), parked: true }))],
     zombies: s.zombies.map((z) => [z.type, Math.round(z.x), Math.round(z.y), Math.round(z.hp)]),
     explored: explored ? toB64(explored) : null, savedAt: Date.now(),
   };
@@ -37,7 +37,7 @@ export function loadGame(spawnZombie, newPlayer) {
   let d;
   try { d = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch { return null; }
   if (!d || d.v !== 1) return null;
-  const s = createState(d.seed, false);
+  const s = createState(d.seed, false, { testGear: d.testGear });
   const w = s.world;
   Object.assign(s, { time: d.time, dawnIdx: d.dawnIdx, nextId: d.nextId, upgrades: { ...s.upgrades, ...d.upgrades }, hordeDay: d.hordeDay, obj: d.obj, stats: d.stats, tradePoints: d.tradePoints, loose: d.loose });
   for (const c of d.cont) {
@@ -56,7 +56,9 @@ export function loadGame(spawnZombie, newPlayer) {
     Object.assign(p, pp); p.inv = pp.inv; p.wpn = pp.wpn >= 0 ? p.inv[pp.wpn] : null;
     p.gear = pp.gear || { head: null, body: null, legs: null, feet: null };
     p.hotbar = (pp.hotbar || [null, null, null, null, null, null]).map((h) => (h ? { id: h[0], ref: h[1] >= 0 ? p.inv[h[1]] : null } : null));
-    s.players[p.id] = p;
+    // saved mid-session or not, a partner stays out of the world until they rejoin
+    if (pp.parked || pp.id !== 'p1') { delete p.parked; (s.parked = s.parked || {})[p.id] = p; } // a co-op partner waits, with their gear, for their next visit
+    else s.players[p.id] = p;
   }
   for (const [type, x, y, hp] of d.zombies) { const z = spawnZombie(s, x, y, type); z.hp = hp; }
   return { state: s, explored: d.explored ? fromB64(d.explored) : null };

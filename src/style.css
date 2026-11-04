@@ -133,6 +133,12 @@ body.dropping #game { outline: 3px dashed rgba(255,150,90,0.6); outline-offset: 
 .hs .dur { position: absolute; left: 6px; right: 6px; bottom: 4px; height: 3px; background: rgba(0,0,0,0.6); border-radius: 2px; } .hs .dur i { display: block; height: 100%; border-radius: 2px; }
 .tile .hk { position: absolute; right: 3px; top: 12px; font: 800 10px system-ui; color: #111; background: var(--acc); border-radius: 3px; padding: 0 4px; }
 
+.joinRow { display: flex; gap: 8px; max-width: 380px; margin: 8px auto; }
+.joinRow input { flex: 1; min-width: 0; padding: 11px; font: 700 18px system-ui; letter-spacing: 0.3em; text-align: center; text-transform: uppercase; color: var(--ink); background: #1a1e24; border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; }
+.joinRow input:focus { outline: 2px solid var(--acc); outline-offset: 1px; }
+#coop { z-index: 22; }
+#coopChip { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 6; padding: 5px 12px; font: 700 13px system-ui; color: var(--acc); background: rgba(10,12,16,0.8); border: 1px solid rgba(255,210,122,0.35); border-radius: 6px; white-space: nowrap; pointer-events: none; }
+
 /* small windows: keep these last so they override the rules above */
 @media (max-height: 680px) { .panel { padding: 10px 14px; } .hrow .hs { height: 38px; } .gearcol { grid-auto-rows: 30px; gap: 3px; } .eslot img { width: 24px; height: 24px; } .wbar { margin-bottom: 5px; } .hrow { margin-bottom: 5px; } .doll img { width: 120px; height: 120px; } .details { height: 112px; margin-top: 6px; padding-top: 6px; } .details img { width: 44px; height: 44px; } .dDesc { display: none; } .dBtns { gap: 2px; } .dBtns button { padding: 2px 8px; } .foot { margin-top: 4px; } }
 @media (max-width: 640px) { .cols { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: max-content; overflow-y: auto; } .col .hdr { padding-right: 30px; } .grid { flex: none; overflow: visible; } .details { height: 132px; } .details img { display: none; } .dBtns { width: 120px; max-height: 100%; overflow-y: auto; }

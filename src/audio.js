@@ -3,6 +3,8 @@
 import { ITEMS } from './data/items.js';
 const SURF = { 0: 'grass', 15: 'bush', 1: 'hard', 2: 'hard', 13: 'hard', 9: 'gravel', 16: 'gravel', 10: 'dirt', 3: 'wood', 5: 'wood', 11: 'tile', 12: 'carpet' };
 const BLADE = new Set(['knife', 'machete', 'axe']);
+// Sounds with no place in the world: fine for your own actions, wrong at full volume for a partner across town.
+const OWN_ONLY = new Set(['revive', 'buff', 'equip', 'click', 'empty', 'eat', 'drink', 'medStart', 'healed', 'crafted', 'throw']);
 // Suppressed shots. The ammo sets the character of the shot: thump [from Hz, to Hz, secs, wave, gain], gas puff
 // [secs, Hz, filter, gain], supersonic crack [secs, Hz, gain] that a silencer can't remove, and a low tail.
 const SUPPRESSED = {
@@ -162,6 +164,7 @@ export class Sfx {
     const pos = e.x !== undefined;
     const L = (maxD = 900, wet = 0.25) => this.bus(pos ? e.x : undefined, pos ? e.y : undefined, maxD, wet);
     const me = e.pid === localId;
+    if (!me && e.pid && OWN_ONLY.has(e.type)) return;
     let o;
     switch (e.type) {
       case 'gunshot': {
@@ -207,7 +210,7 @@ export class Sfx {
       case 'revive': this.tone(220, 880, 0.6, 'sawtooth', 0.12); this.tone(440, 1320, 0.7, 'sine', 0.15, 0.1); this.noise(0.5, 300, 'lowpass', 0.6); break;
       case 'buff': this.tone(e.buff === 'adrenaline' ? 300 : 500, e.buff === 'adrenaline' ? 900 : 1000, 0.3, 'sine', 0.1); this.noise(0.15, 3000, 'highpass', 0.05); break;
       case 'searchStart': this.rummage(e.dur, L(500, 0.1)); this.openSound(e.ctype, L(500, 0.1)); break;
-      case 'open': if (!e.first) this.openSound(e.ctype, L(500, 0.1)); else if (e.empty) this.tone(260, 200, 0.12, 'triangle', 0.05); break;
+      case 'open': if (!e.first) this.openSound(e.ctype, L(500, 0.1)); else if (e.empty && me) this.tone(260, 200, 0.12, 'triangle', 0.05); break;
       case 'pickup': case 'stow': this.itemSound(e.cat, L(400, 0.05)); break;
       case 'equip': this.tone(1400, 1300, 0.03, 'square', 0.04); this.noise(0.08, 1500, 'bandpass', 0.06, 0.02); break;
       case 'click': this.tone(900, 800, 0.025, 'square', 0.035); break;
@@ -223,10 +226,10 @@ export class Sfx {
       case 'built': case 'crafted': o = L(500, 0.2); for (let k = 0; k < 3; k++) { this.clank(o, 500 + Math.random() * 200, 0.1, k * 0.18); this.noise(0.05, 900, 'lowpass', 0.3, k * 0.18, o); } break;
       case 'shove': o = L(500, 0.05); this.voice(o, 160, 0.15, 0.1, 700); this.noise(0.12, 500, 'lowpass', 0.35, 0.02, o); break;
       case 'throw': this.sweep(0.25, 500, 1600, 'bandpass', 0.08, 0, this.master, 2); break;
-      case 'step': if (me) this.footstep(e.surf, e.loud, this.bus(), e.sneak ? 0.45 : 1); break;
+      case 'step': if (me) this.footstep(e.surf, e.loud, this.bus(), e.sneak ? 0.45 : 1); else { o = L(500, 0.05); if (o.v) this.footstep(e.surf, e.loud, o, e.sneak ? 0.3 : 0.8); } break;
       case 'objective': this.tone(660, 660, 0.15, 'sine', 0.1); this.tone(990, 990, 0.3, 'sine', 0.1, 0.12); break;
       case 'horde': this.voice(this.master, 60, 3, 0.15, 400); this.voice(this.master, 75, 2.6, 0.1, 500, 0.4); this.noise(3, 150, 'lowpass', 0.4); break;
-      case 'pdie': this.tone(110, 35, 2.2, 'sawtooth', 0.15); this.voice(this.master, 140, 0.8, 0.2, 600); break;
+      case 'pdie': if (!me) { o = L(1500, 0.3); this.voice(o, 140, 0.8, 0.2, 600); break; } this.tone(110, 35, 2.2, 'sawtooth', 0.15); this.voice(this.master, 140, 0.8, 0.2, 600); break;
       case 'slept': this.tone(392, 392, 0.4, 'sine', 0.06); this.tone(523, 523, 0.5, 'sine', 0.05, 0.3); break;
     }
   }

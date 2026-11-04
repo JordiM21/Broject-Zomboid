@@ -14,10 +14,24 @@
     <p class="tag">Scavenge the dead town. Haul it home. Don't die with it on you.</p>
     <button id="btnContinue" class="big hidden">Continue</button>
     <button id="btnNew" class="big">New World</button>
+    <button id="btnCoop" class="big">Play Together</button>
     <button class="btnView big ghost"></button>
     <button id="btnHelp" class="big ghost">How to Play</button>
   </div>
 </div>
+
+<div id="coop" class="overlay hidden">
+  <div class="menuBox">
+    <h2>Play Together</h2>
+    <button id="btnHost" class="big">Host your world</button>
+    <p class="dim">or join with your partner's code</p>
+    <div class="joinRow"><input id="coopCode" maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false" aria-label="Game code"><button id="btnJoin">Join</button></div>
+    <p id="coopMsg" class="warn"></p>
+    <button id="btnCoopBack" class="big ghost">Back</button>
+  </div>
+</div>
+
+<div id="coopChip" class="hidden"></div>
 
 <div id="help" class="overlay hidden">
   <div class="menuBox wide">
@@ -39,6 +53,7 @@
   <div class="menuBox">
     <h2>Paused</h2>
     <button id="btnResume" class="big">Resume</button>
+    <button id="btnInvite" class="big ghost">Invite a Partner</button>
     <button class="btnView big ghost"></button>
     <button id="btnPauseHelp" class="big ghost">Controls</button>
     <label class="vol">Volume <input id="vol" type="range" min="0" max="1" step="0.05" value="0.6" /></label>

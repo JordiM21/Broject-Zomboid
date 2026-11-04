@@ -1,4 +1,4 @@
-// Browser console audit of the inventory, stash and base panels. Paste into a page running the dev server.
+// Browser console audit of the inventory, stash and base panels. Paste into the dev server page opened with ?testgear.
 // Reports each panel state's rectangle, whether anything moves between states, and any overflowing element.
 // Saving is switched off first so it can't touch a real save.
 (async () => {

@@ -15,7 +15,7 @@ const FK = Object.fromEntries(FURN_KINDS.map((k, i) => [k, i]));
 const CAR_COLORS = ['#7a2e2e', '#2e4a7a', '#5d6066', '#8a7a3a', '#3f6b4a', '#a8a8a8', '#4a3a5a'];
 const ROOF = { house: ['#5a3a32', '#4a4a52', '#3e4f5c', '#6a5038', '#58443c'], grocery: ['#556070'], pharmacy: ['#5f6e6a'], hardware: ['#6a5a40'], hospital: ['#c8ccd0'], military: ['#4a5236'], police: ['#2f3c52'], gas: ['#704038'], safe: ['#3d5a3d'] };
 
-export function generateWorld(seed) {
+export function generateWorld(seed, { testGear = false } = {}) {
   const W = WORLD_W, H = WORLD_H, N = W * H;
   const rng = new RNG(seed);
   const world = {
@@ -460,9 +460,11 @@ export function generateWorld(seed) {
     world.fixtures.bench = addCont(x + w - 2, y + 1, 'bench');
     world.fixtures.radio = addCont(x + w - 3, y + 1, 'radio');
     world.fixtures.bed = addCont(x + 1, y + h - 2, 'bed');
-    world.fixtures.rack = addCont(x + w - 2, y + 3, 'rack');
-    obj(x + w - 2, y + 4, T.FURN); world.furn[I(x + w - 2, y + 4)] = FK.rack; world.contAt[I(x + w - 2, y + 4)] = world.fixtures.rack;
-    world.fixtures.modstash = addCont(x + w - 2, y + 6, 'modstash');
+    if (testGear) {
+      world.fixtures.rack = addCont(x + w - 2, y + 3, 'rack');
+      obj(x + w - 2, y + 4, T.FURN); world.furn[I(x + w - 2, y + 4)] = FK.rack; world.contAt[I(x + w - 2, y + 4)] = world.fixtures.rack;
+      world.fixtures.modstash = addCont(x + w - 2, y + 6, 'modstash');
+    }
     prop(x + 4, y + 3, 4, 3, 'rug'); prop(x + 5, y + 4, 2, 1, 'table');
     windows(x, y, w, h, 0.5);
     world.spawn = { x: (x + Math.floor(w / 2) + 0.5) * 32, y: (y + h / 2 + 1) * 32 };
