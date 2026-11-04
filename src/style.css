@@ -102,3 +102,12 @@ kbd { display: inline-block; min-width: 16px; padding: 0 4px; margin-left: 4px; 
 .ctxmenu button:hover { background: rgba(255,210,122,0.14); }
 @keyframes pop2 { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
 body.dropping #game { outline: 3px dashed rgba(255,150,90,0.6); outline-offset: -6px; }
+
+.char .charTop { display: flex; gap: 10px; align-items: stretch; margin-bottom: 8px; }
+.doll { width: 116px; flex: none; border-radius: 10px; background: radial-gradient(circle at 50% 45%, rgba(255,210,122,0.12), rgba(0,0,0,0.25)); display: flex; align-items: center; justify-content: center; }
+.doll img { width: 128px; height: 128px; transform: rotate(-90deg); image-rendering: auto; }
+.equip.v { grid-template-columns: 1fr; flex: 1; margin: 0; } .equip.v .eslot { height: 40px; justify-content: flex-start; padding-left: 8px; gap: 8px; } .equip.v .eslot img { width: 30px; height: 30px; } .equip.v .elbl { position: static; text-align: left; font-size: 12px; color: #cfcac0; }
+.sbar { display: grid; grid-template-columns: 58px 1fr 30px; align-items: center; gap: 6px; font-size: 12px; margin: 3px 0; } .sbar span { color: var(--dim); } .sbar div { height: 8px; background: rgba(0,0,0,0.45); border-radius: 4px; overflow: hidden; } .sbar i { display: block; height: 100%; transition: width 0.3s; } .sbar b { text-align: right; }
+.prot { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px; font-size: 12px; margin: 8px 0; } .prot div { display: flex; justify-content: space-between; border-bottom: 1px dotted rgba(255,255,255,0.08); } .prot span { color: var(--dim); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; } .chips span { font-size: 11px; font-weight: 700; border: 1px solid; border-radius: 10px; padding: 1px 8px; }
+.keys.mini { display: flex; flex-wrap: wrap; gap: 6px 10px; padding: 10px 0 0; font-size: 11px; color: var(--dim); } .keys.mini kbd { margin: 0 3px 0 0; }

@@ -6,5 +6,5 @@ export const DAY_LENGTH = 600; // real seconds per in-game day
 export const START_HOUR = 8;
 export const PLAYER_R = 10;
 export const BASE_CARRY = 14;
-export const SAVE_KEY = 'lasthaul_save_v3';
+export const SAVE_KEY = 'lasthaul_save_v4';
 export const VIEW_TILES = 15;

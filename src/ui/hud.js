@@ -36,6 +36,27 @@ export class Minimap {
   }
 }
 
+function stanceIcon(ctx, kind, x, y, col) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.beginPath(); ctx.arc(0, 0, 17, 0, 7); ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const t = performance.now() / 1000, sw = kind === 'run' ? Math.sin(t * 14) : kind === 'walk' ? Math.sin(t * 8) : 0;
+  const pose = {
+    stand: { h: [0, -8], hip: [0, 2], k1: [-2, 7], f1: [-2, 11], k2: [2, 7], f2: [2, 11], hand1: [-4, 3], hand2: [4, 3] },
+    walk: { h: [0, -8], hip: [0, 2], k1: [-3 * sw, 7], f1: [-4 * sw, 11], k2: [3 * sw, 7], f2: [4 * sw, 11], hand1: [3 * sw, 3], hand2: [-3 * sw, 3] },
+    run: { h: [3, -8], hip: [0, 1], k1: [-5 * sw + 1, 6], f1: [-7 * sw, 10], k2: [5 * sw + 1, 6], f2: [7 * sw, 10], hand1: [6 * sw + 3, -1], hand2: [-6 * sw + 3, 1] },
+    crouch: { h: [3, -3], hip: [-2, 5], k1: [3, 6], f1: [1, 11], k2: [-5, 9], f2: [-1, 11], hand1: [6, 3], hand2: [3, 4] },
+  }[kind];
+  ctx.beginPath(); ctx.arc(pose.h[0], pose.h[1], 2.6, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(pose.h[0], pose.h[1] + 2.5); ctx.lineTo(pose.hip[0], pose.hip[1]);
+  ctx.moveTo(pose.hip[0], pose.hip[1]); ctx.lineTo(pose.k1[0], pose.k1[1]); ctx.lineTo(pose.f1[0], pose.f1[1]);
+  ctx.moveTo(pose.hip[0], pose.hip[1]); ctx.lineTo(pose.k2[0], pose.k2[1]); ctx.lineTo(pose.f2[0], pose.f2[1]);
+  const sh = [(pose.h[0] + pose.hip[0]) / 2 + pose.h[0] * 0.2, (pose.h[1] + pose.hip[1]) / 2 - 2];
+  ctx.moveTo(sh[0], sh[1]); ctx.lineTo(pose.hand1[0], pose.hand1[1]); ctx.moveTo(sh[0], sh[1]); ctx.lineTo(pose.hand2[0], pose.hand2[1]);
+  ctx.stroke();
+  ctx.font = '700 8px system-ui'; ctx.textAlign = 'center'; ctx.fillText({ stand: 'STILL', walk: 'WALK', run: 'RUN', crouch: 'SNEAK' }[kind], 0, 24);
+  ctx.restore();
+}
 function statIcon(ctx, kind, x, y, col, sc) {
   ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc); ctx.fillStyle = col; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1; ctx.beginPath();
   if (kind === 'hp') { ctx.moveTo(0, 5); ctx.bezierCurveTo(-8, -1, -5, -7, 0, -3); ctx.bezierCurveTo(5, -7, 8, -1, 0, 5); }
@@ -98,6 +119,7 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   const wt = carried(p), cap = capacity(p);
   ctx.font = '600 11px system-ui, sans-serif'; ctx.textAlign = 'left';
   ctx.fillStyle = wt > cap ? '#ff8a6a' : '#bbb'; ctx.fillText(`Carry ${wt.toFixed(1)} / ${cap}`, bx, by + 76);
+  stanceIcon(ctx, p.sneak ? 'crouch' : p.sprinting ? 'run' : p.moving ? 'walk' : 'stand', bx + 232, by + 26, p.sneak ? '#9ab0ff' : p.sprinting ? '#ffb05a' : '#ddd');
   const hunted = s.zombies.some((z) => z.state === 'chase' && z.pid === p.id && Math.abs(z.x - p.x) < 600 && Math.abs(z.y - p.y) < 600);
   const v = p.vis ?? 1;
   const [vt, vc] = hunted ? ['DETECTED', '#ff5a4a'] : v < 0.4 ? ['HIDDEN', '#7ad07a'] : v < 0.8 ? ['LOW PROFILE', '#d0c04a'] : ['EXPOSED', '#ffa05a'];
@@ -106,7 +128,8 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   if (p.bleeding) tags.push(['BLEEDING', '#ff5a5a']);
   if (p.infection > 0) tags.push([`INFECTED ${Math.round(p.infection)}%`, '#b6ff5a']);
   if (wt > cap) tags.push(['OVERLOADED', '#ff9a5a']);
-  if (p.sneak) tags.push(['SNEAKING', '#9ab0ff']);
+  for (const [k, v] of Object.entries(p.buffs || {})) tags.push([`${k === 'adrenaline' ? 'ADRENALINE' : 'ENERGY'} ${Math.ceil(v)}s`, k === 'adrenaline' ? '#ff7a7a' : '#5ad0c8']);
+  if (p.inv.some((i) => i.id === 'reviver')) tags.push(['REVIVE READY', '#ff6ab0']);
   if (p.hunger < 20) tags.push(['STARVING', '#ffb05a']);
   if (p.thirst < 20) tags.push(['THIRSTY', '#5ab0ff']);
   let tx = bx; ctx.font = '700 10px system-ui, sans-serif';

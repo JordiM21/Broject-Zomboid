@@ -139,6 +139,7 @@ export class Sfx {
     let o;
     switch (e.type) {
       case 'gunshot': {
+        if (e.gun === 'crossbow') { o = L(500, 0.1); this.tone(180, 90, 0.12, 'triangle', 0.25, 0, o); this.noise(0.06, 2500, 'bandpass', 0.2, 0, o, 3); this.sweep(0.15, 3000, 800, 'bandpass', 0.06, 0.02, o, 4); break; }
         o = this.bus(e.x, e.y, 2400, 0.9); if (!o.v) return;
         const big = e.gun === 'shotgun' ? 1.3 : e.gun === 'rifle' ? 1.5 : 1;
         this.noise(0.22 * big, 2400, 'lowpass', 1.0, 0, o); this.tone(160, 40, 0.18 * big, 'square', 0.35, 0, o); this.noise(0.5 * big, 400, 'lowpass', 0.3, 0.04, o);
@@ -157,7 +158,7 @@ export class Sfx {
         break;
       }
       case 'silentKill': o = L(400, 0.05); this.noise(0.12, 400, 'lowpass', 0.4, 0, o); this.sweep(0.12, 2500, 900, 'bandpass', 0.12, 0.02, o); this.noise(0.4, 900, 'lowpass', 0.06, 0.15, o); break;
-      case 'zdie': o = L(900, 0.2); if (!o.v) return; this.voice(o, 75, 0.55, 0.16, 450); this.tone(80, 40, 0.15, 'sine', 0.35, 0.3, o); this.noise(0.15, 300, 'lowpass', 0.4, 0.3, o); break;
+      case 'zdie': o = L(900, 0.2); if (!o.v) return; this.noise(0.18, 700, 'lowpass', e.ztype === 'brute' ? 0.9 : 0.5, 0, o); this.noise(0.1, 2200, 'bandpass', 0.25, 0.02, o, 2); this.voice(o, 75, 0.55, 0.16, 450); this.tone(80, 40, 0.15, 'sine', 0.35, 0.3, o); this.noise(0.15, 300, 'lowpass', 0.4, 0.3, o); break;
       case 'groan': o = L(1000, 0.35); if (!o.v) return; this.voice(o, (e.ztype === 'brute' ? 55 : e.ztype === 'runner' ? 120 : 80) + Math.random() * 25, 0.7 + Math.random() * 0.6, 0.14, e.ztype === 'runner' ? 900 : 550); break;
       case 'alert': o = L(1200, 0.35); if (!o.v) return; this.voice(o, 150 + Math.random() * 40, 0.45, 0.2, 1100); this.sweep(0.35, 900, 2200, 'bandpass', 0.06, 0, o, 5); break;
       case 'zattack': o = L(600, 0.1); this.voice(o, 100, 0.25, 0.14, 800); break;
@@ -174,6 +175,9 @@ export class Sfx {
       case 'locked': o = L(500, 0.1); for (let k = 0; k < 3; k++) { this.tone(1800, 1600, 0.03, 'square', 0.05, k * 0.09, o); this.noise(0.04, 900, 'bandpass', 0.12, k * 0.09, o, 3); } break;
       case 'winopen': o = L(500, 0.15); this.sweep(0.4, 800, 1400, 'bandpass', 0.06, 0, o, 8); this.tone(200, 140, 0.08, 'sine', 0.12, 0.35, o); break;
       case 'climb': o = L(500, 0.1); this.noise(0.35, 1000, 'bandpass', 0.12, 0, o, 1); this.tone(110, 60, 0.12, 'sine', 0.3, 0.45, o); this.noise(0.08, 500, 'lowpass', 0.25, 0.45, o); break;
+      case 'slam': o = L(900, 0.3); this.tone(70, 30, 0.35, 'sine', 0.8, 0, o); this.noise(0.3, 300, 'lowpass', 0.8, 0, o); this.noise(0.08, 1800, 'bandpass', 0.3, 0, o, 2); break;
+      case 'revive': this.tone(220, 880, 0.6, 'sawtooth', 0.12); this.tone(440, 1320, 0.7, 'sine', 0.15, 0.1); this.noise(0.5, 300, 'lowpass', 0.6); break;
+      case 'buff': this.tone(e.buff === 'adrenaline' ? 300 : 500, e.buff === 'adrenaline' ? 900 : 1000, 0.3, 'sine', 0.1); this.noise(0.15, 3000, 'highpass', 0.05); break;
       case 'searchStart': this.rummage(e.dur, L(500, 0.1)); this.openSound(e.ctype, L(500, 0.1)); break;
       case 'open': if (!e.first) this.openSound(e.ctype, L(500, 0.1)); else if (e.empty) this.tone(260, 200, 0.12, 'triangle', 0.05); break;
       case 'pickup': case 'stow': this.itemSound(e.cat, L(400, 0.05)); break;

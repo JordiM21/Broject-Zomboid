@@ -2,6 +2,13 @@
 import { ITEMS, CAT_COLOR, UPGRADES, RECIPES, STASH_CAP, TRADE_COST, DESC, itemStats } from '../data/items.js';
 import { getCont, contCap, contLabel, capacity, carried, costStatus, dayOf } from '../sim/sim.js';
 import { iconURL } from './icons.js';
+import { playerFrame } from '../render/sprites.js';
+const dolls = new Map();
+function dollURL(p) {
+  const k = `${p.wpn ? p.wpn.id : 'fists'}|${p.armor ? p.armor.id : ''}|${p.bag ? p.bag.id : ''}`;
+  if (!dolls.has(k)) dolls.set(k, playerFrame(p.wpn ? p.wpn.id : 'fists', p.armor && p.armor.id, p.bag && p.bag.id, 'idle', 0.1).toDataURL());
+  return dolls.get(k);
+}
 
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -169,7 +176,7 @@ export class Panels {
   showDetails(side, idx) {
     const el = $('invDetails'); if (!el) return;
     const it = this.item(side, idx), p = this.h.player();
-    if (!it) { el.innerHTML = '<div class="dim">Hover an item to inspect it. Drag items between panels, onto your equipment slots, or onto the ground.</div>'; return; }
+    if (!it) { el.innerHTML = '<div class="dim">Hover an item to inspect it. Drag items between panels or onto your gear slots; drag them out of this window to drop them.</div>'; return; }
     const d = ITEMS[it.id];
     const stats = itemStats(it).map(([k, v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join('');
     let btns = '';
@@ -192,10 +199,11 @@ export class Panels {
     const wt = carried(p), cap = capacity(p), f = Math.min(1, wt / cap);
     const slot = (name, it, key) => `<div class="eslot" data-drop="equip" title="${name}">${it ? `<img src="${iconURL(it.id)}" alt=""><button class="x" data-act="unequip" data-slot="${key}" title="Unequip">×</button>` : key === 'wpn' ? `<img src="${iconURL('fists')}" alt="" style="opacity:.45">` : `<span class="dim">${name}</span>`}<span class="elbl">${it ? esc(ITEMS[it.id].name) : ''}</span></div>`;
     const c = p.openCid >= 0 ? getCont(s, p.openCid) : null;
+    const equip = `${slot('Weapon', p.wpn, 'wpn')}${slot('Bag', p.bag, 'bag')}${slot('Armor', p.armor, 'armor')}`;
     let html = `<div class="cols"><div class="col zone" data-drop="inv">
       <div class="hdr"><b>Inventory</b><button class="mini ghost" data-act="sortInv">Sort</button></div>
       <div class="wbar"><i style="width:${f * 100}%;background:${wt > cap ? '#e0603a' : f > 0.8 ? '#d0b040' : '#7ab07a'}"></i><span>${wt.toFixed(1)} / ${cap} kg${wt > cap ? ' · overloaded' : ''}</span></div>
-      <div class="equip">${slot('Weapon', p.wpn, 'wpn')}${slot('Bag', p.bag, 'bag')}${slot('Armor', p.armor, 'armor')}</div>
+      ${c && c.items ? `<div class="equip">${equip}</div>` : ''}
       <div class="grid">${p.inv.map((it, i) => tile(it, i, 'inv', p)).join('') || '<div class="dim pad">Empty. Search containers with [E].</div>'}</div>`;
     if (c && c.items) {
       html += `<div class="foot"><button data-act="putAll">Put all ▸ ${kbd('Shift+R')}</button></div></div>`;
@@ -203,14 +211,33 @@ export class Panels {
       html += `<div class="col zone" data-drop="cont"><div class="hdr"><b>${esc(contLabel(c))}</b><span>${c.type === 'stash' ? `<span class="dim">${c.items.length}/${ccap}</span> ` : ''}<button class="mini ghost" data-act="sortCont">Sort</button></span></div>
         <div class="grid">${c.items.map((it, i) => tile(it, i, 'cont', p)).join('') || '<div class="dim pad">Nothing here.</div>'}</div>
         <div class="foot"><button data-act="takeAll">◂ Take all ${kbd('R')}</button></div></div>`;
-    } else html += `</div><div class="col"><div class="hdr"><b>Hotkeys</b><span class="dim small">hover an item</span></div><div class="keys">
-      <div>${kbd('E')} Eat · Drink · Use · Equip</div><div>${kbd('Q')} Drop on the ground</div><div>${kbd('T')} Move to / from container</div><div>${kbd('R')} Take all · ${kbd('Shift+R')} Put all</div>
-      <div>${kbd('Right-click')} Item menu</div><div>${kbd('Drag')} out of this window to drop</div><div>${kbd('Tab')} / ${kbd('Esc')} Close</div></div></div>`;
+    } else html += `</div><div class="col char"><div class="hdr"><b>Survivor</b><span class="dim">Day ${dayOf(s)}</span></div>
+      <div class="charTop"><div class="doll"><img src="${dollURL(p)}" alt=""></div><div class="equip v">${equip}</div></div>
+      <div id="charStats"></div>
+      <div class="keys mini"><span>${kbd('E')} Use</span><span>${kbd('Q')} Drop</span><span>${kbd('T')} Move</span><span>${kbd('R')} Take all</span><span>${kbd('Right-click')} Menu</span><span>${kbd('Drag out')} Drop</span></div></div>`;
     html += `</div><div class="hint">Click: move · Double-click or ${kbd('E')}: use · ${kbd('Q')}: drop · Right-click: menu · Drag outside the window: drop</div>`;
     if (this._inv !== html) {
       this._inv = html; $('invBody').innerHTML = html;
       if (this.sel) this.showDetails(this.sel.side, this.sel.idx); else this.showDetails('inv', -1);
     }
+    this.updateStats(s, p);
+  }
+  updateStats(s, p) {
+    const el = $('charStats'); if (!el) return;
+    const bar = (label, v, col) => `<div class="sbar"><span>${label}</span><div><i style="width:${Math.max(0, Math.min(100, v))}%;background:${col}"></i></div><b>${Math.round(v)}</b></div>`;
+    const arm = p.armor ? ITEMS[p.armor.id] : null, stance = p.sneak ? 'Sneaking' : p.sprinting ? 'Running' : p.moving ? 'Walking' : 'Still';
+    const chips = [];
+    if (p.bleeding) chips.push(['Bleeding', '#ff5a5a']);
+    if (p.infection > 0) chips.push([`Infected ${Math.round(p.infection)}%`, '#b6ff5a']);
+    if (carried(p) > capacity(p)) chips.push(['Overloaded', '#ff9a5a']);
+    for (const [k, v] of Object.entries(p.buffs || {})) chips.push([`${k === 'adrenaline' ? 'Adrenaline' : 'Energy'} ${Math.ceil(v)}s`, k === 'adrenaline' ? '#ff7a7a' : '#5ad0c8']);
+    if (p.inv.some((i) => i.id === 'reviver')) chips.push(['Self-revive ready', '#ff6ab0']);
+    if (p.wpn && ITEMS[p.wpn.id].silent) chips.push(['Silent kills', '#9ab0ff']);
+    if (!chips.length) chips.push(['Healthy', '#7ad07a']);
+    const html = bar('Health', p.hp, '#c94a4a') + bar('Food', p.hunger, '#d08a3a') + bar('Water', p.thirst, '#3a8ad0') + bar('Stamina', p.stamina, '#c9c04a') +
+      `<div class="prot"><div><span>Damage taken</span><b>-${arm ? Math.round(arm.armor * 100) : 0}%</b></div><div><span>Bite protection</span><b>${arm ? Math.round(arm.biteProt * 100) : 0}%</b></div><div><span>Visibility</span><b>${Math.round((p.vis ?? 1) * 100)}%</b></div><div><span>Stance</span><b>${stance}</b></div></div>` +
+      `<div class="chips">${chips.map(([t, col]) => `<span style="color:${col};border-color:${col}">${t}</span>`).join('')}</div>`;
+    if (this._stats !== html) { this._stats = html; el.innerHTML = html; }
   }
   renderBase(s, p) {
     const tabs = [['upgrades', 'Upgrades'], ['craft', 'Crafting'], ['radio', 'Radio'], ['stats', 'Record']];

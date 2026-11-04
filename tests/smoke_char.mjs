@@ -1,0 +1,17 @@
+import { createRequire } from 'module'; const require = createRequire(import.meta.url); const { chromium } = require(process.env.PW || 'playwright');
+import path from 'path';
+const out = process.argv[2] || '.';
+const b = await chromium.launch(); const pg = await b.newPage({ viewport: { width: 1280, height: 800 } }); const errs = [];
+pg.on('pageerror', (e) => errs.push(e.message));
+await pg.goto('file://' + path.resolve('dist/index.html'));
+await pg.click('#btnNew'); await pg.waitForTimeout(400);
+await pg.evaluate(() => { const s = window.__game.state, p = s.players.p1; p.inv.push({ id: 'katana', n: 1, dur: 140 }, { id: 'reviver', n: 1 }, { id: 'ghillie', n: 1 }); p.wpn = p.inv[p.inv.length - 3]; p.armor = { id: 'ghillie', n: 1 }; p.inv.pop(); p.buffs = { adrenaline: 14 }; p.bleeding = true; });
+await pg.keyboard.press('Tab'); await pg.waitForTimeout(500);
+await pg.screenshot({ path: out + '/s_char.png' });
+await pg.keyboard.press('Tab');
+await pg.evaluate(() => { const s = window.__game.state, w = s.world, p = s.players.p1, r = w.containers[w.fixtures.rack]; p.x = (r.x - 0.5) * 32; p.y = (r.y + 0.5) * 32; });
+await pg.waitForTimeout(300); await pg.mouse.move(800, 380); await pg.waitForTimeout(200);
+await pg.keyboard.press('KeyE'); await pg.waitForTimeout(500);
+await pg.screenshot({ path: out + '/s_rack.png' });
+console.log(errs.length ? errs.join('\n') : 'no errors');
+await b.close();

@@ -23,6 +23,13 @@ WASD move · Shift sprint · Mouse aim · Click attack · Space shove · E searc
 - **Military Zone** (far from the safehouse): fenced base with barracks, tents, trucks and watchtowers. Military Crates hold rifles, shotguns, ammo, vests, rucksacks and pipe bombs. Guarded by armored soldier zombies whose corpses carry ammo and rations.
 - Street lamps (some broken or flickering), burning wrecks and fire barrels light the night; morning mist, rain haze, ambient birds, crickets and distant screams, gunfire and sirens.
 
+## Gear, buffs and perks
+
+- Weapons: Katana (silent one-cut kills on unaware zombies), Sledgehammer (stuns, huge knockback), Spear (longest reach), Crossbow (near-silent, pierces), SMG (full auto), plus the originals. Each has its own animation.
+- Armor: Riot Gear (best protection, slower), Ghillie Suit (much harder to spot), Police Vest, Leather Jacket.
+- Buffs: Adrenaline Shot (20 s speed, damage, no stamina drain), Energy Drink (90 s double stamina regen). Perk: Self-Revive Kit (carry it; revives you once and blasts zombies away).
+- Test Weapon Rack in the safehouse holds one of everything.
+
 ## Doors, windows and interiors
 
 - Rooms are furnished by type (kitchen, bedroom, bathroom, living room) with fridges, stoves, sinks, counters, wardrobes, dressers, nightstands, bookshelves, TV stands, desks and filing cabinets, each with its own loot. Searched furniture shows open doors and pulled drawers.

@@ -35,12 +35,18 @@ export function drawWeapon(g, id) {
     case 'crowbar': limb(g, [-5, 0], [21, 0], 2.4, '#b02a2a'); limb(g, [21, 0], [24, -4], 2.4, '#b02a2a'); break;
     case 'machete': poly(g, [-5, -1.5, 3, -1.5, 3, 1.5, -5, 1.5], '#1e1e1e'); poly(g, [3, -2.4, 22, -3, 26, 0, 22, 2.2, 3, 2.4], '#c9d1d7'); break;
     case 'axe': limb(g, [-5, 0], [25, 0], 2.6, '#8a6038'); poly(g, [18, -2, 23, -9, 27, -8, 26, 2, 18, 2], '#c0302a'); g.fillStyle = '#d8dde2'; g.fillRect(24, -8, 2.4, 9); break;
+    case 'katana': poly(g, [-9, -1.8, 0, -1.8, 0, 1.8, -9, 1.8], '#2a1a1a'); g.fillStyle = '#c8a040'; for (let k = 0; k < 3; k++) g.fillRect(-8 + k * 3, -1.8, 1, 3.6); poly(g, [0, -3.5, 2, -3.5, 2, 3.5, 0, 3.5], '#c8a040'); poly(g, [2, -1.6, 28, -2.2, 33, 0.2, 28, 1.6, 2, 1.6], '#e2e8ee'); g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 0.6; g.beginPath(); g.moveTo(3, -0.6); g.lineTo(29, -1); g.stroke(); break;
+    case 'sledge': limb(g, [-8, 0], [24, 0], 2.8, '#8a6038'); poly(g, [20, -8, 30, -8, 30, 8, 20, 8], '#5a6068'); g.fillStyle = '#8a9098'; g.fillRect(21, -7, 2, 14); break;
+    case 'spear': limb(g, [-12, 0], [32, 0], 2.2, '#9a7044'); poly(g, [30, -1.6, 33, -1.6, 33, 1.6, 30, 1.6], '#3a3a3a'); poly(g, [33, -3.2, 43, 0, 33, 3.2], '#d4dade'); break;
+    case 'crossbow': poly(g, [-10, -2.2, 16, -2.2, 16, 2.2, -10, 2.2], '#6a4a2c'); g.strokeStyle = OUT; g.lineWidth = 3.6; g.beginPath(); g.moveTo(12, -12); g.quadraticCurveTo(18, 0, 12, 12); g.stroke(); g.strokeStyle = '#3a3f46'; g.lineWidth = 2.2; g.stroke();
+      g.strokeStyle = 'rgba(230,230,210,0.9)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(12, -12); g.lineTo(4, 0); g.lineTo(12, 12); g.stroke(); poly(g, [4, -0.8, 20, -0.8, 23, 0, 20, 0.8, 4, 0.8], '#c8ccd0'); break;
+    case 'smg': poly(g, [-4, -2.6, 14, -2.6, 14, 2.6, -4, 2.6], '#4a5058'); poly(g, [14, -1.4, 19, -1.4, 19, 1.4, 14, 1.4], '#2a2d31'); poly(g, [4, 2.6, 7.5, 2.6, 7.5, 10, 4, 10], '#2a2d31'); poly(g, [-10, -1.6, -4, -1.6, -4, 1.6, -10, 1.6], '#3a3f46'); break;
     case 'pistol': poly(g, [-2, -2, 12, -2, 12, 2, -2, 2], '#3a3f46'); g.fillStyle = '#6a7078'; g.fillRect(0, -1.2, 11, 1); break;
     case 'shotgun': poly(g, [-10, -2.4, 2, -2.4, 2, 2.4, -10, 2.4], '#6a4a2c'); limb(g, [0, 0], [26, 0], 2.6, '#3a3f46'); poly(g, [11, -2.6, 17, -2.6, 17, 2.6, 11, 2.6], '#5a3e26'); break;
     case 'rifle': poly(g, [-10, -2.4, 4, -2.2, 4, 2.2, -10, 2.4], '#7a5434'); limb(g, [2, 0], [30, 0], 2.2, '#3a3f46'); poly(g, [5, -4.5, 14, -4.5, 14, -1.5, 5, -1.5], '#1e1e1e'); break;
   }
 }
-const GUN_TIP = { pistol: 13, shotgun: 27, rifle: 31 };
+const GUN_TIP = { pistol: 13, shotgun: 27, rifle: 31, smg: 20, crossbow: 23 };
 
 // ---------- figure ----------
 function drawFigure(g, P, L) {
@@ -70,7 +76,7 @@ function drawFigure(g, P, L) {
 }
 
 // ---------- player ----------
-const WCLASS = { knife: 'knife', bat: 'one', spikedbat: 'one', crowbar: 'one', machete: 'one', axe: 'axe', pistol: 'pistol', shotgun: 'long', rifle: 'long' };
+const WCLASS = { knife: 'knife', bat: 'one', spikedbat: 'one', crowbar: 'one', machete: 'one', axe: 'axe', pistol: 'pistol', shotgun: 'long', rifle: 'long', katana: 'katana', sledge: 'sledge', spear: 'spear', crossbow: 'long', smg: 'smg' };
 const GRIP = {
   fists: { lh: [9, -7], rh: [9, 7], wa: 0 },
   knife: { lh: [6, -8], rh: [9, 7], wa: 0.35 },
@@ -78,6 +84,10 @@ const GRIP = {
   axe: { lh: [6, 4], rh: [3, 9], wa: 0.75 },
   pistol: { lh: [12, -1], rh: [14, 2], wa: 0 },
   long: { lh: [17, 0], rh: [6, 5], wa: 0 },
+  katana: { lh: [5, 5], rh: [9, 6], wa: -0.5 },
+  sledge: { lh: [3, 5], rh: [7, 7], wa: 0.55 },
+  spear: { lh: [12, 1], rh: [3, 5], wa: 0 },
+  smg: { lh: [13, 0], rh: [8, 4], wa: 0 },
 };
 function playerPose(cls, anim, t) {
   const G = GRIP[cls];
@@ -96,23 +106,38 @@ function playerPose(cls, anim, t) {
       const r = 10, c = [2, 0];
       P.rh = [c[0] + Math.cos(a * 0.75) * r, c[1] + Math.sin(a * 0.75) * r]; P.wa = a; P.br = a * 0.22;
       P.lh = cls === 'axe' ? [P.rh[0] - Math.cos(a) * 5, P.rh[1] - Math.sin(a) * 5] : [5 - Math.sin(a) * 2, -8];
-    } else if (cls === 'pistol') { const k = key([[0, 0], [0.15, 1], [1, 0]], t); P.rh[0] -= 4 * k; P.lh[0] -= 4 * k; P.wa = -0.12 * k; P.br = -0.05 * k; }
+    } else if (cls === 'katana') { // lightning-fast diagonal draw cut, both hands on the grip
+      const a = key([[0, -0.5], [0.05, -1.7], [0.28, 1.6], [0.55, 1.45], [1, -0.5]], t);
+      P.rh = [3 + Math.cos(a * 0.7) * 11, Math.sin(a * 0.7) * 11]; P.lh = [P.rh[0] - Math.cos(a) * 5, P.rh[1] - Math.sin(a) * 5]; P.wa = a; P.br = a * 0.3; P.bx = key([[0, 0], [0.28, 2], [1, 0]], t);
+      P.lf = [4 + 3 * Math.max(0, Math.sin(t * Math.PI)), -4.5];
+    } else if (cls === 'sledge') { // heavy wind-up, then a crushing two-handed slam
+      const a = key([[0, 0.55], [0.3, -2.0], [0.48, 0.15], [0.62, 0.05], [1, 0.55]], t);
+      P.rh = [2 + Math.cos(a * 0.6) * 9, Math.sin(a * 0.6) * 9]; P.lh = [P.rh[0] - Math.cos(a) * 6, P.rh[1] - Math.sin(a) * 6]; P.wa = a;
+      P.br = key([[0, 0], [0.3, -0.45], [0.5, 0.25], [1, 0]], t); P.bx = key([[0, 0], [0.3, -2], [0.5, 4], [1, 0]], t); P.hd = [1.5 + P.bx * 0.6, 0];
+    } else if (cls === 'spear') { // long thrust with a forward lunge
+      const k = key([[0, 0], [0.1, -0.3], [0.3, 1], [0.6, 0.6], [1, 0]], t);
+      P.rh = [3 + 14 * k, 5 - 2 * k]; P.lh = [12 + 12 * k, 1 - k]; P.wa = -0.04 * k; P.bx = 4 * k; P.lf = [4 + 5 * Math.max(0, k), -4.5]; P.hd = [1.5 + 3 * k, 0];
+    } else if (cls === 'smg') { const k = key([[0, 0], [0.3, 1], [1, 0]], t); P.rh[0] -= 2.5 * k; P.lh[0] -= 2.5 * k; P.wa = (Math.sin(t * 40) * 0.05) * k; P.br = 0.04 * Math.sin(t * 30); }
+    else if (cls === 'pistol') { const k = key([[0, 0], [0.15, 1], [1, 0]], t); P.rh[0] -= 4 * k; P.lh[0] -= 4 * k; P.wa = -0.12 * k; P.br = -0.05 * k; }
     else { const k = key([[0, 0], [0.12, 1], [1, 0]], t); P.rh[0] -= 4 * k; P.lh[0] -= 4 * k; P.br = -0.1 * k; P.bx = -1.5 * k; }
   } else if (anim === 'reload') {
-    if (cls === 'pistol') { P.wa = key([[0, 0], [0.2, 0.9], [0.8, 0.9], [1, 0]], t); P.rh = key([[0, [14, 2]], [0.2, [10, 3]], [0.8, [10, 3]], [1, [14, 2]]], t); P.lh = key([[0, [12, -1]], [0.3, [2, 9]], [0.6, [9, 3]], [1, [12, -1]]], t); }
+    if (cls === 'smg') { P.wa = key([[0, 0], [0.2, 0.7], [0.8, 0.7], [1, 0]], t); P.lh = key([[0, [13, 0]], [0.3, [3, 10]], [0.6, [8, 5]], [1, [13, 0]]], t); }
+    else if (cls === 'pistol') { P.wa = key([[0, 0], [0.2, 0.9], [0.8, 0.9], [1, 0]], t); P.rh = key([[0, [14, 2]], [0.2, [10, 3]], [0.8, [10, 3]], [1, [14, 2]]], t); P.lh = key([[0, [12, -1]], [0.3, [2, 9]], [0.6, [9, 3]], [1, [12, -1]]], t); }
     else if (cls === 'long') { P.wa = key([[0, 0], [0.2, 0.4], [0.85, 0.4], [1, 0]], t); P.lh = key([[0, [17, 0]], [0.25, [3, 9]], [0.45, [11, 3]], [0.65, [3, 9]], [0.85, [12, 2]], [1, [17, 0]]], t); }
   } else if (anim === 'heal') { P.hide = true; P.lh = [8 + Math.sin(ph * 2) * 2.5, -3]; P.rh = [8 - Math.sin(ph * 2) * 2.5, 3]; P.hd = [2.5, 0]; }
   else if (anim === 'shove') { const k = key([[0, 0], [0.35, 1], [1, 0]], t); P.lh = [9 + 10 * k, -7]; P.rh = [9 + 10 * k, 7]; P.bx = 3 * k; P.hide = true; }
   return P;
 }
 function playerLook(wpn, armor, bag) {
-  const top = armor === 'vest' ? '#2c3a52' : armor === 'jacket' ? '#5a3a22' : '#3b5c8a';
-  const dark = armor === 'vest' ? '#202c40' : armor === 'jacket' ? '#46301b' : '#2e4870';
+  const top = { vest: '#2c3a52', jacket: '#5a3a22', riotgear: '#232b38', ghillie: '#4e6a30' }[armor] || '#3b5c8a';
+  const dark = { vest: '#202c40', jacket: '#46301b', riotgear: '#161c26', ghillie: '#3a5222' }[armor] || '#2e4870';
   return {
     skin: '#e3b78c', hand: '#d9a87c', hair: '#3a2a1a', top, topDark: dark, sleeve: dark, boots: '#2a2622', bw: 7.5, bh: 11, hr: 6, arm: 4.2, wpn,
     bag: bag === 'milbag' ? '#4a5236' : bag === 'hikingbag' ? '#3e7a3e' : bag === 'schoolbag' ? '#3a6ab0' : null,
     detail: (g) => {
-      if (armor === 'vest') { g.fillStyle = '#d8d8d8'; g.fillRect(-1.5, -6, 3, 12); g.fillStyle = '#3a4a62'; g.fillRect(2, -8, 3, 4); g.fillRect(2, 4, 3, 4); }
+      if (armor === 'riotgear') { g.fillStyle = '#3a4658'; g.fillRect(-5, -9, 9, 18); g.fillStyle = '#e0c040'; g.fillRect(-1, -6, 2, 12); }
+      else if (armor === 'ghillie') { for (let k = 0; k < 14; k++) { const a = k * 2.3, d = 2 + (k % 5) * 1.6; g.fillStyle = ['#6a7a3a', '#3a5222', '#5a4a2a'][k % 3]; g.beginPath(); g.ellipse(Math.cos(a) * d, Math.sin(a) * d * 1.3, 3, 1.6, a, 0, 7); g.fill(); } }
+      else if (armor === 'vest') { g.fillStyle = '#d8d8d8'; g.fillRect(-1.5, -6, 3, 12); g.fillStyle = '#3a4a62'; g.fillRect(2, -8, 3, 4); g.fillRect(2, 4, 3, 4); }
       else { g.strokeStyle = 'rgba(255,255,255,0.18)'; g.lineWidth = 1; g.beginPath(); g.moveTo(3, -9); g.lineTo(3, 9); g.stroke(); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(4.5, -4, 2, 8); }
     },
   };
@@ -202,7 +227,7 @@ export function zombieFrame(type, v, anim, t) {
   v %= ZVARIANTS[type].length;
   return render(`z|${type}|${v}|${anim}|${f}`, (g) => drawFigure(g, zombiePose(type, anim, once ? f / (n - 1) : (f + 0.5) / n, v), zombieLook(type, v)));
 }
-export const muzzleTip = (wpn) => { const cls = WCLASS[wpn]; return cls === 'pistol' ? [14 + GUN_TIP.pistol, 2] : cls === 'long' ? [6 + GUN_TIP[wpn], 5] : null; };
+export const muzzleTip = (wpn) => { const cls = WCLASS[wpn]; if (wpn === 'crossbow') return null; return cls === 'pistol' ? [14 + GUN_TIP.pistol, 2] : cls === 'smg' ? [8 + GUN_TIP.smg, 4] : cls === 'long' ? [6 + GUN_TIP[wpn], 5] : null; };
 export const FRAME_SIZE = SIZE;
 // Render every zombie frame (and the starting player frames) up front so gameplay never stalls.
 export function prewarm() {

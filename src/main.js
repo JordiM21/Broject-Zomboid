@@ -36,6 +36,7 @@ function drain() {
     rend.onEvent(e, LOCAL); sfx.play(e, LOCAL);
     if (PING[e.type]) { const p = s.players[LOCAL]; const d = Math.hypot(e.x - p.x, e.y - p.y); if (d > 100 && d < 1300 && (d > 15 * TILE || !los(s.world, p.x, p.y, e.x, e.y))) ui.pings.push({ x: e.x, y: e.y, t: 1.8, danger: PING[e.type] === 2 }); }
     if (e.type === 'zhit' && e.melee && e.pid === LOCAL) hitStop = Math.max(hitStop, e.crit ? 0.07 : 0.04);
+    if (e.type === 'zdie') { const p = s.players[LOCAL]; if (Math.hypot(e.x - p.x, e.y - p.y) < 140) hitStop = Math.max(hitStop, e.ztype === 'brute' ? 0.12 : 0.07); }
     if (e.pid && e.pid !== LOCAL && e.type !== 'step') continue;
     switch (e.type) {
       case 'msg': addMsg(e.text, e.color); break;
@@ -118,9 +119,9 @@ function togglePause() { paused = !paused; $('pause').classList.toggle('hidden',
 function buildInput(first) {
   const k = (c) => keys.has(c), ed = (c) => first && pressed.has(c);
   const inp = {
-    mx: ui.mouseWorld.x, my: ui.mouseWorld.y,
+    mx: panels.isOpen || ui.bigMap ? undefined : ui.mouseWorld.x, my: panels.isOpen || ui.bigMap ? undefined : ui.mouseWorld.y,
     up: k('KeyW') || k('ArrowUp'), down: k('KeyS') || k('ArrowDown'), left: k('KeyA') || k('ArrowLeft'), right: k('KeyD') || k('ArrowRight'),
-    sprint: k('ShiftLeft') || k('ShiftRight'), attack: mouse.down && !ui.bigMap,
+    sprint: k('ShiftLeft') || k('ShiftRight'), attack: mouse.down && !ui.bigMap && !panels.isOpen,
     sneak: ed('KeyC'), interact: ed('KeyE'), reload: ed('KeyR'), shove: ed('Space'), flash: ed('KeyF'), heal: ed('KeyH'), throwN: ed('KeyG'), throwB: ed('KeyX'), barricade: ed('KeyB'),
     sel: first ? selPending : -1,
   };

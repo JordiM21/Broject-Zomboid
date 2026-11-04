@@ -17,13 +17,17 @@ await pg.evaluate(() => {
   row('axe', (t) => playerFrame('axe', 'vest', 'milbag', 'attack', t), 8);
   row('rifle reload', (t) => playerFrame('rifle', 'vest', null, 'reload', t), 6);
   row('pistol fire', (t) => playerFrame('pistol', null, null, 'attack', t), 8);
+  row('katana', (t) => playerFrame('katana', 'ghillie', null, 'attack', t), 8);
+  row('sledge', (t) => playerFrame('sledge', 'riotgear', null, 'attack', t), 8);
+  row('spear', (t) => playerFrame('spear', null, null, 'attack', t), 8);
+  row('crossbow/smg', (t) => t < 0.5 ? playerFrame('crossbow', null, null, 'attack', t * 2) : playerFrame('smg', null, null, 'attack', (t - 0.5) * 2), 8);
   row('heal / shove', (t) => t < 0.5 ? playerFrame('fists', null, null, 'heal', t * 2) : playerFrame('fists', null, null, 'shove', (t - 0.5) * 2), 9);
-  for (const [ty, v] of [['walker', 0], ['walker', 2], ['runner', 1], ['brute', 0], ['soldier', 0]]) {
+  for (const [ty, v] of [['walker', 0], ['brute', 0]]) {
     row(ty + ' walk', (t) => zombieFrame(ty, v, 'walk', t), 8);
   }
   row('walker atk', (t) => zombieFrame('walker', 1, 'attack', t), 6);
   row('hit + death', (t) => t < 0.3 ? zombieFrame('walker', 3, 'hit', t / 0.3) : zombieFrame('walker', 3, 'death', (t - 0.3) / 0.7), 10);
 });
-await pg.screenshot({ path: out + '/sheet.png', clip: { x: 0, y: 0, width: 760, height: 830 } });
+await pg.screenshot({ path: out + '/sheet.png', clip: { x: 0, y: 0, width: 760, height: 900 } });
 console.log(errs.length ? errs.join('\n') : 'no errors');
 await b.close();

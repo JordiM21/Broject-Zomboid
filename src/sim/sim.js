@@ -1,7 +1,7 @@
 // Authoritative simulation. Pure state + inputs -> state + events.
 // Netcode-ready: every player action arrives as an input frame or a command object.
 import { TILE, DAY_LENGTH, START_HOUR, PLAYER_R, BASE_CARRY } from '../config.js';
-import { CAT_ORDER, ITEMS, FISTS, UPGRADES, STASH_CAP, RECIPES, TRADE_COST, TRADE_POOL, OBJECTIVES, CONTAINER_LABEL } from '../data/items.js';
+import { RACK_ITEMS, CAT_ORDER, ITEMS, FISTS, UPGRADES, STASH_CAP, RECIPES, TRADE_COST, TRADE_POOL, OBJECTIVES, CONTAINER_LABEL } from '../data/items.js';
 import { generateWorld, T, SOLID } from '../world/worldgen.js';
 import { solidAt, collide, los, castRay, bulletBlock, isSafe, FlowField } from '../world/world.js';
 import { makeItem, addItem, countItem, removeItem, invWeight, rollLoot } from './inventory.js';
@@ -41,6 +41,7 @@ export function createState(seed, fresh = true) {
   };
   s.dawnIdx = dawnIndex(s);
   s.baseConts = world.containers.length;
+  { const rk = world.containers[world.fixtures.rack]; rk.items = []; rk.searched = true; for (const [id, n] of RACK_ITEMS) { const it = makeItem(id, n); if (ITEMS[id].cat === 'gun') it.mag = ITEMS[id].mag; rk.items.push(it); } }
   if (fresh) { for (let k = 0; k < 520; k++) spawnRandomZombie(s, 22, false); for (const zn of world.zones) spawnInZone(s, zn, zn.kind === 'military' ? 45 : 28); }
   initRuntime(s);
   return s;
@@ -74,7 +75,7 @@ export const getCont = (s, cid) => s.world.containers[cid];
 export const stashCont = (s) => s.world.containers[s.world.fixtures.stash];
 export const capacity = (p) => BASE_CARRY + (p.bag ? ITEMS[p.bag.id].cap : 0);
 export const carried = (p) => invWeight(p.inv) + (p.armor ? ITEMS[p.armor.id].w * 0.5 : 0);
-export const contCap = (s, c) => (c.type === 'stash' ? STASH_CAP[s.upgrades.stash] : c.type === 'pile' || c.type === 'body' ? 999 : 20);
+export const contCap = (s, c) => (c.type === 'stash' ? STASH_CAP[s.upgrades.stash] : c.type === 'pile' || c.type === 'body' || c.type === 'rack' ? 999 : 20);
 const contPos = (c) => (c.px !== undefined ? { x: c.px, y: c.py } : { x: (c.x + 0.5) * TILE, y: (c.y + 0.5) * TILE });
 export const contLabel = (c) => c.label || CONTAINER_LABEL[c.type] || 'Container';
 
@@ -108,6 +109,11 @@ export function step(s, inputs, dt) {
   }
   for (const n of s.noises) if (n.pl && n.r >= 2 * TILE) ev(s, { type: 'noise', x: n.x, y: n.y, r: n.r });
   s.noises.length = 0;
+  // looted corpses fade out after 15 s
+  if ((s.cleanT = (s.cleanT || 0) - dt) <= 0) {
+    s.cleanT = 1;
+    s.loose = s.loose.filter((id) => { const c = s.world.containers[id]; if (c && c.emptyT && s.time - c.emptyT > 15 && (!c.items || !c.items.length)) { s.world.containers[id] = null; return false; } return !!c; });
+  }
 }
 
 function onDawn(s) {
@@ -226,6 +232,7 @@ function openCont(s, p, c) {
   if (c.items === null) c.items = rollLoot(c.type, s.seed, c.id, c.salt || 0);
   const first = !c.searched;
   c.searched = true; p.openCid = c.id;
+  if ((c.type === 'zombie' || c.type === 'zsoldier') && !c.items.length && !c.emptyT) c.emptyT = s.time;
   ev(s, { type: 'open', pid: p.id, cid: c.id, first, empty: !c.items.length, ctype: c.type, x: p.x, y: p.y });
   if (c.type !== 'stash') completeObjective(s, 'search');
 }
@@ -234,6 +241,7 @@ function updatePlayer(s, p, inp, dt) {
   if (p.dead) return;
   const w = s.world;
   p.atkCd -= dt; p.swing -= dt; p.invuln -= dt; p.hurt -= dt; p.muzzle -= dt;
+  p.buffs = p.buffs || {}; for (const k in p.buffs) { p.buffs[k] -= dt; if (p.buffs[k] <= 0) { delete p.buffs[k]; msg(s, k === 'adrenaline' ? 'The adrenaline wears off.' : 'The energy boost fades.', '#aaa', p.id); } }
   if (inp.mx !== undefined) p.ang = Math.atan2(inp.my - p.y, inp.mx - p.x);
   if (inp.sneak) { p.sneak = !p.sneak; msg(s, p.sneak ? 'Sneaking: quieter, harder to spot.' : 'Walking.', '#aaa', p.id); }
   if (inp.flash) { p.flashlight = !p.flashlight; ev(s, { type: 'click', x: p.x, y: p.y }); }
@@ -264,7 +272,7 @@ function updatePlayer(s, p, inp, dt) {
     }
   }
   let speed = p.sneak ? 62 : p.sprinting ? 172 : 112;
-  speed *= slow; if (p.channel) speed *= 0.4; if (p.reload > 0) speed *= 0.8;
+  speed *= slow; if (p.armor && ITEMS[p.armor.id].slow) speed *= ITEMS[p.armor.id].slow; if (p.buffs.adrenaline) speed *= 1.3; if (p.channel) speed *= 0.4; if (p.reload > 0) speed *= 0.8;
   const tHere = w.tiles[Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE)];
   if (tHere === T.BUSH) speed *= 0.6;
   const bx = p.x, by = p.y;
@@ -297,6 +305,7 @@ function updatePlayer(s, p, inp, dt) {
   // stealth: how visible the player is to zombies
   let vis = daylight(s) > 0.35 ? 1 : p.flashlight ? 1.15 : 0.5;
   if (p.sneak) vis *= 0.55;
+  if (p.armor && ITEMS[p.armor.id].stealth) vis *= ITEMS[p.armor.id].stealth;
   if (!p.moving) vis *= 0.75; else if (p.sprinting) vis *= 1.3;
   if (tHere === T.BUSH) vis *= 0.4;
   if (s.weather.rain > 0.4) vis *= 0.85;
@@ -333,8 +342,8 @@ function updatePlayer(s, p, inp, dt) {
 function survival(s, p, dt) {
   p.hunger = Math.max(0, p.hunger - (dt * 100) / (DAY_LENGTH * 1.6));
   p.thirst = Math.max(0, p.thirst - ((dt * 100) / (DAY_LENGTH * 1.1)) * (p.sprinting ? 1.6 : 1));
-  if (p.sprinting) p.stamina = Math.max(0, p.stamina - 20 * dt);
-  else if (p.atkCd < 0) p.stamina = Math.min(100, p.stamina + (p.hunger < 15 || p.thirst < 15 ? 7 : 15) * dt);
+  if (p.sprinting && !(p.buffs && p.buffs.adrenaline)) p.stamina = Math.max(0, p.stamina - 20 * dt);
+  else if (p.atkCd < 0) p.stamina = Math.min(100, p.stamina + (p.hunger < 15 || p.thirst < 15 ? 7 : 15) * (p.buffs && p.buffs.energy ? 2 : 1) * dt);
   if (p.bleeding) p.hp -= 1.0 * dt;
   if (p.infection > 0) {
     p.infection = Math.min(100, p.infection + (dt * 100) / (DAY_LENGTH * 2));
@@ -372,16 +381,17 @@ function attack(s, p) {
     if (d > zr && angDiff(Math.atan2(z.y - p.y, z.x - p.x), p.ang) > wd.arc / 2) continue;
     if (!los(s.world, p.x, p.y, z.x, z.y)) continue;
     const a = Math.atan2(z.y - p.y, z.x - p.x);
-    if (p.sneak && z.state !== 'chase' && angDiff(z.ang, a) < 1.3 && p.wpn) {
+    if ((p.sneak || wd.silent) && z.state !== 'chase' && angDiff(z.ang, a) < 1.3 && p.wpn) {
       // sneak attack from behind an unaware zombie: instant, silent kill
       damageZombie(s, z, z.hp + 1, Math.cos(a), Math.sin(a), 20, p, false, true, true);
       ev(s, { type: 'silentKill', x: z.x, y: z.y, pid: p.id });
       hit = true; continue;
     }
     const crit = rnd() < 0.12;
-    const dmg = wd.dmg * mult * (crit ? 2 : 1) * (0.9 + rnd() * 0.2);
+    const dmg = wd.dmg * mult * (crit ? 2 : 1) * (0.9 + rnd() * 0.2) * (p.buffs && p.buffs.adrenaline ? 1.25 : 1);
     damageZombie(s, z, dmg, Math.cos(a), Math.sin(a), wd.knock, p, crit, true);
-    hit = true; loud = true;
+    if (wd.stun) { z.stagger = Math.max(z.stagger, wd.stun * (z.type === 'brute' ? 0.5 : 1)); ev(s, { type: 'slam', x: z.x, y: z.y }); }
+    hit = true; if (!wd.silent) loud = true;
   }
   if (!hit) { // smash a closed door or window in front
     const fx = Math.floor((p.x + Math.cos(p.ang) * 26) / TILE), fy = Math.floor((p.y + Math.sin(p.ang) * 26) / TILE);
@@ -431,10 +441,10 @@ function fire(s, p, wd) {
     for (let h = 0; h < Math.min(wd.pierce, hits.length); h++) {
       const { z, t } = hits[h];
       const fall = wd.pellets > 1 ? 1 - (t / wd.range) * 0.6 : 1;
-      damageZombie(s, z, wd.dmg * fall * (0.9 + rnd() * 0.2), ca, sa, wd.pellets > 1 ? 40 : 60, p, false);
+      damageZombie(s, z, wd.dmg * fall * (0.9 + rnd() * 0.2) * (p.buffs && p.buffs.adrenaline ? 1.25 : 1), ca, sa, wd.pellets > 1 ? 40 : 60, p, false);
       end = t;
     }
-    ev(s, { type: 'tracer', x0: ox, y0: oy, x1: ox + ca * end, y1: oy + sa * end, wall: end === maxD && maxD < wd.range });
+    ev(s, { type: 'tracer', gun: p.wpn.id, x0: ox, y0: oy, x1: ox + ca * end, y1: oy + sa * end, wall: end === maxD && maxD < wd.range });
   }
   ev(s, { type: 'gunshot', gun: p.wpn.id, x: ox, y: oy, ang: p.ang, pid: p.id });
   s.noises.push({ pl: 1, x: p.x, y: p.y, r: wd.noise * TILE });
@@ -475,7 +485,7 @@ function damageZombie(s, z, dmg, kx, ky, knock, p, crit, melee = false, silent =
   if (z.hp <= 0) {
     ev(s, { type: 'zdie', zid: z.id, face: z.ang, x: z.x, y: z.y, ztype: z.type, ang: Math.atan2(ky, kx) });
     s.stats.kills++; completeObjective(s, 'kill');
-    const corpse = makeLoose(s, z.x, z.y, z.type === 'soldier' ? 'zsoldier' : 'zombie', null); corpse.searched = false;
+    const corpse = makeLoose(s, z.x, z.y, z.type === 'soldier' ? 'zsoldier' : 'zombie', null); corpse.searched = false; corpse.ang = z.ang; corpse.zt = z.type; corpse.zv = z.id;
     if (z.type === 'brute') corpse.salt = 7;
     const corpses = s.loose.filter((id) => s.world.containers[id] && (s.world.containers[id].type === 'zombie' || s.world.containers[id].type === 'zsoldier'));
     if (corpses.length > 120) { const old = corpses[0]; s.world.containers[old] = null; s.loose = s.loose.filter((id) => id !== old); }
@@ -555,6 +565,13 @@ function hurtPlayer(s, p, z) {
 }
 
 function killPlayer(s, p) {
+  const kit = p.inv.findIndex((i) => i.id === 'reviver');
+  if (kit >= 0) {
+    p.inv.splice(kit, 1); p.hp = 50; p.bleeding = false; p.invuln = 2; p.stamina = 100;
+    for (const z of s.zombies) { const d = dist(p, z); if (d < 150 && z.hp > 0) { const a = Math.atan2(z.y - p.y, z.x - p.x); z.vx += Math.cos(a) * 420; z.vy += Math.sin(a) * 420; z.stagger = 1.5; z.hp -= 30; } }
+    msg(s, 'SELF-REVIVE! You got a second chance.', '#ff6ab0', p.id); ev(s, { type: 'revive', x: p.x, y: p.y, pid: p.id });
+    return;
+  }
   p.dead = true; p.hp = 0;
   const items = [...p.inv]; if (p.bag) items.push(p.bag); if (p.armor) items.push(p.armor);
   if (items.length) {
@@ -824,6 +841,7 @@ export function command(s, pid, c) {
     case 'take': {
       if (!contOk) return; const it = cont.items[c.idx]; if (!it) return;
       cont.items.splice(c.idx, 1); addItem(p.inv, it);
+      if (!cont.items.length && (cont.type === 'zombie' || cont.type === 'zsoldier')) cont.emptyT = s.time;
       ev(s, { type: 'pickup', cat: ITEMS[it.id].cat, x: p.x, y: p.y, pid: p.id, text: `+ ${ITEMS[it.id].name}${it.n > 1 ? ' x' + it.n : ''}` });
       break;
     }
@@ -831,7 +849,7 @@ export function command(s, pid, c) {
       if (!contOk) return;
       const nTaken = cont.items.length;
       for (const it of cont.items) addItem(p.inv, it);
-      cont.items.length = 0; ev(s, { type: 'pickup', cat: 'bag', x: p.x, y: p.y, pid: p.id, text: nTaken ? `+ ${nTaken} item${nTaken > 1 ? 's' : ''}` : '' });
+      cont.items.length = 0; if (cont.type === 'zombie' || cont.type === 'zsoldier') cont.emptyT = s.time; ev(s, { type: 'pickup', cat: 'bag', x: p.x, y: p.y, pid: p.id, text: nTaken ? `+ ${nTaken} item${nTaken > 1 ? 's' : ''}` : '' });
       break;
     }
     case 'put': case 'putAll': {
@@ -859,7 +877,12 @@ export function command(s, pid, c) {
         if (d.thirst) p.thirst = Math.max(0, Math.min(100, p.thirst + d.thirst));
         it.n--; if (it.n <= 0) p.inv.splice(c.idx, 1);
         ev(s, { type: d.thirst > (d.hunger || 0) ? 'drink' : 'eat', x: p.x, y: p.y });
-      } else if (d.cat === 'med') { if (!p.channel) { p.channel = { id: it.id, t: 0, dur: it.id === 'medkit' ? 2.4 : 1.4 }; ev(s, { type: 'medStart', x: p.x, y: p.y, id: p.channel.id, pid: p.id }); } }
+      } else if (d.cat === 'buff') {
+        p.buffs = p.buffs || {}; p.buffs[d.buff] = d.time; if (d.thirst) p.thirst = Math.min(100, p.thirst + d.thirst);
+        it.n--; if (it.n <= 0) p.inv.splice(c.idx, 1);
+        msg(s, d.buff === 'adrenaline' ? 'ADRENALINE! Faster, stronger, tireless.' : 'Energy surge: stamina recovers twice as fast.', '#5ad0c8', p.id); ev(s, { type: 'buff', x: p.x, y: p.y, pid: p.id, buff: d.buff });
+      } else if (d.cat === 'perk') msg(s, 'Passive: keep it in your inventory.', '#aaa', p.id);
+      else if (d.cat === 'med') { if (!p.channel) { p.channel = { id: it.id, t: 0, dur: it.id === 'medkit' ? 2.4 : 1.4 }; ev(s, { type: 'medStart', x: p.x, y: p.y, id: p.channel.id, pid: p.id }); } }
       else if (d.cat === 'melee' || d.cat === 'gun') { p.wpn = it; p.reload = 0; ev(s, { type: 'equip' }); }
       else if (d.cat === 'bag' || d.cat === 'armor') {
         const slot = d.cat === 'bag' ? 'bag' : 'armor';
