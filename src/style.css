@@ -93,3 +93,12 @@ button:active:not(:disabled) { transform: scale(0.96); }
 .cost img { width: 16px; height: 16px; vertical-align: -4px; margin-right: 3px; }
 .cimg { width: 44px; height: 44px; flex: none; } .grow { flex: 1; }
 @media (max-height: 500px) { .grid { max-height: 34vh; } .details { min-height: 0; } .details img { width: 44px; height: 44px; } }
+
+kbd { display: inline-block; min-width: 16px; padding: 0 4px; margin-left: 4px; border: 1px solid rgba(255,255,255,0.3); border-bottom-width: 2px; border-radius: 4px; font: 600 10px system-ui; color: var(--acc); background: rgba(0,0,0,0.3); text-align: center; line-height: 14px; vertical-align: 1px; }
+.keys { display: grid; gap: 8px; padding: 8px 2px; font-size: 13px; color: #cfcac0; } .keys kbd { margin: 0 6px 0 0; }
+.ctxmenu { position: fixed; z-index: 30; min-width: 170px; background: rgba(18,21,26,0.97); border: 1px solid var(--line); border-radius: 8px; padding: 4px; box-shadow: 0 12px 30px rgba(0,0,0,0.6); animation: pop2 0.1s ease-out; }
+.ctxmenu .mh { display: flex; align-items: center; gap: 6px; padding: 4px 6px 6px; font-weight: 700; font-size: 13px; border-bottom: 1px solid var(--line); margin-bottom: 3px; } .ctxmenu .mh img { width: 22px; height: 22px; }
+.ctxmenu button { display: flex; justify-content: space-between; align-items: center; width: 100%; background: transparent; border: 0; border-radius: 5px; padding: 6px 8px; text-align: left; font-size: 13px; }
+.ctxmenu button:hover { background: rgba(255,210,122,0.14); }
+@keyframes pop2 { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+body.dropping #game { outline: 3px dashed rgba(255,150,90,0.6); outline-offset: -6px; }

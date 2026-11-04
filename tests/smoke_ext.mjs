@@ -1,0 +1,23 @@
+import { createRequire } from 'module'; const require = createRequire(import.meta.url); const { chromium } = require(process.env.PW || 'playwright');
+import path from 'path';
+const out = process.argv[2] || '.';
+const b = await chromium.launch(); const pg = await b.newPage({ viewport: { width: 1280, height: 760 } }); const errs = [];
+pg.on('pageerror', (e) => errs.push(e.message));
+await pg.goto('file://' + path.resolve('dist/index.html'));
+await pg.click('#btnNew'); await pg.waitForTimeout(400);
+await pg.evaluate(() => { const s = window.__game.state, w = s.world, p = s.players.p1; const b = w.buildings.find((b) => b.type === 'house' && b.w >= 9);
+  p.x = (b.x + b.w / 2) * 32; p.y = (b.y - 2.5) * 32; s.zombies = s.zombies.filter((z) => Math.hypot(z.x - p.x, z.y - p.y) > 600); });
+await pg.mouse.move(640, 520); await pg.waitForTimeout(1000);
+await pg.screenshot({ path: out + '/s_ext.png' });
+// inventory: drag out to drop, hotkeys
+await pg.keyboard.press('Tab'); await pg.waitForTimeout(200);
+const n0 = await pg.evaluate(() => window.__game.state.players.p1.inv.length);
+await pg.dragAndDrop('#inv .tile[data-side="inv"][data-idx="3"]', '#game', { targetPosition: { x: 60, y: 60 } }); await pg.waitForTimeout(150);
+const n1 = await pg.evaluate(() => window.__game.state.players.p1.inv.length);
+await pg.hover('#inv .tile[data-side="inv"][data-idx="2"]'); const th0 = await pg.evaluate(() => window.__game.state.players.p1.thirst);
+await pg.keyboard.press('KeyE'); await pg.waitForTimeout(100); const th1 = await pg.evaluate(() => window.__game.state.players.p1.thirst);
+await pg.click('#inv .tile[data-side="inv"][data-idx="1"]', { button: 'right' }); await pg.waitForTimeout(150);
+await pg.screenshot({ path: out + '/s_ctx.png' });
+console.log('drag-out drop', n0, '->', n1, '| E drink thirst', Math.round(th0), '->', Math.round(th1));
+console.log(errs.length ? errs.join('\n') : 'no errors');
+await b.close();

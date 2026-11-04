@@ -5,7 +5,9 @@ import { iconURL } from './icons.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const USE_LABEL = { food: 'Eat / Drink', med: 'Use', melee: 'Equip', gun: 'Equip', bag: 'Wear', armor: 'Wear', throw: 'How to use' };
+const USE_LABEL = { med: 'Use', melee: 'Equip', gun: 'Equip', bag: 'Wear', armor: 'Wear' };
+const useLabel = (d) => (d.cat === 'food' ? ((d.thirst || 0) > (d.hunger || 0) ? 'Drink' : 'Eat') : USE_LABEL[d.cat] || null);
+const kbd = (k) => `<kbd>${k}</kbd>`;
 
 function tile(it, idx, side, p) {
   const d = ITEMS[it.id];
@@ -25,9 +27,17 @@ export class Panels {
       el.addEventListener('mousedown', (e) => e.stopPropagation());
     }
     const inv = $('inv');
+    this.menu = document.createElement('div'); this.menu.className = 'ctxmenu hidden'; document.body.appendChild(this.menu);
+    this.menu.addEventListener('mousedown', (e) => e.stopPropagation());
+    this.menu.addEventListener('click', (e) => { const b = e.target.closest('[data-m]'); if (b) { this.menuAct(b.dataset.m); } this.hideMenu(); });
+    window.addEventListener('mousedown', () => this.hideMenu());
+    inv.addEventListener('mouseout', (e) => { const t = e.target.closest('.tile'); if (t && !t.contains(e.relatedTarget)) this.hover = null; });
+    // dragging an item out of the window drops it on the ground
+    window.addEventListener('dragover', (e) => { if (this.drag && !inv.contains(e.target)) { e.preventDefault(); document.body.classList.add('dropping'); } else document.body.classList.remove('dropping'); });
+    window.addEventListener('drop', (e) => { document.body.classList.remove('dropping'); if (this.drag && !inv.contains(e.target)) { e.preventDefault(); if (this.drag.side === 'inv') this.h.cmd({ t: 'drop', idx: this.drag.idx }); this.drag = null; this.refresh(); } });
     inv.addEventListener('dblclick', (e) => { const t = e.target.closest('.tile'); if (t) this.useTile(t); });
-    inv.addEventListener('contextmenu', (e) => { const t = e.target.closest('.tile'); if (t) { e.preventDefault(); this.useTile(t); } });
-    inv.addEventListener('mouseover', (e) => { const t = e.target.closest('.tile'); if (t) this.showDetails(t.dataset.side, +t.dataset.idx); });
+    inv.addEventListener('contextmenu', (e) => { const t = e.target.closest('.tile'); e.preventDefault(); if (t) this.showMenu(t.dataset.side, +t.dataset.idx, e.clientX, e.clientY); });
+    inv.addEventListener('mouseover', (e) => { const t = e.target.closest('.tile'); if (t) { this.hover = { side: t.dataset.side, idx: +t.dataset.idx }; this.showDetails(t.dataset.side, +t.dataset.idx); } });
     inv.addEventListener('dragstart', (e) => {
       const t = e.target.closest('.tile'); if (!t) return;
       this.drag = { side: t.dataset.side, idx: +t.dataset.idx };
@@ -50,7 +60,50 @@ export class Panels {
     if (tab) this.baseTab = tab;
     this.refresh();
   }
-  close() { if (this.open) $(this.open).classList.add('hidden'); this.open = null; this.sel = null; }
+  close() { if (this.open) $(this.open).classList.add('hidden'); this.open = null; this.sel = null; this.hover = null; this.hideMenu(); }
+  hideMenu() { this.menu.classList.add('hidden'); this.menuFor = null; }
+  showMenu(side, idx, x, y) {
+    const it = this.item(side, idx), p = this.h.player(); if (!it) return;
+    const d = ITEMS[it.id], cont = p.openCid >= 0;
+    const opts = [];
+    const ul = useLabel(d);
+    if (side === 'inv') {
+      if (ul && it !== p.wpn) opts.push(['use', ul, 'E']);
+      if (d.cat === 'throw') opts.push(['none', `Throw with ${it.id === 'noisemaker' ? 'G' : 'X'}`, '']);
+      if (it === p.wpn) opts.push(['unequip', 'Unequip', '']);
+      if (cont) opts.push(['move', 'Put in container', 'T']);
+      opts.push(['drop', 'Drop', 'Q']);
+    } else {
+      opts.push(['move', 'Take', 'T']);
+      if (ul) opts.push(['use', `Take & ${ul}`, 'E']);
+    }
+    this.menuFor = { side, idx };
+    this.menu.innerHTML = `<div class="mh"><img src="${iconURL(it.id)}" alt="">${esc(d.name)}${it.n > 1 ? ' ×' + it.n : ''}</div>` + opts.map(([a, l, k]) => `<button data-m="${a}">${l}${k ? kbd(k) : ''}</button>`).join('');
+    this.menu.classList.remove('hidden');
+    const r = this.menu.getBoundingClientRect();
+    this.menu.style.left = Math.min(x, innerWidth - r.width - 8) + 'px'; this.menu.style.top = Math.min(y, innerHeight - r.height - 8) + 'px';
+  }
+  menuAct(a) { const m = this.menuFor; if (!m) return; this.act(a, m.side, m.idx); }
+  act(a, side, idx) {
+    const p = this.h.player(), cid = p.openCid, it = this.item(side, idx); if (!it) return false;
+    if (a === 'use') { if (side === 'inv') this.h.cmd({ t: 'use', idx }); else { this.h.cmd({ t: 'take', cid, idx }); const j = p.inv.lastIndexOf(p.inv.find((x) => x.id === it.id)); if (j >= 0) this.h.cmd({ t: 'use', idx: j }); } }
+    else if (a === 'drop') { if (side !== 'inv') return false; this.h.cmd({ t: 'drop', idx }); }
+    else if (a === 'move') { if (cid < 0) return false; this.h.cmd({ t: side === 'inv' ? 'put' : 'take', cid, idx }); }
+    else if (a === 'unequip') this.h.cmd({ t: 'unequip', slot: 'wpn' });
+    else return false;
+    this.hover = null; this.sel = null; this.refresh(); return true;
+  }
+  // inventory hotkeys; returns true if the key was used
+  handleKey(code, shift) {
+    if (this.open !== 'inv') return false;
+    if (code === 'Escape' && !this.menu.classList.contains('hidden')) { this.hideMenu(); return true; }
+    const p = this.h.player(), h = this.hover;
+    if (code === 'KeyR' && p.openCid >= 0) { this.h.cmd({ t: shift ? 'putAll' : 'takeAll', cid: p.openCid }); this.refresh(); return true; }
+    if (!h) return false;
+    const map = { KeyE: 'use', KeyQ: 'drop', KeyT: 'move' };
+    if (!map[code]) return false;
+    return this.act(map[code], h.side, h.idx) || code !== 'KeyE';
+  }
   toggleInv() { if (this.open === 'inv') this.close(); else this.show('inv'); }
 
   item(side, idx) {
@@ -84,6 +137,7 @@ export class Panels {
     if (t && !e.target.closest('[data-act]')) {
       const side = t.dataset.side, idx = +t.dataset.idx;
       if (e.shiftKey && side === 'inv') this.h.cmd({ t: 'drop', idx });
+      else if (e.ctrlKey || e.metaKey) this.act('use', side, idx);
       else if (cid >= 0) { this.h.cmd({ t: side === 'inv' ? 'put' : 'take', cid, idx }); this.sel = null; }
       else { this.sel = { side, idx }; this.showDetails(side, idx); }
       this.refresh(); return;
@@ -100,6 +154,8 @@ export class Panels {
       case 'use': this.h.cmd({ t: 'use', idx }); break;
       case 'drop': this.h.cmd({ t: 'drop', idx }); this.sel = null; break;
       case 'take': this.h.cmd({ t: 'take', cid, idx }); this.sel = null; break;
+      case 'put': this.h.cmd({ t: 'put', cid, idx }); this.sel = null; break;
+      case 'takeuse': this.act('use', 'cont', idx); break;
       case 'unequip': this.h.cmd({ t: 'unequip', slot: b.dataset.slot }); break;
       case 'tab': this.baseTab = b.dataset.tab; break;
       case 'upgrade': this.h.cmd({ t: 'upgrade', id: b.dataset.id }); break;
@@ -118,9 +174,12 @@ export class Panels {
     const stats = itemStats(it).map(([k, v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join('');
     let btns = '';
     if (side === 'inv') {
-      if (it !== p.wpn && USE_LABEL[d.cat] && d.cat !== 'throw') btns += `<button data-act="use" data-idx="${idx}">${USE_LABEL[d.cat]}</button>`;
-      btns += `<button class="ghost" data-act="drop" data-idx="${idx}">Drop on ground</button>`;
-    } else btns += `<button data-act="take" data-idx="${idx}">Take</button>`;
+      const ul = useLabel(d);
+      if (it !== p.wpn && ul) btns += `<button data-act="use" data-idx="${idx}">${ul} ${kbd('E')}</button>`;
+      if (d.cat === 'throw') btns += `<span class="dim small">Throw with ${kbd(it.id === 'noisemaker' ? 'G' : 'X')} while aiming</span>`;
+      if (p.openCid >= 0) btns += `<button class="ghost" data-act="put" data-idx="${idx}">Put ${kbd('T')}</button>`;
+      btns += `<button class="ghost" data-act="drop" data-idx="${idx}">Drop ${kbd('Q')}</button>`;
+    } else { btns += `<button data-act="take" data-idx="${idx}">Take ${kbd('T')}</button>`; const ul = useLabel(d); if (ul) btns += `<button class="ghost" data-act="takeuse" data-idx="${idx}">Take & ${ul} ${kbd('E')}</button>`; }
     el.innerHTML = `<img src="${iconURL(it.id)}" alt=""><div class="dInfo"><div class="dName" style="color:${CAT_COLOR[d.cat]}">${esc(d.name)}${it.n > 1 ? ` <span class="dim">x${it.n}</span>` : ''}</div>
       <div class="dDesc">${esc(DESC[it.id] || '')}</div><div class="dStats">${stats}</div><div class="dBtns">${btns}</div></div>`;
   }
@@ -139,13 +198,15 @@ export class Panels {
       <div class="equip">${slot('Weapon', p.wpn, 'wpn')}${slot('Bag', p.bag, 'bag')}${slot('Armor', p.armor, 'armor')}</div>
       <div class="grid">${p.inv.map((it, i) => tile(it, i, 'inv', p)).join('') || '<div class="dim pad">Empty. Search containers with [E].</div>'}</div>`;
     if (c && c.items) {
-      html += `<div class="foot"><button data-act="putAll">Put all ▸</button></div></div>`;
+      html += `<div class="foot"><button data-act="putAll">Put all ▸ ${kbd('Shift+R')}</button></div></div>`;
       const ccap = contCap(s, c);
       html += `<div class="col zone" data-drop="cont"><div class="hdr"><b>${esc(contLabel(c))}</b><span>${c.type === 'stash' ? `<span class="dim">${c.items.length}/${ccap}</span> ` : ''}<button class="mini ghost" data-act="sortCont">Sort</button></span></div>
         <div class="grid">${c.items.map((it, i) => tile(it, i, 'cont', p)).join('') || '<div class="dim pad">Nothing here.</div>'}</div>
-        <div class="foot"><button data-act="takeAll">◂ Take all</button></div></div>`;
-    } else html += `</div><div class="col"><div class="hdr"><b>Ground</b></div><div class="ground zone" data-drop="ground"><span>Drag items here to drop them<br><span class="dim small">or Shift+Click an item</span></span></div></div>`;
-    html += `</div><div class="hint">Click: move · Double/right-click: use or equip · Drag: move, equip or drop · Shift+Click: drop · [Tab] close</div>`;
+        <div class="foot"><button data-act="takeAll">◂ Take all ${kbd('R')}</button></div></div>`;
+    } else html += `</div><div class="col"><div class="hdr"><b>Hotkeys</b><span class="dim small">hover an item</span></div><div class="keys">
+      <div>${kbd('E')} Eat · Drink · Use · Equip</div><div>${kbd('Q')} Drop on the ground</div><div>${kbd('T')} Move to / from container</div><div>${kbd('R')} Take all · ${kbd('Shift+R')} Put all</div>
+      <div>${kbd('Right-click')} Item menu</div><div>${kbd('Drag')} out of this window to drop</div><div>${kbd('Tab')} / ${kbd('Esc')} Close</div></div></div>`;
+    html += `</div><div class="hint">Click: move · Double-click or ${kbd('E')}: use · ${kbd('Q')}: drop · Right-click: menu · Drag outside the window: drop</div>`;
     if (this._inv !== html) {
       this._inv = html; $('invBody').innerHTML = html;
       if (this.sel) this.showDetails(this.sel.side, this.sel.idx); else this.showDetails('inv', -1);

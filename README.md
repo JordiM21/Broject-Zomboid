@@ -12,6 +12,8 @@ npm run build    # single-file build in dist/index.html (open directly or host a
 
 ## Controls
 
+Inventory: hover an item and press E use/eat/drink/equip · Q drop · T move · R take all · Shift+R put all · right-click for the item menu · drag out of the window to drop.
+
 WASD move · Shift sprint · Mouse aim · Click attack · Space shove · E search/open · Tab inventory · 1–6 / wheel weapons · R reload · H quick heal · C sneak · F flashlight · G noise maker · X pipe bomb · M map · Esc pause
 
 ## World

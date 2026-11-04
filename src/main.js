@@ -84,6 +84,7 @@ addEventListener('keydown', (e) => {
   sfx.init();
   if (!running) return;
   if (e.code === 'Escape') {
+    if (panels.handleKey('Escape')) return;
     if (panels.isOpen) panels.close();
     else if (ui.bigMap) ui.bigMap = false;
     else if (!$('death').classList.contains('hidden')) return;
@@ -91,6 +92,7 @@ addEventListener('keydown', (e) => {
     return;
   }
   if (paused) return;
+  if (panels.handleKey(e.code, e.shiftKey)) return;
   if (!keys.has(e.code)) pressed.add(e.code);
   keys.add(e.code);
   if (e.code === 'Tab' || e.code === 'KeyI') panels.toggleInv();

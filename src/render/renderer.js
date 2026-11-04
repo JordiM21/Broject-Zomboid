@@ -119,9 +119,12 @@ export class Renderer {
     g.fillStyle = 'rgba(255,255,255,0.06)'; g.fillRect(X + 3, Y + 3, TILE - 6, 3);
     if (t === T.WINDOW) {
       const horiz = [T.WALL, T.WINDOW, T.DOOR].includes(w.tiles[ty * w.w + tx - 1]) || [T.WALL, T.WINDOW, T.DOOR].includes(w.tiles[ty * w.w + tx + 1]);
-      g.fillStyle = '#7fb3c9';
-      if (horiz) g.fillRect(X + 2, Y + 12, TILE - 4, 8); else g.fillRect(X + 12, Y + 2, 8, TILE - 4);
-      g.fillStyle = 'rgba(255,255,255,0.45)'; if (horiz) g.fillRect(X + 4, Y + 13, 8, 2); else g.fillRect(X + 13, Y + 4, 2, 8);
+      g.save(); g.translate(X + 16, Y + 16); if (!horiz) g.rotate(Math.PI / 2);
+      g.fillStyle = '#d8d0bc'; g.fillRect(-15, -7, 30, 14);          // frame and sill
+      g.fillStyle = '#9ad0e8'; g.fillRect(-13, -5, 12, 10); g.fillRect(1, -5, 12, 10); // two panes
+      g.fillStyle = 'rgba(255,255,255,0.55)'; g.fillRect(-11, -4, 4, 2); g.fillRect(3, -4, 4, 2);
+      g.fillStyle = '#d8d0bc'; g.fillRect(-1, -6, 2, 12);
+      g.restore();
     }
   }
   fence(g, tx, ty) {
@@ -164,6 +167,7 @@ export class Renderer {
       case 'hbed': g.fillStyle = '#b8c0c8'; g.fillRect(X, Y, W, H); g.fillStyle = '#e8ecf0'; g.fillRect(X + 3, Y + 3, W - 6, H - 6); g.fillStyle = '#7aa0c8'; g.fillRect(X + 3, Y + H * 0.35, W - 6, H * 0.6); if (p.v === 1) { g.fillStyle = 'rgba(110,10,10,0.6)'; g.beginPath(); g.arc(X + W / 2, Y + H / 2, 7, 0, 7); g.fill(); } break;
       case 'dumpster': g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(X + 5, Y + 5, W, H); g.fillStyle = '#2f5a3a'; g.fillRect(X, Y, W, H); g.fillStyle = '#244a2e'; g.fillRect(X, Y, W / 2 - 1, H); g.fillStyle = '#d8d4c8'; g.fillRect(X + W - 10, Y - 3, 6, 4); break;
       case 'tank': if (IMG.tank_dark) { g.save(); g.translate(X + W / 2, Y + H / 2); g.rotate(0.35); g.filter = 'brightness(0.7) sepia(0.4)'; g.drawImage(IMG.tank_dark, -W / 2, -H / 2, W, H); g.restore(); g.fillStyle = 'rgba(20,15,10,0.35)'; g.beginPath(); g.arc(X + W * 0.6, Y + H * 0.4, 10, 0, 7); g.fill(); } break;
+      case 'mat': g.fillStyle = '#6a4a2e'; g.fillRect(X, Y, W, H); g.fillStyle = '#8a6a44'; for (let k = 0; k < 4; k++) g.fillRect(X + 2 + k * (W - 4) / 4, Y + 2, (W - 4) / 8, H - 4); break;
       case 'plant': g.fillStyle = '#7a4a2a'; g.beginPath(); g.arc(X + W / 2, Y + H / 2, W * 0.32, 0, 7); g.fill(); for (let k = 0; k < 6; k++) { const a = k * 1.05 + p.v; g.fillStyle = k % 2 ? '#3e7a32' : '#4e9a3e'; g.beginPath(); g.ellipse(X + W / 2 + Math.cos(a) * W * 0.25, Y + H / 2 + Math.sin(a) * H * 0.25, W * 0.22, W * 0.12, a, 0, 7); g.fill(); } break;
       case 'armchair': g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(X + 3, Y + 3, W, H); g.fillStyle = ['#6a3a3a', '#4a4a5a', '#5a5a3a', '#3a4a5a'][p.v]; g.fillRect(X, Y, W, H); g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(X + 4, Y + 6, W - 8, H - 8); break;
       case 'chair': g.fillStyle = '#5a4028'; g.fillRect(X, Y, W, H); g.fillStyle = '#7a5a3a'; g.fillRect(X + 2, Y + 2, W - 4, H - 4); break;
@@ -280,6 +284,7 @@ export class Renderer {
     const tx0 = Math.max(0, Math.floor(vx0 / TILE) - 1), ty0 = Math.max(0, Math.floor(vy0 / TILE) - 1);
     const tx1 = Math.min(w.w - 1, Math.floor(vx1 / TILE) + 1), ty1 = Math.min(w.h - 1, Math.floor(vy1 / TILE) + 1);
     const near = p ? (ui.interact && ui.interact.kind === 'cont' ? ui.interact.cid : -1) : -1;
+    const nearTile = ui.interact && (ui.interact.kind === 'door' || ui.interact.kind === 'window') ? ui.interact.i : -1;
     // building shadows
     const inB0 = p ? w.bld[Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE)] : -1;
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
@@ -293,8 +298,10 @@ export class Renderer {
     // doors + furniture
     for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
       const i = ty * w.w + tx, t = w.tiles[i];
+      if (i === nearTile) { ctx.fillStyle = 'rgba(255,230,140,0.18)'; ctx.fillRect(tx * TILE, ty * TILE, TILE, TILE); }
       if (t === T.DOOR) this.door(ctx, tx, ty, w.doors[i]);
       else if (t === T.WINDOW) { const wi = w.windows && w.windows[i]; if (wi && (wi.open || wi.broken)) this.windowState(ctx, tx, ty, wi); }
+      if (i === nearTile) { ctx.strokeStyle = this.hlCol; ctx.lineWidth = 2; ctx.strokeRect(tx * TILE + 1, ty * TILE + 1, TILE - 2, TILE - 2); }
       else if (t === T.FURN) {
         const cid = w.contAt[i]; const c = cid >= 0 ? w.containers[cid] : null;
         this.furn(ctx, tx, ty, FURN_KINDS[w.furn[i]], c, cid === near, s);
@@ -397,8 +404,10 @@ export class Renderer {
     for (const b of w.buildings) {
       if (b.id === inB) continue;
       if ((b.x + b.w) * TILE < vx0 || b.x * TILE > vx1 || (b.y + b.h) * TILE < vy0 || b.y * TILE > vy1) continue;
-      ctx.drawImage(this.roof(b), b.x * TILE, b.y * TILE);
-      ctx.fillStyle = roofDim; ctx.fillRect(b.x * TILE, b.y * TILE, b.w * TILE, b.h * TILE);
+      // roof sits inside the outer walls so doors and windows stay readable from the street
+      const rx = (b.x + 1) * TILE - 5, ry = (b.y + 1) * TILE - 5, rw = (b.w - 2) * TILE + 10, rh = (b.h - 2) * TILE + 10;
+      ctx.drawImage(this.roof(b), rx, ry, rw, rh);
+      ctx.fillStyle = roofDim; ctx.fillRect(rx, ry, rw, rh);
     }
     // floaters
     ctx.textAlign = 'center'; ctx.font = 'bold 11px system-ui, sans-serif';
@@ -416,7 +425,7 @@ export class Renderer {
     for (let k = 0; k < N; k++) {
       const a = (k / N) * Math.PI * 2;
       const d = castRay(w, p.x, p.y, a, R, opaqueAt);
-      const e = d < R ? d + 10 : d;
+      const e = d < R ? d + 26 : d;
       pts.push(p.x + Math.cos(a) * e, p.y + Math.sin(a) * e);
     }
     // night
@@ -602,7 +611,7 @@ export class Renderer {
     const lw = w.tiles[ty * w.w + tx - 1], rw = w.tiles[ty * w.w + tx + 1];
     const horiz = [T.WALL, T.WINDOW, T.DOOR].includes(lw) || [T.WALL, T.WINDOW, T.DOOR].includes(rw);
     ctx.save(); ctx.translate(X + 16, Y + 16); if (!horiz) ctx.rotate(Math.PI / 2);
-    ctx.fillStyle = '#1c2024'; ctx.fillRect(-14, -4, 28, 8);
+    ctx.fillStyle = '#1c2024'; ctx.fillRect(-13, -5, 26, 10);
     if (wi.broken) { ctx.fillStyle = 'rgba(160,200,220,0.85)'; ctx.beginPath(); ctx.moveTo(-14, -4); ctx.lineTo(-8, -4); ctx.lineTo(-12, 1); ctx.closePath(); ctx.moveTo(14, 4); ctx.lineTo(7, 4); ctx.lineTo(12, -2); ctx.closePath(); ctx.moveTo(-2, -4); ctx.lineTo(3, -4); ctx.lineTo(0, 0); ctx.closePath(); ctx.fill(); }
     else { ctx.fillStyle = '#7fb3c9'; ctx.fillRect(-14, -4, 14, 8); ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.fillRect(-12, -3, 5, 2); ctx.fillStyle = '#4b443d'; ctx.fillRect(-1, -5, 2, 10); }
     ctx.restore();

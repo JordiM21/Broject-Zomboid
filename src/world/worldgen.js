@@ -172,7 +172,7 @@ export function generateWorld(seed) {
     shell(x, y, w, h, id, T.FLOOR);
     const doors = [];
     const fx = x + rng.int(2, w - 3), fy = face === 'N' ? y : y + h - 1;
-    door(fx, fy, false); doors.push([fx, fy]); if (rng.chance(0.35)) world.doors[I(fx, fy)].locked = true;
+    door(fx, fy, false); doors.push([fx, fy]); prop(fx + 0.12, (face === 'N' ? fy - 1 : fy + 1) + 0.22, 0.76, 0.56, 'mat'); if (rng.chance(0.35)) world.doors[I(fx, fy)].locked = true;
     if (rng.chance(0.4)) { // back door
       const bx = x + rng.int(2, w - 3), by = face === 'N' ? y + h - 1 : y;
       door(bx, by, false); doors.push([bx, by]); if (rng.chance(0.5)) world.doors[I(bx, by)].locked = true;
