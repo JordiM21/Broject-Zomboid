@@ -231,10 +231,10 @@ function frame(now) {
     }
   }
   rend.render(s, LOCAL, ui);
-  hotbar.render(p, running && !p.dead);
+  hotbar.render(p, running && !p.dead && !ui.bigMap);
   drawHUD(rend.ctx, s, p, ui, rend, mm);
 }
 rend.resize();
 showMenu();
 requestAnimationFrame(frame);
-window.__game = { sfx, get state() { return s; }, newGame, command: (c) => { command(s, LOCAL, c); drain(); } };
+window.__game = { spawn: (x, y, t) => spawnZombie(s, x, y, t), revealAll: () => { mm.explored.fill(1); for (let i = 0; i < mm.n; i++) mm.paint(i); mm.g.putImageData(mm.img, 0, 0); }, sfx, get state() { return s; }, newGame, command: (c) => { command(s, LOCAL, c); drain(); } };

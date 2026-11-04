@@ -47,6 +47,7 @@ export function createState(seed, fresh = true) {
   return s;
 }
 export function initRuntime(s) {
+  s.bullets = s.bullets || [];
   s.weather = s.weather || { rain: 0, target: 0, t: 120 };
   s.flows = {}; s.events = s.events || []; s.noises = [];
 }
@@ -125,6 +126,7 @@ export function step(s, inputs, dt) {
   const h = hourOf(s);
   if (h >= 22 && day >= 2 && s.hordeDay < day) { s.hordeDay = day; spawnHorde(s); }
   for (const id in s.players) updatePlayer(s, s.players[id], inputs[id] || {}, dt);
+  updateBullets(s, dt);
   updateThrown(s, dt);
   updateZombies(s, dt);
   s.spawnT -= dt;
@@ -140,7 +142,8 @@ export function step(s, inputs, dt) {
   // looted corpses fade out after 15 s
   if ((s.cleanT = (s.cleanT || 0) - dt) <= 0) {
     s.cleanT = 1;
-    s.loose = s.loose.filter((id) => { const c = s.world.containers[id]; if (c && c.emptyT && s.time - c.emptyT > 15 && (!c.items || !c.items.length)) { s.world.containers[id] = null; return false; } return !!c; });
+    s.loose = s.loose.filter((id) => { const c = s.world.containers[id]; if (c && c.type === 'pile' && c.items && !c.items.length) { s.world.containers[id] = null; return false; }
+      if (c && c.emptyT && s.time - c.emptyT > 15 && (!c.items || !c.items.length)) { s.world.containers[id] = null; return false; } return !!c; });
   }
 }
 
@@ -269,6 +272,7 @@ function updatePlayer(s, p, inp, dt) {
   if (p.dead) return;
   const w = s.world;
   p.atkCd -= dt; p.swing -= dt; p.invuln -= dt; p.hurt -= dt; p.muzzle -= dt;
+  p.bloom = Math.max(0, (p.bloom || 0) - dt * 1.6);
   p.buffs = p.buffs || {}; for (const k in p.buffs) { p.buffs[k] -= dt; if (p.buffs[k] <= 0) { delete p.buffs[k]; msg(s, k === 'adrenaline' ? 'The adrenaline wears off.' : 'The energy boost fades.', '#aaa', p.id); } }
   if (inp.mx !== undefined) p.ang = Math.atan2(inp.my - p.y, inp.mx - p.x);
   if (inp.sneak) { p.sneak = !p.sneak; msg(s, p.sneak ? 'Sneaking: quieter, harder to spot.' : 'Walking.', '#aaa', p.id); }
@@ -459,32 +463,50 @@ function fire(s, p, wd) {
     return;
   }
   p.wpn.mag--; p.atkCd = wd.cd; p.muzzle = 0.06; p.swing = p.swingDur = 0.18; p.act = 'attack';
-  const spread = wd.spread * (p.sneak ? 0.6 : 1) * (p.moving ? 1.5 : 1);
-  const ox = p.x + Math.cos(p.ang) * 16, oy = p.y + Math.sin(p.ang) * 16;
+  // spread grows with sustained fire (bloom) and movement, shrinks when sneaking
+  const spread = wd.spread * (1 + (p.bloom || 0) * 2.2) * (p.sneak ? 0.6 : 1) * (p.moving ? 1.5 : 1);
+  p.bloom = Math.min(1, (p.bloom || 0) + (BLOOM[p.wpn.id] || 0.3));
+  const ox = p.x + Math.cos(p.ang) * 18, oy = p.y + Math.sin(p.ang) * 18;
+  const mult = p.buffs && p.buffs.adrenaline ? 1.25 : 1;
   for (let k = 0; k < wd.pellets; k++) {
-    const a = p.ang + (rnd() - 0.5) * 2 * spread;
-    const ca = Math.cos(a), sa = Math.sin(a);
-    const maxD = castRay(w, ox, oy, a, wd.range, bulletBlock);
-    const hits = [];
-    for (const z of s.zombies) {
-      if (z.hp <= 0) continue;
-      const rx = z.x - ox, ry = z.y - oy;
-      const t = rx * ca + ry * sa;
-      if (t < 0 || t > maxD) continue;
-      if (Math.abs(rx * sa - ry * ca) < ZT[z.type].r + 2) hits.push({ z, t });
-    }
-    hits.sort((a2, b) => a2.t - b.t);
-    let end = maxD;
-    for (let h = 0; h < Math.min(wd.pierce, hits.length); h++) {
-      const { z, t } = hits[h];
-      const fall = wd.pellets > 1 ? 1 - (t / wd.range) * 0.6 : 1;
-      damageZombie(s, z, wd.dmg * fall * (0.9 + rnd() * 0.2) * (p.buffs && p.buffs.adrenaline ? 1.25 : 1), ca, sa, wd.pellets > 1 ? 40 : 60, p, false);
-      end = t;
-    }
-    ev(s, { type: 'tracer', gun: p.wpn.id, x0: ox, y0: oy, x1: ox + ca * end, y1: oy + sa * end, wall: end === maxD && maxD < wd.range });
+    const a = p.ang + (rnd() - 0.5) * 2 * spread, v = (SPEED[p.wpn.id] || 1400) * (wd.pellets > 1 ? 0.85 + rnd() * 0.3 : 1);
+    s.bullets.push({ x: ox, y: oy, px: ox, py: oy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, left: wd.range, dmg: wd.dmg * mult, pierce: wd.pierce, gun: p.wpn.id, pid: p.id, falloff: wd.pellets > 1, range: wd.range, hit: [] });
   }
   ev(s, { type: 'gunshot', gun: p.wpn.id, x: ox, y: oy, ang: p.ang, pid: p.id });
   s.noises.push({ pl: 1, x: p.x, y: p.y, r: wd.noise * TILE });
+}
+
+const SPEED = { pistol: 1500, smg: 1400, shotgun: 1150, rifle: 2400, crossbow: 760 };
+const BLOOM = { pistol: 0.22, smg: 0.1, shotgun: 0.55, rifle: 0.7, crossbow: 0.25 };
+// travelling projectiles: swept against walls and zombies each tick
+function updateBullets(s, dt) {
+  const w = s.world;
+  for (const b of s.bullets) {
+    const sp = Math.hypot(b.vx, b.vy), step = Math.min(sp * dt, b.left), a = Math.atan2(b.vy, b.vx), ca = b.vx / sp, sa = b.vy / sp;
+    const wallD = castRay(w, b.x, b.y, a, step, bulletBlock);
+    let end = wallD;
+    const hits = [];
+    for (const z of s.zombies) {
+      if (z.hp <= 0 || b.hit.includes(z.id)) continue;
+      const rx = z.x - b.x, ry = z.y - b.y, t = rx * ca + ry * sa;
+      if (t < 0 || t > wallD) continue;
+      if (Math.abs(rx * sa - ry * ca) < ZT[z.type].r + 2) hits.push({ z, t });
+    }
+    hits.sort((p1, p2) => p1.t - p2.t);
+    const p = s.players[b.pid];
+    for (const { z, t } of hits) {
+      if (b.pierce <= 0) break;
+      const travelled = b.range - b.left + t, fall = b.falloff ? Math.max(0.25, 1 - (travelled / b.range) * 0.75) : 1;
+      damageZombie(s, z, b.dmg * fall * (0.9 + rnd() * 0.2), ca, sa, b.falloff ? 45 : b.gun === 'rifle' ? 110 : 70, p, false);
+      ev(s, { type: 'bimpact', x: b.x + ca * t, y: b.y + sa * t, ang: a, flesh: true, gun: b.gun });
+      b.hit.push(z.id); b.pierce--; b.dmg *= 0.7;
+      if (b.pierce <= 0) { end = t; b.left = 0; }
+    }
+    b.px = b.x; b.py = b.y;
+    b.x += ca * end; b.y += sa * end; b.left -= step;
+    if (wallD < step && b.left > 0 && b.pierce > 0) { b.left = 0; ev(s, { type: 'bimpact', x: b.x, y: b.y, ang: a, wall: true, gun: b.gun }); }
+  }
+  s.bullets = s.bullets.filter((b) => b.left > 0 || (b.dead = (b.dead || 0) + 1) < 2);
 }
 
 function startReload(s, p) {
@@ -939,7 +961,7 @@ export function command(s, pid, c) {
       const it = p.inv[c.idx]; if (!it) return;
       p.inv.splice(c.idx, 1); if (it === p.wpn) p.wpn = null;
       let pile = s.loose.map((id) => w.containers[id]).find((k) => k.type === 'pile' && Math.hypot(k.px - p.x, k.py - p.y) < 40);
-      if (!pile) pile = makeLoose(s, p.x, p.y, 'pile', []);
+      if (!pile) { pile = makeLoose(s, p.x + Math.cos(p.ang) * 14, p.y + Math.sin(p.ang) * 14, 'pile', []); pile.label = 'Dropped Backpack'; pile.ang = p.ang + (rnd() - 0.5); ev(s, { type: 'dropbag', x: pile.px, y: pile.py }); }
       addItem(pile.items, it);
       break;
     }

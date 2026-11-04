@@ -24,7 +24,7 @@ export class Renderer {
     this.canvas = canvas; this.ctx = canvas.getContext('2d');
     this.fog = document.createElement('canvas'); this.night = document.createElement('canvas');
     this.chunks = new Map(); this.parts = []; this.floaters = []; this.flashes = []; this.tracers = [];
-    this.cam = { x: 0, y: 0, zoom: 1.5 }; this.doorAnim = new Map(); this.dying = []; this.booms = []; this.rings2 = []; this.bolts = []; this.animSt = new WeakMap(); this.trails = []; this.rings = []; this.glow = []; this.dt = 0.016; this.hlCol = '#fff'; this.shake = 0; this.dpr = 1; this.world = null; this.time = 0;
+    this.cam = { x: 0, y: 0, zoom: 1.5 }; this.doorAnim = new Map(); this.dying = []; this.booms = []; this.kick = { x: 0, y: 0 }; this.rings2 = []; this.bolts = []; this.animSt = new WeakMap(); this.trails = []; this.rings = []; this.glow = []; this.dt = 0.016; this.hlCol = '#fff'; this.shake = 0; this.dpr = 1; this.world = null; this.time = 0;
   }
   setWorld(w) { this.world = w; this.chunks.clear(); this.doorAnim = new Map(); this.dying = []; this.roofs = new Map(); }
   resize() {
@@ -246,6 +246,15 @@ export class Renderer {
         for (let k = 0; k < 18; k++) { const a = (e.ang || 0) + (Math.random() - 0.5) * 2.4, v = 60 + Math.random() * 200; P.push({ x: e.x, y: e.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.6, max: 0.6, c: k % 2 ? 'rgba(190,225,240,0.9)' : 'rgba(255,255,255,0.8)', s: 2 + Math.random() * 2 }); }
         this.decal(e.x, e.y, (g) => { g.fillStyle = 'rgba(200,230,245,0.55)'; for (let k = 0; k < 12; k++) { const a = Math.random() * 6.28, d = 6 + Math.random() * 22; g.fillRect(e.x + Math.cos(a) * d, e.y + Math.sin(a) * d, 2, 1.5); } });
         break;
+      case 'bimpact':
+        if (e.wall) {
+          for (let k = 0; k < (e.gun === 'shotgun' ? 3 : 6); k++) { const a = e.ang + Math.PI + (Math.random() - 0.5) * 1.8, v = 80 + Math.random() * 220; P.push({ x: e.x, y: e.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.22, max: 0.22, c: k % 2 ? '#ffe2a0' : '#fff', s: 1.6 }); }
+          P.push({ x: e.x, y: e.y, vx: Math.cos(e.ang + Math.PI) * 30, vy: Math.sin(e.ang + Math.PI) * 30, life: 0.5, max: 0.5, c: 'rgba(170,160,150,0.4)', s: 5, smoke: true });
+          if (e.gun === 'crossbow') this.decal(e.x, e.y, (g) => { g.save(); g.translate(e.x, e.y); g.rotate(e.ang); g.fillStyle = '#8a6a44'; g.fillRect(-15, -1, 14, 2); g.fillStyle = '#c83a3a'; g.fillRect(-16, -2.5, 4, 5); g.restore(); });
+          else this.decal(e.x, e.y, (g) => { g.fillStyle = 'rgba(20,18,16,0.85)'; g.beginPath(); g.arc(e.x, e.y, 1.8, 0, 7); g.fill(); g.strokeStyle = 'rgba(200,190,170,0.35)'; g.lineWidth = 1; g.beginPath(); g.arc(e.x, e.y, 3, 0, 7); g.stroke(); });
+        } else for (let k = 0; k < 5; k++) { const a = e.ang + (Math.random() - 0.5) * 0.7, v = 100 + Math.random() * 200; P.push({ x: e.x, y: e.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.35, max: 0.35, c: '#9a0c0c', s: 2.4, blood: true }); }
+        break;
+      case 'dropbag': for (let k = 0; k < 6; k++) P.push({ x: e.x, y: e.y + 4, vx: (Math.random() - 0.5) * 70, vy: (Math.random() - 0.5) * 30, life: 0.4, max: 0.4, c: 'rgba(170,160,140,0.4)', s: 4, smoke: true }); break;
       case 'noise': this.rings.push({ x: e.x, y: e.y, r: e.r, t: 0.7 }); break;
       case 'silentKill': this.floaters.push({ x: e.x, y: e.y - 16, t: 1.1, text: 'SILENT KILL', c: '#9ab0ff' }); break;
       case 'slam': this.rings2.push({ x: e.x, y: e.y, t: 0.35, r: 70, c: '220,200,160' }); this.shake = Math.max(this.shake, 7); for (let k = 0; k < 12; k++) { const a = Math.random() * 6.28; P.push({ x: e.x, y: e.y, vx: Math.cos(a) * 160, vy: Math.sin(a) * 160, life: 0.45, max: 0.45, c: 'rgba(170,160,140,0.45)', s: 6, smoke: true }); } break;
@@ -258,10 +267,10 @@ export class Renderer {
       case 'tracer': if (e.gun === 'crossbow') { this.bolts.push({ ...e, t: 0 }); break; } this.tracers.push({ ...e, t: 0.07 }); if (e.wall) for (let k = 0; k < 4; k++) P.push({ x: e.x1, y: e.y1, vx: (Math.random() - 0.5) * 160, vy: (Math.random() - 0.5) * 160, life: 0.25, max: 0.25, c: '#ffd890', s: 2 }); break;
       case 'gunshot':
         if (e.gun === 'crossbow') break;
-        this.flashes.push({ x: e.x, y: e.y, t: 0.07, r: 240 });
+        this.flashes.push({ x: e.x, y: e.y, t: e.gun === 'shotgun' || e.gun === 'rifle' ? 0.09 : 0.06, r: e.gun === 'shotgun' ? 330 : e.gun === 'smg' ? 200 : 260 });
         P.push({ x: e.x, y: e.y, vx: Math.cos(e.ang + 1.6) * 90, vy: Math.sin(e.ang + 1.6) * 90, life: 0.5, max: 0.5, c: '#d9b35a', s: 2 });
         for (let k = 0; k < 3; k++) P.push({ x: e.x, y: e.y, vx: Math.cos(e.ang) * 60 + (Math.random() - 0.5) * 30, vy: Math.sin(e.ang) * 60 + (Math.random() - 0.5) * 30, life: 0.6, max: 0.6, c: 'rgba(180,180,180,0.4)', s: 5, smoke: true });
-        if (e.pid === localId) this.shake = Math.max(this.shake, e.gun === 'shotgun' ? 7 : 3);
+        if (e.pid === localId) { this.shake = Math.max(this.shake, e.gun === 'shotgun' ? 7 : e.gun === 'rifle' ? 6 : 3); const K = { pistol: 5, smg: 2.5, shotgun: 11, rifle: 13, crossbow: 3 }[e.gun] || 4; this.kick.x -= Math.cos(e.ang) * K; this.kick.y -= Math.sin(e.ang) * K; }
         break;
       case 'explode':
         this.flashes.push({ x: e.x, y: e.y, t: 0.25, r: 420 }); this.shake = 16; this.booms.push({ x: e.x, y: e.y, t: 0 });
@@ -294,7 +303,8 @@ export class Renderer {
     this.shake = Math.max(0, this.shake - dt * 40);
     const z = this.cam.zoom;
     const sx = (Math.random() - 0.5) * this.shake, sy = (Math.random() - 0.5) * this.shake;
-    const camX = this.cam.x + sx / z, camY = this.cam.y + sy / z;
+    const kd = Math.max(0, 1 - dt * 14); this.kick.x *= kd; this.kick.y *= kd;
+    const camX = this.cam.x + sx / z + this.kick.x, camY = this.cam.y + sy / z + this.kick.y;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#0b0d10'; ctx.fillRect(0, 0, SW, SH);
     ctx.setTransform(z * dpr, 0, 0, z * dpr, (SW / 2 - camX * z) * dpr, (SH / 2 - camY * z) * dpr);
@@ -390,6 +400,13 @@ export class Renderer {
     this.trails = this.trails.filter((t) => t.t > 0);
     for (const g of this.rings2) { g.t -= dt; const k = 1 - g.t / 0.5; ctx.strokeStyle = `rgba(${g.c},${Math.max(0, 0.7 * (1 - k))})`; ctx.lineWidth = 4 * (1 - k) + 1; ctx.beginPath(); ctx.arc(g.x, g.y, g.r * Math.min(1, 0.2 + k), 0, 7); ctx.stroke(); }
     this.rings2 = this.rings2.filter((g) => g.t > 0);
+    for (const b of s.bullets || []) {
+      const a = Math.atan2(b.vy, b.vx);
+      if (b.gun === 'crossbow') { ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(a); ctx.fillStyle = '#8a6a44'; ctx.fillRect(-16, -1, 16, 2); ctx.fillStyle = '#c8ccd0'; ctx.beginPath(); ctx.moveTo(0, -2.5); ctx.lineTo(6, 0); ctx.lineTo(0, 2.5); ctx.fill(); ctx.fillStyle = '#c83a3a'; ctx.fillRect(-17, -2.5, 4, 5); ctx.restore(); continue; }
+      const len = Math.min(46, Math.hypot(b.x - b.px, b.y - b.py) + 10), tx = b.x - Math.cos(a) * len, ty = b.y - Math.sin(a) * len;
+      const gr = ctx.createLinearGradient(tx, ty, b.x, b.y); gr.addColorStop(0, 'rgba(255,200,90,0)'); gr.addColorStop(1, b.gun === 'rifle' ? 'rgba(255,255,230,0.95)' : 'rgba(255,230,150,0.9)');
+      ctx.strokeStyle = gr; ctx.lineWidth = b.gun === 'rifle' ? 2.6 : b.gun === 'shotgun' ? 1.4 : 2; ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
     for (const b of this.bolts) { b.t += dt; const k = Math.min(1, b.t / 0.12), x = b.x0 + (b.x1 - b.x0) * k, y = b.y0 + (b.y1 - b.y0) * k, a = Math.atan2(b.y1 - b.y0, b.x1 - b.x0);
       ctx.save(); ctx.translate(x, y); ctx.rotate(a); ctx.fillStyle = '#8a6a44'; ctx.fillRect(-14, -1, 14, 2); ctx.fillStyle = '#c8ccd0'; ctx.beginPath(); ctx.moveTo(0, -2.5); ctx.lineTo(5, 0); ctx.lineTo(0, 2.5); ctx.fill(); ctx.fillStyle = '#c83a3a'; ctx.fillRect(-15, -2.5, 4, 5); ctx.restore(); }
     this.bolts = this.bolts.filter((b) => b.t < 0.3);
@@ -678,9 +695,14 @@ export class Renderer {
     if (c.type === 'body') {
       ctx.fillStyle = '#2a2a30'; ctx.beginPath(); ctx.ellipse(c.px, c.py, 14, 8, 0.3, 0, 7); ctx.fill();
       ctx.fillStyle = '#ffd25a'; ctx.fillRect(c.px - 2, c.py - 2, 4, 4);
-    } else {
-      const n = Math.min(3, c.items.length);
-      for (let k = 0; k < n; k++) { const ic = iconCanvas(c.items[k].id); ctx.drawImage(ic, c.px - 10 + k * 5 - (n - 1) * 2, c.py - 10 - k * 2, 20, 20); }
+    } else { // dropped backpack
+      ctx.save(); ctx.translate(c.px, c.py); ctx.rotate(c.ang || 0.3);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(2, 3, 12, 9, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#7a5a34'; ctx.strokeStyle = '#2a1e12'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.roundRect(-10, -8, 20, 16, 5); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#5e4426'; ctx.beginPath(); ctx.roundRect(-6, -1, 12, 7, 2); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = '#3e2c18'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-5, -8); ctx.lineTo(-4, -12); ctx.lineTo(4, -12); ctx.lineTo(5, -8); ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = '#ffd27a'; ctx.font = 'bold 9px system-ui'; ctx.textAlign = 'center'; ctx.fillText(c.items.length, c.px + 11, c.py - 8);
     }
     if (hl) { ctx.strokeStyle = this.hlCol; ctx.lineWidth = 2; ctx.strokeRect(c.px - 14, c.py - 12, 28, 24); }
   }

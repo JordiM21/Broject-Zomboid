@@ -57,6 +57,54 @@ function stanceIcon(ctx, kind, x, y, col) {
   ctx.font = '700 8px system-ui'; ctx.textAlign = 'center'; ctx.fillText({ stand: 'STILL', walk: 'WALK', run: 'RUN', crouch: 'SNEAK' }[kind], 0, 24);
   ctx.restore();
 }
+const LOC_INFO = {
+  safe: ['Safehouse', 'Your base. Zombies cannot get past the fence. Stash, workbench, bed, radio and the weapon rack.', 'Safe', '#7ae07a'],
+  grocery: ['Grocery Store', 'Shelves of food, drinks and energy drinks. A cash register by the door.', 'Medium', '#e0c04a'],
+  pharmacy: ['Pharmacy', 'Bandages, painkillers and antibiotics. Worth the detour when you are hurt.', 'Medium', '#e0c04a'],
+  hardware: ['Hardware Store', 'Nails, planks, scrap, tape and electronics. Tools, sometimes a sledgehammer.', 'Medium', '#e0c04a'],
+  police: ['Police Station', 'Lockers with pistols, shotguns, ammo, vests and helmets. Doors are often locked.', 'High', '#ff9a4a'],
+  gas: ['Gas Station', 'Snacks, a fridge, a toolbox and abandoned cars to search.', 'Low', '#9fe09f'],
+  hospital: ['Hospital', 'Medical cabinets full of bandages, antibiotics and first aid kits. Crowded with runners and brutes.', 'Very high', '#ff5a4a'],
+  military: ['Military Zone', 'Crates of rifles, SMGs, armor, night vision and pipe bombs. Guarded by armored soldier zombies.', 'Extreme', '#ff3a6a'],
+  camp: ['Survivor Camp', 'Abandoned tents with supply crates: rations, crossbows, bolts and outdoor gear.', 'Low', '#9fe09f'],
+  house: ['House', 'Kitchens, bedrooms and bathrooms. Food, clothes, meds and the odd surprise. Doors may be locked.', 'Low', '#9fe09f'],
+};
+function locations(w) {
+  if (w._locs) return w._locs;
+  const L = [];
+  for (const b of w.buildings) { if (b.type === 'house' || b.type === 'military' || b.type === 'hospital') continue; L.push({ x: b.x + b.w / 2, y: b.y + b.h / 2, k: b.type }); }
+  for (const z of w.zones) L.push({ x: z.x / TILE, y: z.y / TILE, k: z.kind });
+  for (const c of w.containers) { if (!c || c.type !== 'crate') continue; if (w.zones.some((z) => Math.hypot(z.x / TILE - c.x, z.y / TILE - c.y) < 20)) continue; if (L.some((l) => l.k === 'camp' && Math.hypot(l.x - c.x, l.y - c.y) < 8)) continue; L.push({ x: c.x + 0.5, y: c.y + 0.5, k: 'camp' }); }
+  return (w._locs = L);
+}
+function drawLocations(ctx, s, mm, x, y, size, mouse) {
+  const w = s.world, sc = size / w.w, known = (l) => mm.explored[Math.floor(l.y) * w.w + Math.floor(l.x)];
+  let hover = null, hd = 1e9;
+  const mx = (mouse.x - x) / sc, my = (mouse.y - y) / sc, inMap = mx >= 0 && my >= 0 && mx < w.w && my < w.h;
+  ctx.textAlign = 'center';
+  for (const l of locations(w)) {
+    if (!known(l)) continue;
+    const info = LOC_INFO[l.k]; if (!info) continue;
+    const px = x + l.x * sc, py = y + l.y * sc;
+    ctx.fillStyle = info[3]; ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(px, py, l.k === 'military' || l.k === 'hospital' ? 6 : 4, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.font = '700 11px system-ui'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.strokeText(info[0], px, py - 9); ctx.fillStyle = '#f2ece0'; ctx.fillText(info[0], px, py - 9);
+    const d = Math.hypot(l.x - mx, l.y - my); if (inMap && d < 7 && d < hd) { hd = d; hover = l; }
+  }
+  if (!hover && inMap) { const bi = w.bld[Math.floor(my) * w.w + Math.floor(mx)]; if (bi >= 0 && w.buildings[bi].type === 'house' && mm.explored[Math.floor(my) * w.w + Math.floor(mx)]) hover = { k: 'house' }; }
+  if (hover) {
+    const info = LOC_INFO[hover.k]; const tw = 280;
+    ctx.font = '13px system-ui'; const words = info[1].split(' '); const lines = []; let line = '';
+    for (const wd of words) { if (ctx.measureText(line + wd).width > tw - 20) { lines.push(line); line = ''; } line += wd + ' '; } lines.push(line);
+    const th = 50 + lines.length * 17; let bx = mouse.x + 16, by = mouse.y + 12; if (bx + tw > window.innerWidth) bx = mouse.x - tw - 16; if (by + th > window.innerHeight) by = mouse.y - th - 12;
+    ctx.fillStyle = 'rgba(14,16,20,0.96)'; ctx.strokeStyle = info[3]; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.roundRect(bx, by, tw, th, 8); ctx.fill(); ctx.stroke();
+    ctx.textAlign = 'left'; ctx.font = '700 15px system-ui'; ctx.fillStyle = '#f2ece0'; ctx.fillText(info[0], bx + 12, by + 22);
+    ctx.font = '700 11px system-ui'; ctx.fillStyle = info[3]; ctx.textAlign = 'right'; ctx.fillText('Danger: ' + info[2], bx + tw - 12, by + 22); ctx.textAlign = 'left';
+    ctx.font = '13px system-ui'; ctx.fillStyle = '#cfcac0'; lines.forEach((ln, i) => ctx.fillText(ln, bx + 12, by + 44 + i * 17));
+  }
+  // legend
+  ctx.textAlign = 'center'; ctx.font = '600 12px system-ui'; ctx.fillStyle = '#bbb';
+  ctx.fillText('Hover a place for details  ·  ■ dropped backpack  ·  ✕ your body  ·  [M] close', x + size / 2, y + size + 2 - 6 + 18);
+}
 function statIcon(ctx, kind, x, y, col, sc) {
   ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc); ctx.fillStyle = col; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1; ctx.beginPath();
   if (kind === 'hp') { ctx.moveTo(0, 5); ctx.bezierCurveTo(-8, -1, -5, -7, 0, -3); ctx.bezierCurveTo(5, -7, 8, -1, 0, 5); }
@@ -171,16 +219,18 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
     const pt = (wx, wy) => [x + (wx / TILE - ox) * scale, y + (wy / TILE - oy) * scale];
     const inside = ([a, b]) => a >= x && b >= y && a <= x + size && b <= y + size;
     if (w.safeCenter) { const q = pt(w.safeCenter.x, w.safeCenter.y); if (inside(q)) { ctx.fillStyle = '#7ae07a'; ctx.fillRect(q[0] - 4, q[1] - 4, 8, 8); } }
-    for (const cid of s.loose) { const c = w.containers[cid]; if (c.type !== 'body' || !c.items.length) continue; const q = pt(c.px, c.py); if (inside(q)) { ctx.fillStyle = '#ffd25a'; ctx.font = '700 12px system-ui'; ctx.textAlign = 'center'; ctx.fillText('✕', q[0], q[1] + 4); } }
+    for (const cid of s.loose) { const c = w.containers[cid]; if (!c || c.type !== 'pile' || !c.items || !c.items.length) continue; const q = pt(c.px, c.py); if (inside(q)) { ctx.fillStyle = '#c89a5a'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.fillRect(q[0] - 3, q[1] - 3, 6, 6); ctx.strokeRect(q[0] - 3, q[1] - 3, 6, 6); } }
+    for (const cid of s.loose) { const c = w.containers[cid]; if (!c || c.type !== 'body' || !c.items.length) continue; const q = pt(c.px, c.py); if (inside(q)) { ctx.fillStyle = '#ffd25a'; ctx.font = '700 12px system-ui'; ctx.textAlign = 'center'; ctx.fillText('✕', q[0], q[1] + 4); } }
     const q = pt(p.x, p.y);
     ctx.save(); ctx.translate(q[0], q[1]); ctx.rotate(p.ang); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(-4, -4); ctx.lineTo(-4, 4); ctx.fill(); ctx.restore();
   };
   ctx.save(); ctx.beginPath(); ctx.rect(mx, my, ms, ms); ctx.clip(); ctx.fillStyle = '#07080a'; ctx.fillRect(mx, my, ms, ms); drawMap(mx, my, ms, false); ctx.restore();
   ctx.fillStyle = '#888'; ctx.font = '600 10px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillText('[M] Map', SW - 14, my + ms + 16);
   if (big) {
-    const size = Math.min(SW, SH) - 80, x = SW / 2 - size / 2, y = SH / 2 - size / 2;
+    const size = Math.min(SW, SH) - 110, x = SW / 2 - size / 2, y = SH / 2 - size / 2 - 12;
     ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(x - 10, y - 10, size + 20, size + 20);
     ctx.fillStyle = '#07080a'; ctx.fillRect(x, y, size, size); drawMap(x, y, size, true);
+    drawLocations(ctx, s, mm, x, y, size, ui.mouse);
   }
   // sound pings: where unseen zombie noises come from
   for (const g of ui.pings) {
@@ -212,7 +262,8 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   if (!ui.panelOpen && !ui.touch) {
     const { x, y } = ui.mouse; const gun = p.wpn && ITEMS[p.wpn.id].cat === 'gun';
     ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.5; ctx.beginPath();
-    const r = gun ? 8 : 5; ctx.moveTo(x - r - 4, y); ctx.lineTo(x - r, y); ctx.moveTo(x + r, y); ctx.lineTo(x + r + 4, y); ctx.moveTo(x, y - r - 4); ctx.lineTo(x, y - r); ctx.moveTo(x, y + r); ctx.lineTo(x, y + r + 4); ctx.stroke();
+    const wd = gun ? ITEMS[p.wpn.id] : null;
+    const r = gun ? 6 + wd.spread * (1 + (p.bloom || 0) * 2.2) * (p.sneak ? 0.6 : 1) * (p.moving ? 1.5 : 1) * 260 : 5; ctx.moveTo(x - r - 4, y); ctx.lineTo(x - r, y); ctx.moveTo(x + r, y); ctx.lineTo(x + r + 4, y); ctx.moveTo(x, y - r - 4); ctx.lineTo(x, y - r); ctx.moveTo(x, y + r); ctx.lineTo(x, y + r + 4); ctx.stroke();
   }
 }
 export { CAT_COLOR };

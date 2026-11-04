@@ -23,6 +23,18 @@ WASD move · Shift sprint · Mouse aim · Click attack · Space shove · E searc
 - **Military Zone** (far from the safehouse): fenced base with barracks, tents, trucks and watchtowers. Military Crates hold rifles, shotguns, ammo, vests, rucksacks and pipe bombs. Guarded by armored soldier zombies whose corpses carry ammo and rations.
 - Street lamps (some broken or flickering), burning wrecks and fire barrels light the night; morning mist, rain haze, ambient birds, crickets and distant screams, gunfire and sirens.
 
+## Weapons feel
+
+- Guns fire real projectiles with travel time (rifle fastest, crossbow bolts visibly slowest), pierce, and shotgun damage falloff. Sustained fire blooms your spread (the crosshair widens), moving makes it worse, sneaking tightens it. Recoil kicks the camera; impacts spark and leave bullet holes, and bolts stick in walls.
+
+## Dropped items
+
+- Dropping anything puts it in a backpack on the ground (marked on the map). It stays until you empty it.
+
+## Map
+
+- [M] opens the full map with named locations you have discovered. Hover any of them (or a house) for a description and danger level.
+
 ## Hotbar and equipment
 
 - Six hotbar slots hold anything usable: weapons (press to equip, again to holster), meds, food, buffs and throwables. Drag items from the inventory onto a slot, drag slots to reorder, right-click or drag off to clear, or hover an item and press 1–6. The slot refills from another stack of the same item.
