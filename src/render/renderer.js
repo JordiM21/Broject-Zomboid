@@ -636,9 +636,10 @@ export class Renderer {
     const rot = wall(0, -1) ? 0 : wall(0, 1) ? Math.PI : wall(-1, 0) ? -Math.PI / 2 : wall(1, 0) ? Math.PI / 2 : 0;
     const opened = !!(c && c.searched && !['stash', 'bench', 'bed', 'radio', 'rack', 'modstash'].includes(c.type));
     ctx.save(); ctx.translate(X + 16, Y + 16); ctx.rotate(rot);
-    ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(-12, -12, 28, 28);
+    const lowProfile = kind.endsWith('case'); // cases sit low and small so they're easy to walk past
+    if (!lowProfile) { ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(-12, -12, 28, 28); }
     this.drawFurn(ctx, kind, opened, s, c);
-    if (opened && c.items && !c.items.length) { ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(-15, -15, 30, 30); }
+    if (!lowProfile && opened && c.items && !c.items.length) { ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(-15, -15, 30, 30); }
     ctx.restore();
     if (hl) { ctx.strokeStyle = this.hlCol; ctx.lineWidth = 2; ctx.strokeRect(X + 1, Y + 1, TILE - 2, TILE - 2); }
   }
@@ -696,6 +697,14 @@ export class Renderer {
       case 'bed': if (!s.upgrades.bed) { box(-14, -14, 28, 26, '#5a4a3a'); ctx.fillStyle = 'rgba(0,0,0,0.3)'; for (let k = 0; k < 3; k++) ctx.fillRect(-12, -10 + k * 8, 24, 2); } else { box(-14, -15, 28, 29, '#4a6a8a'); box(-12, -13, 24, 8, '#e8e8e0'); } break;
       case 'radio': box(-12, -12, 24, 18, '#2e2e2e'); ctx.fillStyle = s.upgrades.radio ? (this.time % 1 < 0.5 ? '#7ae07a' : '#3a6a3a') : '#444'; ctx.fillRect(-8, -8, 5, 5); ctx.fillStyle = '#888'; ctx.fillRect(2, -9, 7, 2); ctx.fillRect(2, -5, 7, 2); break;
       case 'modstash': box(-14, -13, 28, 26, '#2c3640'); ctx.fillStyle = '#5ad0c8'; ctx.fillRect(-10, -8, 20, 5); ctx.fillStyle = '#f0a040'; ctx.fillRect(-10, 2, 20, 5); ctx.fillStyle = '#ffd27a'; ctx.fillRect(-14, -13, 28, 2); break;
+      case 'weaponcase': case 'modcase': case 'ammocase': { // long hard case, small pelican box, olive ammo can
+        const [W, H, col] = { weaponcase: [28, 10, '#2c2f2c'], modcase: [14, 11, '#4c5258'], ammocase: [15, 12, '#4d5634'] }[kind];
+        ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(-W / 2 + 1, -H / 2 + 2, W, H);
+        box(-W / 2, -H / 2, W, H, opened ? '#1b1d1b' : col);
+        if (opened) box(-W / 2, -H / 2 - 5, W, 5, col);
+        else { ctx.fillStyle = kind === 'ammocase' ? '#c8b04a' : 'rgba(200,205,210,0.55)'; ctx.fillRect(-W / 2 + 3, -1, 2.5, 2); ctx.fillRect(W / 2 - 5.5, -1, 2.5, 2); }
+        break;
+      }
       case 'rack': box(-15, -15, 30, 12, '#4a3a2a'); for (let k = 0; k < 4; k++) { ctx.fillStyle = ['#c8ccd0', '#b4834a', '#3a3f46', '#c0302a'][k]; ctx.fillRect(-13 + k * 7, -13, 3, 24); } ctx.fillStyle = '#ffd27a'; ctx.fillRect(-15, -15, 30, 2); break;
       default: box(-14, -14, 28, 28, '#777');
     }

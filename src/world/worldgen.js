@@ -9,8 +9,12 @@ export const SOLID = new Uint8Array(32);
 [T.WALL, T.WINDOW, T.TREE, T.FENCE, T.CAR, T.FURN].forEach((t) => (SOLID[t] = 1));
 
 export const FURN_KINDS = ['none', 'fridge', 'counter', 'cabinet', 'wardrobe', 'dresser', 'shelf', 'toolbox',
-  'grocery', 'pharmacy', 'hardware', 'register', 'locker', 'crate', 'stash', 'bench', 'bed', 'radio', 'medcab', 'milcrate', 'stove', 'sink', 'nightstand', 'bookshelf', 'tvstand', 'desk', 'filing', 'rack', 'modstash'];
+  'grocery', 'pharmacy', 'hardware', 'register', 'locker', 'crate', 'stash', 'bench', 'bed', 'radio', 'medcab', 'milcrate', 'stove', 'sink', 'nightstand', 'bookshelf', 'tvstand', 'desk', 'filing', 'rack', 'modstash', 'weaponcase', 'modcase', 'ammocase'];
 const FK = Object.fromEntries(FURN_KINDS.map((k, i) => [k, i]));
+
+// which case a place keeps, as weights. Tune how many there are through the chances at each addCase call.
+const caseMix = (weapon, ammo, mod) => [['weaponcase', weapon], ['ammocase', ammo], ['modcase', mod]];
+const CASES = { home: caseMix(3, 4, 3), yard: caseMix(2, 4, 2), office: caseMix(3, 3, 3), hardware: caseMix(3, 4, 3), police: caseMix(3, 4, 3), camp: caseMix(3, 5, 2) };
 
 const CAR_COLORS = ['#7a2e2e', '#2e4a7a', '#5d6066', '#8a7a3a', '#3f6b4a', '#a8a8a8', '#4a3a5a'];
 const ROOF = { house: ['#5a3a32', '#4a4a52', '#3e4f5c', '#6a5038', '#58443c'], grocery: ['#556070'], pharmacy: ['#5f6e6a'], hardware: ['#6a5a40'], hospital: ['#c8ccd0'], military: ['#4a5236'], police: ['#2f3c52'], gas: ['#704038'], safe: ['#3d5a3d'] };
@@ -36,6 +40,7 @@ export function generateWorld(seed, { testGear = false } = {}) {
     if (type !== 'car') { const i = I(x, y); world.tiles[i] = T.FURN; world.furn[i] = FK[type] || 0; world.contAt[i] = id; }
     return id;
   };
+  const addCase = (x, y, mix, chance) => { if (rng.chance(chance)) addCont(x, y, rng.weighted(mix)); };
   const addBuilding = (x, y, w, h, type, name) => {
     const id = world.buildings.length;
     world.buildings.push({ id, x, y, w, h, type, name, roof: rng.pick(ROOF[type] || ROOF.house) });
@@ -152,7 +157,7 @@ export function generateWorld(seed, { testGear = false } = {}) {
     const x = side === 0 ? rng.int(3, x0 - 3) : side === 1 ? rng.int(x1 + 2, W - 4) : rng.int(4, W - 5);
     const y = side >= 2 ? (side === 2 ? rng.int(3, y0 - 3) : rng.int(y1 + 2, H - 4)) : rng.int(4, H - 5);
     for (let yy = y - 1; yy <= y + 1; yy++) for (let xx = x - 1; xx <= x + 1; xx++) if (inb(xx, yy) && xx > 1 && yy > 1 && xx < W - 2 && yy < H - 2) ground(xx, yy, T.DIRT);
-    if (x > 2 && y > 2 && x < W - 3 && y < H - 3) { addCont(x, y, 'crate'); prop(x - 1, y + 1, 1, 1, 'tent'); }
+    if (x > 2 && y > 2 && x < W - 3 && y < H - 3) { addCont(x, y, 'crate'); prop(x - 1, y + 1, 1, 1, 'tent'); addCase(x + 1, y - 1, CASES.camp, 0.2); }
   }
 
   // ---------- road cars ----------
@@ -235,6 +240,11 @@ export function generateWorld(seed, { testGear = false } = {}) {
       const [xx, yy] = cands.splice(ci2, 1)[0];
       addCont(xx, yy, k);
     }
+    // kept out of sight along a wall in a bedroom or the living room
+    if (role === 'bedroom' || role === 'living') {
+      const open = cands.filter(([xx, yy]) => !SOLID[tile(xx + 1, yy)] || !SOLID[tile(xx - 1, yy)] || !SOLID[tile(xx, yy + 1)] || !SOLID[tile(xx, yy - 1)]);
+      if (open.length) { const [xx, yy] = rng.pick(open); addCase(xx, yy, CASES.home, 0.1); }
+    }
     const mx = r.x + Math.floor(r.w / 2), my = r.y + Math.floor(r.h / 2);
     if (role === 'bedroom') { prop(mx - 0.5, my - 1, 1.4, 2, 'bed'); if (r.w > 3) prop(r.x + 0.15, r.y + r.h - 0.9, 0.7, 0.7, 'plant'); }
     else if (role === 'living' || role === 'combo') {
@@ -284,6 +294,13 @@ export function generateWorld(seed, { testGear = false } = {}) {
             if (sx >= lx && sx < lx + lw - 1) addCar(sx, cy2, true, true);
           }
         }
+        { // stashed behind the house, out of sight of the street, next to a bush
+          const cx2 = hx + rng.int(0, Math.max(0, hw - 1)), cy3 = face === 'N' ? ly + lh - 1 : ly;
+          if (tile(cx2, cy3) === T.GRASS && tile(cx2, cy3 + (face === 'N' ? -1 : 1)) !== T.DOOR && rng.chance(0.08)) {
+            addCont(cx2, cy3, rng.weighted(CASES.yard));
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (tile(cx2 + dx, cy3 + dy) === T.GRASS && rng.chance(0.6)) obj(cx2 + dx, cy3 + dy, T.BUSH);
+          }
+        }
         yardDeco(lx, ly, lw, lh);
         lx += lw;
       }
@@ -300,10 +317,19 @@ export function generateWorld(seed, { testGear = false } = {}) {
     door(dx, y, false); door(dx + 1, y, false);
     door(x + w - 3, y + h - 1, false);
     addCont(x + 2, y + 2, 'register'); obj(x + 3, y + 2, T.FURN); world.furn[I(x + 3, y + 2)] = FK.counter;
+    // back office: a desk, a filing cabinet, and sometimes what the owner kept out of sight
+    const ox = x + 6, oy = y + h - 6;
+    for (let yy = oy + 1; yy < y + h - 1; yy++) for (let xx = x + 1; xx < ox; xx++) ground(xx, yy, T.CARPET);
+    for (let yy = oy; yy < y + h - 1; yy++) obj(ox, yy, T.WALL);
+    for (let xx = x + 1; xx < ox; xx++) obj(xx, oy, T.WALL);
+    door(ox, y + h - 3, false);
+    addCont(x + 2, oy + 1, 'desk'); addCont(x + 4, oy + 1, 'filing');
+    addCase(x + 1, y + h - 2, kind === 'hardware' ? CASES.hardware : CASES.office, kind === 'hardware' ? 0.6 : 0.3);
     let n = 0;
     for (let sx = x + 2; sx < x + w - 2; sx += 3) {
       for (let sy = y + 4; sy < y + h - 2; sy++) {
         if (sx >= dx - 1 && sx <= dx + 2 && sy < y + 5) continue;
+        if (sx <= ox + 1 && sy >= oy - 1) continue;
         if (n++ % 2 === 0) addCont(sx, sy, kind);
         else { obj(sx, sy, T.FURN); world.furn[I(sx, sy)] = FK[kind]; }
       }
@@ -330,6 +356,7 @@ export function generateWorld(seed, { testGear = false } = {}) {
     for (let xx = x + 1; xx < x + w - 1; xx++) for (let yy = sy + 1; yy < y + h - 1; yy++) ground(xx, yy, T.CONCRETE);
     for (let xx = x + 2; xx < x + w - 2; xx += 2) addCont(xx, y + h - 2, 'locker');
     addCont(x + 1, sy + 2, 'locker'); addCont(x + w - 2, sy + 2, 'locker');
+    addCase(x + 1, y + h - 2, CASES.police, 1); // the evidence corner
     addCont(x + 2, y + 2, 'desk'); addCont(x + w - 3, y + 2, 'filing'); addCont(x + 3, y + 2, 'filing');
     prop(x + 3, y + 3, 2, 1, 'table'); prop(x + w - 5, y + 3, 2, 1, 'table');
     windows(x, y, w, h, 0.5);
@@ -357,7 +384,7 @@ export function generateWorld(seed, { testGear = false } = {}) {
     }
     const mx = b.x + Math.floor(b.w / 2), my = b.y + Math.floor(b.h / 2);
     for (let yy = my - 2; yy <= my + 2; yy++) for (let xx = mx - 3; xx <= mx + 3; xx++) ground(xx, yy, T.DIRT);
-    if (camp) { addCont(mx - 2, my - 1, 'crate'); addCont(mx + 2, my + 1, 'crate'); prop(mx - 1, my - 2, 1.4, 1.2, 'tent'); prop(mx, my, 0.8, 0.8, 'fire'); world.fires.push({ x: (mx + 0.4) * 32, y: (my + 0.4) * 32, small: true }); }
+    if (camp) { addCase(mx + 3, my - 2, CASES.camp, 0.3); addCont(mx - 2, my - 1, 'crate'); addCont(mx + 2, my + 1, 'crate'); prop(mx - 1, my - 2, 1.4, 1.2, 'tent'); prop(mx, my, 0.8, 0.8, 'fire'); world.fires.push({ x: (mx + 0.4) * 32, y: (my + 0.4) * 32, small: true }); }
     else {
       for (let xx = b.x; xx < b.x + b.w; xx++) ground(xx, my, T.DIRT);
       for (let yy = b.y; yy < b.y + b.h; yy++) ground(mx, yy, T.DIRT);
@@ -420,6 +447,7 @@ export function generateWorld(seed, { testGear = false } = {}) {
     shell(x, y, w, h, id, T.CONCRETE);
     door(x + Math.floor(w / 2), y + h - 1, false);
     for (let xx = x + 1; xx < x + w - 1; xx += 2) { addCont(xx, y + 1, 'milcrate'); }
+    addCont(x + 1, y + h - 2, 'weaponcase'); addCont(x + w - 2, y + h - 2, 'modcase'); // always worth the trip
     for (let xx = x + 2; xx < x + w - 2; xx += 3) prop(xx, y + 3, 1.2, 2, 'bed');
     windows(x, y, w, h, 0.4);
     // tents, crates, trucks

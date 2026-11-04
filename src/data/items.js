@@ -292,4 +292,13 @@ for (const [place, { tiers, mods, guns = true }] of Object.entries(ECONOMY)) {
   if (mods > 0) for (const id of MOD_IDS) LOOT[place].t.push([id, mods / MOD_IDS.length]);
 }
 
+// ---------- cases ----------
+// Rare hidden finds. Weapon Case: one weapon, any in the game, better odds than the open world. Mod Case: one mod.
+// Ammo Case: some of all four ammo types. Worldgen decides where they go; they never restock.
+const CASE_TIERS = [22, 35, 30, 13];
+LOOT.weaponcase = { rolls: [1, 1], t: [['spikedbat', 6], ...WEAPON_TIERS.flatMap((ids, tier) => ids.map((id) => [id, CASE_TIERS[tier] / ids.length]))] };
+LOOT.modcase = { rolls: [1, 1], t: MOD_IDS.map((id) => [id, 1]) };
+LOOT.ammocase = { all: true, t: ['ammo9', 'ammomed', 'shells', 'ammo308'].map((id) => [id, 1]) };
+Object.assign(CONTAINER_LABEL, { weaponcase: 'Weapon Case', modcase: 'Mod Case', ammocase: 'Ammo Case' });
+
 export const RACK_ITEMS = [['katana',1],['sledge',1],['spear',1],['crossbow',1],['ammomed',40],['carbine',1],['smg',1],['ammo9',60],['ammo9',60],['pistol',1],['shotgun',1],['shells',30],['rifle',1],['ammo308',30],['axe',1],['machete',1],['spikedbat',1],['crowbar',1],['bat',1],['riotgear',1],['ghillie',1],['vest',1],['jacket',1],['milbag',1],['adrenaline',3],['energy',3],['reviver',1],['pipebomb',3],['noisemaker',3],['medkit',2],['helmet',1],['milhelmet',1],['nvg',1],['headlamp',1],['jeans',1],['cargo',1],['kevlarpants',1],['sneakers',1],['boots',1],['runners',1],['hikingbag',1],['schoolbag',1]];

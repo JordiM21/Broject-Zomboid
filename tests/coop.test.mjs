@@ -6,6 +6,7 @@ import { attachRelay } from '../server/relay.mjs';
 import { createState, addPlayer, joinPlayer, parkPlayer, step, command, spawnZombie, predictMove, getCont } from '../src/sim/sim.js';
 import { newTracker, packFrame, packWorld, applyFrame, applyWorld, smooth, compactInput, nextInput, newInputQueue } from '../src/net/sync.js';
 import { rollLoot, makeItem } from '../src/sim/inventory.js';
+import { SOLID } from '../src/world/worldgen.js';
 import { ITEMS, LOOT, RECIPES, WEAPON_TIERS } from '../src/data/items.js';
 
 // ---------- relay ----------
@@ -249,6 +250,40 @@ hs.zombies.length = 0; h1.x = hs.world.spawn.x; h1.y = hs.world.spawn.y;
   // test gear is off by default and changes nothing for a normal game
   assert.strictEqual(s4.world.fixtures.rack, undefined, 'no free gear in a normal world');
   assert.ok(createState(8, false, { testGear: true }).world.fixtures.rack !== undefined, '?testgear adds it');
+}
+// ---------- cases ----------
+{
+  const KINDS = ['weaponcase', 'ammocase', 'modcase'], rolls = 6000;
+  // contents: every weapon can drop, one at a time; ammo cases hold all four types; mod cases hold one mod
+  const weapons = Object.keys(ITEMS).filter((id) => ['melee', 'gun'].includes(ITEMS[id].cat)), drops = {};
+  for (let k = 0; k < rolls; k++) { const got = rollLoot('weaponcase', k * 7 + 1, k); assert.strictEqual(got.length, 1, 'a weapon case holds one weapon'); assert.ok(weapons.includes(got[0].id)); drops[got[0].id] = (drops[got[0].id] || 0) + 1; }
+  for (const id of weapons) assert.ok(drops[id] > 0, `${id} can drop from a weapon case`);
+  assert.ok(drops.pistol > drops.rifle, 'lower tiers are still more common');
+  const mods = new Set();
+  for (let k = 0; k < 200; k++) {
+    const m = rollLoot('modcase', k * 7 + 1, k); assert.strictEqual(m.length, 1, 'a mod case holds one mod'); assert.strictEqual(ITEMS[m[0].id].cat, 'mod'); mods.add(m[0].id);
+    const a = rollLoot('ammocase', k * 7 + 1, k); assert.deepStrictEqual(a.map((i) => i.id).sort(), ['ammo308', 'ammo9', 'ammomed', 'shells']);
+    for (const i of a) assert.ok(i.n >= 2 * ITEMS[i.id].roll[0] && i.n <= ITEMS[i.id].stack);
+  }
+  assert.strictEqual(mods.size, 2, 'both mods can drop');
+  // placement: scarce, placed where intended, always reachable, across several worlds
+  const reach = (w, c) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => { const i = (c.y + dy) * w.w + c.x + dx; return !SOLID[w.tiles[i]]; });
+  for (const seed of [1234, 5, 77, 900, 31337]) {
+    const w = createState(seed, false).world, all = w.containers.filter((c) => c && LOOT[c.type]), cases = all.filter((c) => KINDS.includes(c.type));
+    const where = {}; for (const c of cases) { const i = c.y * w.w + c.x, b = w.bld[i] >= 0 ? w.buildings[w.bld[i]].type : 'outside'; where[b] = (where[b] || 0) + 1; assert.ok(reach(w, c), `${c.type} at ${c.x},${c.y} can be reached`); assert.strictEqual(w.safe[i], 0, 'none in the safehouse'); }
+    console.log(`seed ${seed}: ${cases.length} cases of ${all.length} containers (${KINDS.map((k) => cases.filter((c) => c.type === k).length).join('/')} weapon/ammo/mod)`, JSON.stringify(where));
+    assert.ok(cases.length >= 12 && cases.length <= 60 && cases.length / all.length < 0.05, 'cases are scarce');
+    for (const k of KINDS) assert.ok(cases.some((c) => c.type === k), `${k} exists`);
+    for (const place of ['house', 'outside', 'police', 'military']) assert.ok(where[place] > 0, `cases turn up at ${place}`);
+    assert.ok(w.buildings.some((b) => ['grocery', 'pharmacy', 'hardware'].includes(b.type)) && cases.some((c) => ['grocery', 'pharmacy', 'hardware'].includes(w.buildings[w.bld[c.y * w.w + c.x]]?.type)), 'and in store offices');
+  }
+  // a looted case stays empty: it never restocks at dawn
+  const s = createState(1234, false), q = addPlayer(s, 'p1'), far = (k) => Math.hypot(k.x * 32 - q.x, k.y * 32 - q.y) > 30 * 32;
+  const c = s.world.containers.find((k) => k && k.type === 'weaponcase' && far(k)), shelf = s.world.containers.filter((k) => k && k.type === 'grocery' && far(k));
+  c.searched = true; c.items = []; for (const k of shelf) { k.searched = true; k.items = []; }
+  for (let k = 0; k < 40; k++) { s.time += 600; step(s, { p1: {} }, 1 / 60); }
+  assert.ok(c.searched && !c.items.length && !c.salt, 'cases do not restock');
+  assert.ok(shelf.some((k) => k.salt), 'ordinary shelves still do');
 }
 assert.ok(JSONify && smooth && g2);
 console.log('co-op test passed');

@@ -37,6 +37,7 @@ export function rollLoot(type, seed, cid, salt = 0) {
   const tab = LOOT[type]; if (!tab) return [];
   const rng = new RNG((seed * 31 + cid * 7919 + salt * 104729) >>> 0);
   rng.next();
+  if (tab.all) return tab.t.map(([id]) => makeItem(id, rng.int(...ITEMS[id].roll) + rng.int(...ITEMS[id].roll))); // two normal finds of each
   const out = [];
   // containers are empty ~22% of the time; otherwise at least one item
   const rolls = tab.rolls[0] === 0 && rng.chance(0.22) ? 0 : rng.int(Math.max(1, tab.rolls[0]), tab.rolls[1]);

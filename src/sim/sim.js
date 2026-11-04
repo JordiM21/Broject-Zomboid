@@ -12,7 +12,7 @@ export const ZT = {
   brute: { hp: 240, spd: 30, dmg: 20, sight: 6, r: 14 },
   soldier: { hp: 120, spd: 40, dmg: 11, sight: 8, r: 11 },
 };
-const SEARCH_TIME = { zombie: 0.7, zsoldier: 0.9, milcrate: 1.3, medcab: 1, car: 1.4, locker: 1.2, crate: 1.2, body: 0.6, pile: 0.3 };
+const SEARCH_TIME = { weaponcase: 1.4, ammocase: 1, modcase: 0.9, zombie: 0.7, zsoldier: 0.9, milcrate: 1.3, medcab: 1, car: 1.4, locker: 1.2, crate: 1.2, body: 0.6, pile: 0.3 };
 const rnd = Math.random;
 const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return Math.abs(d); };
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -170,7 +170,7 @@ function onDawn(s) {
   const ps = Object.values(s.players);
   let n = 0;
   for (const c of s.world.containers) {
-    if (!c || !c.searched || ['stash', 'bench', 'bed', 'radio', 'body', 'pile', 'zombie', 'zsoldier'].includes(c.type)) continue;
+    if (!c || !c.searched || ['stash', 'bench', 'bed', 'radio', 'body', 'pile', 'zombie', 'zsoldier', 'weaponcase', 'modcase', 'ammocase'].includes(c.type)) continue;
     const pos = contPos(c);
     if (ps.some((p) => dist(p, pos) < 25 * TILE)) continue;
     if (rnd() < 0.12) { c.items = null; c.searched = false; c.salt = (c.salt || 0) + 1; n++; }

@@ -78,6 +78,8 @@ The host's browser runs the simulation and owns the save; it keeps running behin
 
 Silencers and Extended Mags are found as items, mostly at military and police sites. At the Workbench you can craft the Crossbow, Spear, Silencer and Extended Mag. Basic materials are the most common loot and stack to 100.
 
+**Cases** are rare, hidden and never restock, about 25 per world. A Weapon Case holds one weapon of any kind, a Mod Case one mod, and an Ammo Case some of all four ammo types. Look behind houses, along walls in bedrooms and living rooms, in the back offices of stores, at police stations, at forest camps, and in the barracks, which always has a Weapon Case and a Mod Case. Odds are `CASES` in `src/world/worldgen.js` and the `LOOT` tables in `src/data/items.js`.
+
 Add `?testgear` to the URL before starting a new world to get the Weapon Rack and Mod Stash in the safehouse, with free gear for trying things out.
 
 ## View and peeking
@@ -107,6 +109,8 @@ Add `?testgear` to the URL before starting a new world to get the Weapon Rack an
 - Audio is spatial: stereo panning, distance falloff, muffling through walls, indoor/outdoor reverb, surface-specific footsteps for you and nearby zombies.
 
 ## Core loop
+
+Where this is heading, and the design rules for it: [docs/GAMEPLAY.md](docs/GAMEPLAY.md).
 
 1. Leave the safehouse, search houses, stores, cars, the police station and forest camps.
 2. Noise (sprinting, gunshots, bashing) pulls zombies. Doors slow them. Nights are dark and hordes roam from Day 2.
