@@ -35,8 +35,9 @@ export class Minimap {
   }
 }
 
-function bar(ctx, x, y, w, v, col, label) {
+function bar(ctx, x, y, w, v, col, label, trail = v) {
   ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x, y, w, 12);
+  if (trail > v) { ctx.fillStyle = 'rgba(255,240,220,0.75)'; ctx.fillRect(x + 1 + (w - 2) * v / 100, y + 1, (w - 2) * (trail - v) / 100, 10); }
   ctx.fillStyle = col; ctx.fillRect(x + 1, y + 1, (w - 2) * Math.max(0, Math.min(1, v / 100)), 10);
   ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = '600 10px system-ui, sans-serif'; ctx.textAlign = 'left';
   ctx.fillText(label, x + 4, y + 10);
@@ -69,10 +70,15 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   // bars
   const bx = 16, by = SH - 96;
   ctx.fillStyle = 'rgba(10,12,16,0.55)'; ctx.fillRect(bx - 8, by - 26, 212, 112);
-  bar(ctx, bx, by, 196, p.hp, p.hp < 30 ? '#e03a3a' : '#c94a4a', 'HEALTH');
-  bar(ctx, bx, by + 16, 196, p.hunger, '#d08a3a', 'FOOD');
-  bar(ctx, bx, by + 32, 196, p.thirst, '#3a8ad0', 'WATER');
-  bar(ctx, bx, by + 48, 196, p.stamina, '#c9c04a', 'STAMINA');
+  const D = ui.disp || (ui.disp = { hp: p.hp, trail: p.hp, hunger: p.hunger, thirst: p.thirst, st: p.stamina });
+  const k = Math.min(1, ui.dt * 10);
+  D.hp += (p.hp - D.hp) * k; D.hunger += (p.hunger - D.hunger) * k; D.thirst += (p.thirst - D.thirst) * k; D.st += (p.stamina - D.st) * k;
+  D.trail = D.trail > D.hp ? Math.max(D.hp, D.trail - ui.dt * 25) : D.hp;
+  const lowSt = p.stamina < 15 && performance.now() % 500 < 250;
+  bar(ctx, bx, by, 196, D.hp, p.hp < 30 ? '#e03a3a' : '#c94a4a', 'HEALTH', D.trail);
+  bar(ctx, bx, by + 16, 196, D.hunger, '#d08a3a', 'FOOD');
+  bar(ctx, bx, by + 32, 196, D.thirst, '#3a8ad0', 'WATER');
+  bar(ctx, bx, by + 48, 196, D.st, lowSt ? '#ff6a3a' : '#c9c04a', 'STAMINA');
   const wt = carried(p), cap = capacity(p);
   ctx.font = '600 11px system-ui, sans-serif'; ctx.textAlign = 'left';
   ctx.fillStyle = wt > cap ? '#ff8a6a' : '#bbb'; ctx.fillText(`Carry ${wt.toFixed(1)} / ${cap}`, bx, by + 76);
@@ -91,17 +97,22 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   for (let k = 0; k < 6; k++) {
     const x = hx + k * (slot + gap), it = wl[k];
     const sel = k < wl.length && wl[k] === p.wpn;
+    if (sel && ui.lastSel !== k) { ui.lastSel = k; ui.selPop = 1; }
+    const pop = sel ? (ui.selPop || 0) : 0;
+    ctx.save(); ctx.translate(x + slot / 2, hy + slot / 2); ctx.scale(1 + pop * 0.15, 1 + pop * 0.15); ctx.translate(-x - slot / 2, -hy - slot / 2);
     ctx.fillStyle = sel ? 'rgba(255,210,122,0.25)' : 'rgba(10,12,16,0.6)'; ctx.fillRect(x, hy, slot, slot);
     ctx.strokeStyle = sel ? '#ffd27a' : 'rgba(255,255,255,0.15)'; ctx.lineWidth = sel ? 2 : 1; ctx.strokeRect(x + 0.5, hy + 0.5, slot - 1, slot - 1);
     ctx.fillStyle = '#888'; ctx.font = '600 10px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText(k + 1, x + 4, hy + 12);
-    if (k >= wl.length) continue;
+    if (k >= wl.length) { ctx.restore(); continue; }
     const d = it ? ITEMS[it.id] : null;
     ctx.fillStyle = '#eee'; ctx.textAlign = 'center'; ctx.font = `600 ${small ? 9 : 10}px system-ui, sans-serif`;
     const nm = it ? d.name.split(' ').slice(-1)[0] : 'Fists';
     ctx.fillText(nm, x + slot / 2, hy + slot / 2 + 4);
     if (it && d.dur) { ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(x + 4, hy + slot - 8, slot - 8, 4); const f = it.dur / d.dur; ctx.fillStyle = f > 0.5 ? '#7ad07a' : f > 0.2 ? '#d0c04a' : '#d05a4a'; ctx.fillRect(x + 4, hy + slot - 8, (slot - 8) * f, 4); }
     if (it && d.cat === 'gun') { const res = p.inv.filter((i) => i.id === d.ammo).reduce((a, b) => a + b.n, 0); ctx.fillStyle = it.mag ? '#ffd27a' : '#ff6a6a'; ctx.fillText(`${it.mag}/${res}`, x + slot / 2, hy + slot - 6); }
+    ctx.restore();
   }
+  ui.selPop = Math.max(0, (ui.selPop || 0) - ui.dt * 5);
   // prompt
   if (ui.interact && !p.search) {
     const t = `[E] ${ui.interact.label}` + (ui.interact.kind === 'door' && ui.interact.label === 'Open Door' ? '   [B] Barricade' : ''); ctx.font = '600 14px system-ui, sans-serif'; ctx.textAlign = 'center';
@@ -149,9 +160,11 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   let my2 = by - 40;
   ctx.textAlign = 'left'; ctx.font = `600 ${small ? 11 : 13}px system-ui, sans-serif`;
   for (let k = ui.messages.length - 1; k >= 0 && k >= ui.messages.length - (small ? 3 : 6); k--) {
-    const m = ui.messages[k]; const a = Math.min(1, m.t / 1.5);
+    const m = ui.messages[k]; const a = Math.min(1, m.t / 1.5); const slide = Math.max(0, 1 - (7 - m.t) * 6) * -24;
+    ctx.save(); ctx.translate(slide, 0);
     ctx.globalAlpha = a; ctx.fillStyle = 'rgba(0,0,0,0.5)'; const tw = ctx.measureText(m.text).width;
     ctx.fillRect(12, my2 - 14, tw + 12, 19); ctx.fillStyle = m.color; ctx.fillText(m.text, 18, my2); my2 -= 22;
+    ctx.restore();
   }
   ctx.globalAlpha = 1;
   // crosshair

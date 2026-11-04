@@ -15,7 +15,7 @@ let s = null, mm = null, running = false, paused = false;
 const keys = new Set(), pressed = new Set();
 const mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false };
 const ui = { messages: [], mouse, mouseWorld: { x: 0, y: 0 }, interact: null, bigMap: false, panelOpen: false, dt: 0 };
-let selPending = -1;
+let selPending = -1, hitStop = 0;
 
 const panels = new Panels({
   state: () => s, player: () => s && s.players[LOCAL],
@@ -26,6 +26,7 @@ const addMsg = (text, color = '#ddd') => { ui.messages.push({ text, color, t: 7 
 function drain() {
   for (const e of s.events) {
     rend.onEvent(e, LOCAL); sfx.play(e, LOCAL);
+    if (e.type === 'zhit' && e.melee && e.pid === LOCAL) hitStop = Math.max(hitStop, e.crit ? 0.07 : 0.04);
     if (e.pid && e.pid !== LOCAL && e.type !== 'step') continue;
     switch (e.type) {
       case 'msg': addMsg(e.text, e.color); break;
@@ -173,7 +174,8 @@ function frame(now) {
   ui.dt = paused ? 0 : dt;
   ui.mouseWorld = rend.screenToWorld(mouse.x, mouse.y);
   if (!paused) {
-    acc += dt; let first = true;
+    if (hitStop > 0) { hitStop -= dt; } else acc += dt;
+    let first = true;
     while (acc >= SIM_DT) { step(s, { [LOCAL]: buildInput(first) }, SIM_DT); first = false; acc -= SIM_DT; drain(); }
     if (!first) pressed.clear();
     for (const m of ui.messages) m.t -= dt;

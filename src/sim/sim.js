@@ -7,7 +7,7 @@ import { solidAt, collide, los, castRay, bulletBlock, isSafe, FlowField } from '
 import { makeItem, addItem, countItem, removeItem, invWeight, rollLoot } from './inventory.js';
 
 export const ZT = {
-  walker: { hp: 60, spd: 36, dmg: 9, sight: 7, r: 10 },
+  walker: { hp: 60, spd: 36, dmg: 8, sight: 7, r: 10 },
   runner: { hp: 45, spd: 80, dmg: 7, sight: 9, r: 9 },
   brute: { hp: 240, spd: 30, dmg: 20, sight: 6, r: 14 },
 };
@@ -312,10 +312,11 @@ function attack(s, p) {
   const wd = p.wpn ? ITEMS[p.wpn.id] : FISTS;
   if (wd.cat === 'gun') return fire(s, p, wd);
   p.atkCd = wd.cd; p.swing = 0.2;
+  p.x += Math.cos(p.ang) * 3; p.y += Math.sin(p.ang) * 3; collide(p, PLAYER_R, (tx, ty) => solidAt(s.world, tx, ty));
   let mult = 1;
   if (p.stamina < wd.stam) { mult = 0.5; p.atkCd *= 1.5; }
   p.stamina = Math.max(0, p.stamina - wd.stam);
-  ev(s, { type: 'swing', x: p.x, y: p.y, ang: p.ang, pid: p.id });
+  ev(s, { type: 'swing', x: p.x, y: p.y, ang: p.ang, pid: p.id, arc: wd.arc, range: wd.range });
   let hit = false;
   for (const z of s.zombies) {
     if (z.hp <= 0) continue;
@@ -326,7 +327,7 @@ function attack(s, p) {
     const crit = rnd() < 0.12;
     const dmg = wd.dmg * mult * (crit ? 2 : 1) * (0.9 + rnd() * 0.2);
     const a = Math.atan2(z.y - p.y, z.x - p.x);
-    damageZombie(s, z, dmg, Math.cos(a), Math.sin(a), wd.knock, p, crit);
+    damageZombie(s, z, dmg, Math.cos(a), Math.sin(a), wd.knock, p, crit, true);
     hit = true;
   }
   if (hit) {
@@ -395,16 +396,19 @@ function shove(s, p) {
     const a = Math.atan2(z.y - p.y, z.x - p.x);
     if (d > 14 && angDiff(a, p.ang) > 1.2) continue;
     const res = z.type === 'brute' ? 0.3 : 1;
-    z.vx += Math.cos(a) * 280 * res; z.vy += Math.sin(a) * 280 * res; z.stagger = Math.max(z.stagger, 0.9 * res); z.atk = 0;
+    z.vx += Math.cos(a) * 280 * res; z.vy += Math.sin(a) * 280 * res; z.stagger = Math.max(z.stagger, 1.1 * res); z.atk = 0;
+    if (z.type !== 'brute') { z.down = 1.1; ev(s, { type: 'zdown', x: z.x, y: z.y }); }
   }
 }
 
-function damageZombie(s, z, dmg, kx, ky, knock, p, crit) {
-  z.hp -= dmg;
+function damageZombie(s, z, dmg, kx, ky, knock, p, crit, melee = false) {
+  const downed = z.down > 0;
+  if (downed) dmg *= 2;
+  z.hp -= dmg; z.flash = 0.1;
   const res = z.type === 'brute' ? 0.35 : 1;
   z.vx += kx * knock * res; z.vy += ky * knock * res; z.stagger = Math.max(z.stagger, 0.3 * res); z.atk = 0;
   if (p) { z.state = 'chase'; z.pid = p.id; z.lx = p.x; z.ly = p.y; z.lost = 0; }
-  ev(s, { type: 'zhit', x: z.x, y: z.y, kx, ky, crit, dmg: Math.round(dmg) });
+  ev(s, { type: 'zhit', x: z.x, y: z.y, kx, ky, crit: crit || downed, dmg: Math.round(dmg), melee, pid: p ? p.id : null });
   if (z.hp <= 0) {
     ev(s, { type: 'zdie', x: z.x, y: z.y, ztype: z.type, ang: Math.atan2(ky, kx) });
     s.stats.kills++; completeObjective(s, 'kill');
@@ -484,8 +488,8 @@ function hurtPlayer(s, p, z) {
   p.hp -= zt.dmg * (1 - (arm ? arm.armor : 0)) * (0.85 + rnd() * 0.3);
   p.invuln = 0.25; p.hurt = 0.45; p.channel = null; p.search = null;
   const prot = arm ? arm.biteProt : 0;
-  if (!p.bleeding && rnd() < 0.3 * (1 - prot)) { p.bleeding = true; msg(s, 'You are bleeding! [H] to bandage.', '#ff6a6a', p.id); }
-  if (p.infection <= 0 && rnd() < 0.08 * (1 - prot)) { p.infection = 1; msg(s, 'You were bitten. Find Antibiotics.', '#c6ff6a', p.id); }
+  if (!p.bleeding && rnd() < 0.2 * (1 - prot)) { p.bleeding = true; msg(s, 'You are bleeding! [H] to bandage.', '#ff6a6a', p.id); }
+  if (p.infection <= 0 && rnd() < 0.05 * (1 - prot)) { p.infection = 1; msg(s, 'You were bitten. Find Antibiotics.', '#c6ff6a', p.id); }
   ev(s, { type: 'phurt', x: p.x, y: p.y, pid: p.id, ang: Math.atan2(p.y - z.y, p.x - z.x) });
 }
 
@@ -578,6 +582,8 @@ function updateZombies(s, dt) {
 
   for (const z of s.zombies) {
     if (z.hp <= 0) continue;
+    if (z.flash > 0) z.flash -= dt;
+    if (z.down > 0) z.down -= dt;
     const zt = ZT[z.type];
     let p = null, d = 1e9;
     for (const q of players) { const dq = dist(z, q); if (dq < d) { d = dq; p = q; } }
@@ -732,13 +738,14 @@ export function command(s, pid, c) {
     case 'take': {
       if (!contOk) return; const it = cont.items[c.idx]; if (!it) return;
       cont.items.splice(c.idx, 1); addItem(p.inv, it);
-      ev(s, { type: 'pickup', x: p.x, y: p.y });
+      ev(s, { type: 'pickup', x: p.x, y: p.y, pid: p.id, text: `+ ${ITEMS[it.id].name}${it.n > 1 ? ' x' + it.n : ''}` });
       break;
     }
     case 'takeAll': {
       if (!contOk) return;
+      const nTaken = cont.items.length;
       for (const it of cont.items) addItem(p.inv, it);
-      cont.items.length = 0; ev(s, { type: 'pickup', x: p.x, y: p.y });
+      cont.items.length = 0; ev(s, { type: 'pickup', x: p.x, y: p.y, pid: p.id, text: nTaken ? `+ ${nTaken} item${nTaken > 1 ? 's' : ''}` : '' });
       break;
     }
     case 'put': case 'putAll': {

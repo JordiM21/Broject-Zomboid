@@ -1,0 +1,21 @@
+import { createRequire } from 'module'; const require = createRequire(import.meta.url); const { chromium } = require(process.env.PW || 'playwright');
+import path from 'path';
+const out = process.argv[2] || '.';
+const b = await chromium.launch(); const pg = await b.newPage({ viewport: { width: 1100, height: 680 } }); const errs = [];
+pg.on('pageerror', (e) => errs.push(e.message));
+await pg.goto('file://' + path.resolve('dist/index.html'));
+await pg.click('#btnNew'); await pg.waitForTimeout(200);
+await pg.evaluate(() => { const s = window.__game.state, p = s.players.p1; const z0 = s.zombies.find((z) => Math.hypot(z.x - p.x, z.y - p.y) > 900);
+  p.x = z0.x; p.y = z0.y; s.zombies = s.zombies.filter((z) => Math.hypot(z.x - p.x, z.y - p.y) > 300);
+  p.inv.push({ id: 'bat', n: 1, dur: 60 }); p.wpn = p.inv[p.inv.length - 1];
+  for (let k = 0; k < 4; k++) { const z = { ...z0, id: 9000 + k, x: p.x + 34 + (k % 2) * 12, y: p.y - 30 + k * 20, hp: 60, state: 'idle', stagger: 0, atk: 0, vx: 0, vy: 0, down: 0 }; s.zombies.push(z); }
+  p.ang = 0; });
+await pg.mouse.move(700, 340);
+await pg.waitForTimeout(150);
+await pg.keyboard.press('Space'); await pg.waitForTimeout(250);
+await pg.mouse.down(); await pg.waitForTimeout(90);
+await pg.screenshot({ path: out + '/s_juice.png' });
+await pg.mouse.up(); await pg.waitForTimeout(900);
+const k = await pg.evaluate(() => window.__game.state.stats.kills);
+console.log('kills', k, errs.length ? errs.join('\n') : 'no errors');
+await b.close();
