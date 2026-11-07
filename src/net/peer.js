@@ -5,7 +5,11 @@ import { Peer } from 'peerjs';
 
 const PREFIX = 'lasthaul-';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-const CONNECT_TIMEOUT = 15000;
+const CONNECT_TIMEOUT = 20000;
+// TURN relay for strict networks (see api/turn.js). Without it, PeerJS defaults: direct connections only.
+let ice;
+const options = () => ice ??= fetch('/api/turn').then((r) => r.status === 200 ? r.json() : null).catch(() => null)
+  .then((config) => config ? { config } : {});
 
 class Link {
   constructor() { this.readyState = 0; this.conn = null; this.peer = null; }
@@ -17,9 +21,10 @@ class Link {
 
 export class PeerHost extends Link {
   constructor() { super(); this.listen(); }
-  listen() {
+  async listen() {
+    const opts = await options(); if (this.readyState === 3) return;
     let code = ''; for (let k = 0; k < 4; k++) code += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
-    const peer = this.peer = new Peer(PREFIX + code);
+    const peer = this.peer = new Peer(PREFIX + code, opts);
     peer.on('open', () => { this.readyState = 1; this.say({ relay: 'room', code }); });
     peer.on('connection', (c) => this.incoming(c));
     peer.on('disconnected', () => { if (this.readyState === 1) peer.reconnect(); }); // only affects new joiners: a connected partner is unaffected
@@ -41,9 +46,12 @@ export class PeerHost extends Link {
 export class PeerGuest extends Link {
   constructor(code) {
     super();
-    const peer = this.peer = new Peer();
     const fail = (why) => this.say({ relay: 'error', why });
     this.timer = setTimeout(() => fail("Couldn't connect to that game. A strict network or firewall may be blocking it."), CONNECT_TIMEOUT);
+    options().then((opts) => { if (this.readyState !== 3) this.start(code, opts, fail); });
+  }
+  start(code, opts, fail) {
+    const peer = this.peer = new Peer(opts);
     peer.on('open', () => {
       const c = this.conn = peer.connect(PREFIX + code, { reliable: true });
       c.on('open', () => { clearTimeout(this.timer); this.readyState = 1; });
