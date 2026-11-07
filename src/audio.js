@@ -216,6 +216,15 @@ export class Sfx {
       case 'click': this.tone(900, 800, 0.025, 'square', 0.035); break;
       case 'empty': this.tone(1500, 1400, 0.02, 'square', 0.1); this.tone(900, 900, 0.02, 'square', 0.05, 0.03); break;
       case 'reload': o = L(500, 0.05); this.clank(o, 900, 0.08); this.noise(0.05, 2500, 'bandpass', 0.08, 0.2, o, 3); this.clank(o, 1300, 0.1, 0.45); break;
+      case 'reloaded': if (!me) break; this.clank(L(300, 0.05), 1500, 0.07); this.tone(2200, 2000, 0.02, 'square', 0.04, 0.03); break;
+      case 'roll': o = L(400, 0.05); this.sweep(0.3, 700, 220, 'bandpass', 0.1, 0, o, 2); this.noise(0.08, 300, 'lowpass', 0.18, 0.26, o); break;
+      case 'clutter': o = L(e.kind === 'bottle' || e.kind === 'cans' ? 1000 : 450, 0.15); if (!o.v) return;
+        if (e.kind === 'bottle') { this.noise(0.06, 5200, 'highpass', 0.5, 0, o); for (let k = 0; k < 5; k++) this.tone(2400 + Math.random() * 2200, 2000, 0.05, 'sine', 0.06, 0.01 + k * 0.025, o); }
+        else if (e.kind === 'cans') for (let k = 0; k < 4; k++) this.clank(o, 700 + Math.random() * 500, 0.06, k * 0.07);
+        else { this.sweep(0.22, 1800, 4200, 'bandpass', 0.12, 0, o, 1.5); this.noise(0.08, 500, 'lowpass', 0.12, 0, o); }
+        break;
+      case 'tflip': o = L(900, 0.3); this.sweep(0.18, 400, 1200, 'bandpass', 0.12, 0, o, 2); this.tone(90, 45, 0.22, 'sine', 0.7, 0.16, o); this.noise(0.18, 500, 'lowpass', 0.6, 0.16, o); break;
+      case 'tbreak': o = L(1100, 0.4); this.noise(0.4, 900, 'lowpass', 0.8, 0, o); for (let k = 0; k < 3; k++) this.tone(140 - k * 20, 60, 0.12, 'triangle', 0.25, k * 0.05, o); break;
       case 'phurt': o = L(400, 0.1); this.tone(110, 50, 0.15, 'sine', 0.5, 0, o); this.noise(0.08, 900, 'lowpass', 0.4, 0, o); this.voice(o, 170 + Math.random() * 30, 0.22, 0.2, 650, 0.02); break;
       case 'explode': o = this.bus(e.x, e.y, 3000, 1); this.noise(1.6, 360, 'lowpass', 1.4, 0, o); this.tone(70, 22, 0.9, 'sine', 0.8, 0, o); for (let k = 0; k < 6; k++) this.noise(0.08, 2000, 'bandpass', 0.2, 0.2 + Math.random() * 0.8, o, 2); break;
       case 'beep': o = L(1400, 0.3); this.tone(1500, 1500, 0.07, 'square', 0.12, 0, o); this.tone(1900, 1900, 0.07, 'square', 0.08, 0.1, o); break;

@@ -4,12 +4,16 @@ import { castRay, los, opaqueAt, peekCone, peekOpaque, peekSees, PEEK_RANGE } fr
 import { hash2 } from '../rng.js';
 import { ITEMS } from '../data/items.js';
 import { iconCanvas } from '../ui/icons.js';
-import { ZT, daylight, hourOf } from '../sim/sim.js';
+import { ZT, daylight, hourOf, ROLL_DUR, BLOOD_LIFE } from '../sim/sim.js';
+import { tableRect } from '../sim/props.js';
 import { playerFrame, legsFrame, zombieFrame, muzzleTip, FRAME_SIZE, P_FRAME } from './sprites.js';
 import { IMG } from './assets.js';
 
 const CH = 16, CPX = CH * TILE;
 const GRASS_C = ['#3a5530', '#3d5932', '#38522e', '#405c34'];
+const MAG_GUNS = new Set(['pistol', 'smg', 'carbine']);
+const PAGE_COL = ['#efe9da', '#e4dcc8', '#f4f1ea', '#d8d0b8'];
+const BOOK_COL = ['#7a2e2e', '#2e4a6a', '#3e5a32', '#6a5a2a'];
 const SKIN = ['#7d9070', '#86957a', '#6f8463', '#8a8f72'];
 const SHIRT = ['#4a5a3a', '#5a4040', '#3a4a5a', '#5a5040', '#44405a'];
 const FURN_STYLE = {
@@ -25,8 +29,9 @@ export class Renderer {
     this.fog = document.createElement('canvas'); this.night = document.createElement('canvas');
     this.chunks = new Map(); this.parts = []; this.floaters = []; this.flashes = []; this.tracers = [];
     this.cam = { x: 0, y: 0, zoom: 1.5 }; this.doorAnim = new Map(); this.dying = []; this.booms = []; this.kick = { x: 0, y: 0 }; this.rings2 = []; this.bolts = []; this.animSt = new WeakMap(); this.trails = []; this.rings = []; this.glow = []; this.dt = 0.016; this.rot = 0; this.peekI = -1; this.peekView = null; this.hlCol = '#fff'; this.shake = 0; this.dpr = 1; this.world = null; this.time = 0;
+    this.bits = []; this.tableAnim = new Map(); this.trail = [];
   }
-  setWorld(w) { this.world = w; this.chunks.clear(); this.doorAnim = new Map(); this.dying = []; this.roofs = new Map(); }
+  setWorld(w) { this.world = w; this.chunks.clear(); this.doorAnim = new Map(); this.dying = []; this.roofs = new Map(); this.bits = []; this.tableAnim = new Map(); this.trail = []; }
   resize() {
     const dpr = Math.min(2, window.devicePixelRatio || 1); this.dpr = dpr;
     const W = Math.floor(window.innerWidth * dpr), H = Math.floor(window.innerHeight * dpr);
@@ -70,7 +75,7 @@ export class Renderer {
         for (let k = 0; k < 3; k++) { g.fillStyle = `rgba(0,0,0,${0.22 - k * 0.07})`; g.fillRect(fx + dx * k * 3, fy + dy * k * 3, fw, fh); }
       }
     }
-    for (const p of w.props) if (p.x + p.w >= x0 - 1 && p.x <= x0 + CH + 1 && p.y + p.h >= y0 - 1 && p.y <= y0 + CH + 1) this.prop(g, p);
+    for (const p of w.props) if (p.kind !== 'table' && p.x + p.w >= x0 - 1 && p.x <= x0 + CH + 1 && p.y + p.h >= y0 - 1 && p.y <= y0 + CH + 1) this.prop(g, p); // tables move, so they're drawn every frame
     for (let ty = y0 - 1; ty <= y0 + CH; ty++) for (let tx = x0 - 1; tx <= x0 + CH; tx++) {
       if (tx < 0 || ty < 0 || tx >= w.w || ty >= w.h) continue;
       const t = w.tiles[ty * w.w + tx];
@@ -270,6 +275,20 @@ export class Renderer {
       case 'revive': this.rings2.push({ x: e.x, y: e.y, t: 0.6, r: 160, c: '255,110,180' }); this.flashes.push({ x: e.x, y: e.y, t: 0.3, r: 300 }); if (this.nearMe(e, 500)) this.shake = 12; this.floaters.push({ x: e.x, y: e.y - 24, t: 1.6, text: 'SECOND CHANCE', c: '#ff6ab0' }); for (let k = 0; k < 40; k++) { const a = Math.random() * 6.28, v = 100 + Math.random() * 260; P.push({ x: e.x, y: e.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.8, max: 0.8, c: k % 2 ? '#ff6ab0' : '#fff', s: 3 }); } break;
       case 'buff': this.rings2.push({ x: e.x, y: e.y, t: 0.5, r: 60, c: e.buff === 'adrenaline' ? '255,80,80' : '90,208,200' }); this.floaters.push({ x: e.x, y: e.y - 22, t: 1.2, text: e.buff === 'adrenaline' ? 'ADRENALINE' : 'ENERGY', c: e.buff === 'adrenaline' ? '#ff6a6a' : '#5ad0c8' }); break;
       case 'swing': this.trails.push({ x: e.x, y: e.y, ang: e.ang, arc: e.arc || 1.4, range: e.range || 30, t: 0.14, katana: e.arc > 1.85 && e.range > 54 }); break;
+      case 'clutter': this.burst(e, localId); break;
+      case 'bleed': this.trail.push({ x: e.x, y: e.y, lv: e.lv, t: this.simTime, h: Math.random() }); if (this.trail.length > 400) this.trail.shift(); break;
+      case 'tflip': {
+        this.tableAnim.set(e.ti, 0); this.rings2.push({ x: e.x, y: e.y, t: 0.3, r: 46, c: '210,190,150' });
+        if (this.nearMe(e, 400)) this.shake = Math.max(this.shake, 5);
+        for (let k = 0; k < 14; k++) { const a = e.ang + (Math.random() - 0.5) * 2.2, v = 60 + Math.random() * 150; P.push({ x: e.x + Math.cos(e.ang) * 12, y: e.y + Math.sin(e.ang) * 12, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.55, max: 0.55, c: 'rgba(170,155,130,0.4)', s: 6, smoke: true }); }
+        break;
+      }
+      case 'tbreak': if (this.nearMe(e, 500)) this.shake = Math.max(this.shake, 6); for (let k = 0; k < 16; k++) this.toss(e.x, e.y, Math.random() * 6.28, 80 + Math.random() * 200, 'splinter'); this.decal(e.x, e.y, (g) => { g.fillStyle = 'rgba(90,64,40,0.7)'; for (let k = 0; k < 10; k++) { g.save(); g.translate(e.x + (Math.random() - 0.5) * 34, e.y + (Math.random() - 0.5) * 24); g.rotate(Math.random() * 3); g.fillRect(-5, -1, 10, 2.5); g.restore(); } }); break;
+      case 'roll': for (let k = 0; k < 8; k++) { const a = e.ang + Math.PI + (Math.random() - 0.5) * 1.6, v = 30 + Math.random() * 70; P.push({ x: e.x, y: e.y + 4, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.45, max: 0.45, c: 'rgba(170,160,140,0.35)', s: 5, smoke: true }); } break;
+      case 'rollEnd': for (let k = 0; k < 5; k++) P.push({ x: e.x + (Math.random() - 0.5) * 10, y: e.y + 5, vx: (Math.random() - 0.5) * 60, vy: (Math.random() - 0.5) * 30, life: 0.35, max: 0.35, c: 'rgba(170,160,140,0.3)', s: 4, smoke: true }); break;
+      case 'dodge': if (e.pid === localId) this.floaters.push({ x: e.x, y: e.y - 18, t: 0.6, text: 'DODGED', c: '#cfe8ff' }); break;
+      case 'reload': if (MAG_GUNS.has(e.gun)) this.toss(e.x + Math.cos(e.ang + 0.4) * 8, e.y + Math.sin(e.ang + 0.4) * 8, e.ang + 2.2 + (Math.random() - 0.5) * 0.5, 50 + Math.random() * 30, 'mag'); break;
+      case 'reloaded': if (e.pid === localId) this.rings2.push({ x: e.x, y: e.y, t: 0.22, r: 22, c: '255,240,190' }); break;
       case 'pickup': if (e.text) this.floaters.push({ x: e.x, y: e.y - 20, t: 1.2, text: e.text, c: '#cfe8a0' }); break;
       case 'zdown': for (let k = 0; k < 6; k++) P.push({ x: e.x, y: e.y, vx: (Math.random() - 0.5) * 90, vy: (Math.random() - 0.5) * 90, life: 0.4, max: 0.4, c: 'rgba(180,170,150,0.4)', s: 5, smoke: true }); break;
       case 'step': if (e.loud) P.push({ x: e.x + (Math.random() - 0.5) * 8, y: e.y + 6, vx: 0, vy: 0, life: 0.35, max: 0.35, c: 'rgba(160,150,130,0.3)', s: 4, smoke: true }); break;
@@ -277,7 +296,7 @@ export class Renderer {
       case 'gunshot':
         if (e.gun === 'crossbow') break;
         if (!e.silenced) this.flashes.push({ x: e.x, y: e.y, t: e.gun === 'shotgun' || e.gun === 'rifle' ? 0.09 : 0.06, r: e.gun === 'shotgun' ? 330 : e.gun === 'smg' ? 200 : 260 });
-        P.push({ x: e.x, y: e.y, vx: Math.cos(e.ang + 1.6) * 90, vy: Math.sin(e.ang + 1.6) * 90, life: 0.5, max: 0.5, c: '#d9b35a', s: 2 });
+        if (e.gun !== 'shotgun' || Math.random() < 0.5) this.toss(e.x - Math.cos(e.ang) * 10, e.y - Math.sin(e.ang) * 10, e.ang + 1.75 + (Math.random() - 0.5) * 0.6, 90 + Math.random() * 60, e.gun === 'shotgun' ? 'shell' : 'casing');
         for (let k = 0; k < 3; k++) P.push({ x: e.x, y: e.y, vx: Math.cos(e.ang) * 60 + (Math.random() - 0.5) * 30, vy: Math.sin(e.ang) * 60 + (Math.random() - 0.5) * 30, life: 0.6, max: 0.6, c: 'rgba(180,180,180,0.4)', s: 5, smoke: true });
         if (e.pid === localId) { this.shake = Math.max(this.shake, e.gun === 'shotgun' ? 7 : e.gun === 'rifle' ? 6 : 3); const K = { carbine: 6, pistol: 5, smg: 2.5, shotgun: 11, rifle: 13, crossbow: 3 }[e.gun] || 4; this.kick.x -= Math.cos(e.ang) * K; this.kick.y -= Math.sin(e.ang) * K; }
         break;
@@ -327,6 +346,7 @@ export class Renderer {
       if (cx < 0 || cy < 0 || cx * CH >= w.w || cy * CH >= w.h) continue;
       ctx.drawImage(this.chunk(cx, cy), cx * CPX, cy * CPX, CPX + seam, CPX + seam);
     }
+    this.drawBloodTrail(ctx, vx0, vy0, vx1, vy1, s.time);
     // peeking: the slit of view through a cracked door or window
     this.peekI = p && p.peek && !p.dead ? p.peek.i : -1; this.peekView = null;
     if (this.peekI >= 0) {
@@ -379,6 +399,8 @@ export class Renderer {
       ctx.fillStyle = o.id === 'noisemaker' ? '#c77ad6' : '#555'; ctx.beginPath(); ctx.arc(o.x, o.y, 4, 0, 7); ctx.fill();
       if (o.id === 'noisemaker' && o.fly <= 0 && (this.time * 2) % 1 < 0.5) { ctx.fillStyle = '#ff4a4a'; ctx.fillRect(o.x - 1, o.y - 1, 2, 2); }
     }
+    this.drawClutter(ctx, w, vx0, vy0, vx1, vy1);
+    this.drawTables(ctx, w, vx0, vy0, vx1, vy1, ui.interact && ui.interact.kind === 'table' ? ui.interact.ti : -1);
     // visibility
     const dl = daylight(s);
     const R = 15 * TILE;
@@ -435,6 +457,7 @@ export class Renderer {
     this.bolts = this.bolts.filter((b) => b.t < 0.3);
     for (const g of this.rings) { g.t -= dt; const k = 1 - g.t / 0.7; ctx.strokeStyle = `rgba(200,220,255,${0.22 * (1 - k)})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(g.x, g.y, g.r * (0.3 + 0.7 * k), 0, 7); ctx.stroke(); }
     this.rings = this.rings.filter((g) => g.t > 0);
+    this.drawBits(ctx, dt);
     for (const id in s.players) { const q = s.players[id]; if (!q.dead) this.player(ctx, q); }
     // tracers & particles
     ctx.lineCap = 'round';
@@ -801,8 +824,169 @@ export class Renderer {
       ctx.globalAlpha /= a;
     }
   }
+  // ---------- reactive clutter, tables and loose bits ----------
+  // a solid bit that arcs, bounces and stays on the floor: casings, mags, cans, splinters, glass
+  toss(x, y, ang, v, kind, c) {
+    this.bits.push({ kind, x, y, z: 6 + Math.random() * 6, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, vz: 60 + Math.random() * 90, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 30, bounces: 0, c });
+  }
+  // a loose page: thrown up, flutters down, stays where it lands
+  page(x, y, ang, v, c) {
+    const a = ang + (Math.random() - 0.5) * 2.6, sp = v * (0.3 + Math.random());
+    this.bits.push({ kind: 'page', x, y, z: 4, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 70 + Math.random() * 120, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 12, ph: Math.random() * 6.28, c });
+  }
+  burst(e) {
+    const ang = e.ang || 0, P = this.parts;
+    if (e.kind === 'books' || e.kind === 'papers' || e.kind === 'box') {
+      const n = e.kind === 'books' ? 16 : e.kind === 'papers' ? 12 : 5;
+      for (let k = 0; k < n; k++) this.page(e.x, e.y, ang, 130, PAGE_COL[(k + e.v) % PAGE_COL.length]);
+      if (e.kind === 'books') for (let k = 0; k < 2; k++) this.toss(e.x, e.y, ang + (Math.random() - 0.5) * 2, 60 + Math.random() * 80, 'cover', BOOK_COL[(e.v + k) % 4]);
+      if (e.kind === 'box') for (let k = 0; k < 5; k++) this.toss(e.x, e.y, ang + (Math.random() - 0.5) * 2.4, 50 + Math.random() * 110, 'cardboard');
+      for (let k = 0; k < 4; k++) P.push({ x: e.x, y: e.y, vx: (Math.random() - 0.5) * 60, vy: (Math.random() - 0.5) * 60, life: 0.5, max: 0.5, c: 'rgba(215,205,185,0.25)', s: 5, smoke: true });
+    } else if (e.kind === 'bottle') {
+      for (let k = 0; k < 9; k++) this.toss(e.x, e.y, ang + (Math.random() - 0.5) * 2.8, 40 + Math.random() * 150, 'shard', e.v % 2 ? 'rgba(90,150,80,0.9)' : 'rgba(150,100,50,0.9)');
+      this.decal(e.x, e.y, (g) => { g.fillStyle = 'rgba(60,50,30,0.28)'; g.beginPath(); g.ellipse(e.x + Math.cos(ang) * 6, e.y + Math.sin(ang) * 6, 11, 7, ang, 0, 7); g.fill(); });
+    } else if (e.kind === 'cans') for (let k = 0; k < 3; k++) this.toss(e.x, e.y, ang + (Math.random() - 0.5) * 1.8, 70 + Math.random() * 120, 'can');
+    if (this.nearMe(e, 260)) this.shake = Math.max(this.shake, 1.2);
+  }
+  bitShape(g, b, landed) {
+    switch (b.kind) {
+      case 'page': { const fw = landed ? 5 : 1 + 4.5 * Math.abs(Math.cos(b.ph)); g.fillStyle = b.c; g.fillRect(-fw / 2, -3.5, fw, 7); g.fillStyle = 'rgba(60,60,70,0.35)'; g.fillRect(-fw / 2 + 0.8, -1.5, fw * 0.7, 0.6); g.fillRect(-fw / 2 + 0.8, 0.5, fw * 0.6, 0.6); break; }
+      case 'casing': g.fillStyle = '#d9b35a'; g.fillRect(-0.8, -1.9, 1.6, 3.8); break;
+      case 'shell': g.fillStyle = '#b8382e'; g.fillRect(-1.1, -2.4, 2.2, 3.6); g.fillStyle = '#d9b35a'; g.fillRect(-1.1, 1.2, 2.2, 1.3); break;
+      case 'mag': g.fillStyle = '#2a2c30'; g.fillRect(-1.7, -4, 3.4, 8); g.fillStyle = 'rgba(255,255,255,0.15)'; g.fillRect(-1.7, -4, 3.4, 1); break;
+      case 'can': g.fillStyle = '#9aa0a6'; g.beginPath(); g.arc(0, 0, 2.6, 0, 7); g.fill(); g.fillStyle = '#c84a3a'; g.fillRect(-2.6, -0.8, 5.2, 1.6); break;
+      case 'shard': g.fillStyle = b.c || 'rgba(200,230,245,0.85)'; g.beginPath(); g.moveTo(-1.6, -1); g.lineTo(1.8, -0.4); g.lineTo(-0.4, 1.4); g.fill(); break;
+      case 'splinter': g.fillStyle = '#7a5a3a'; g.fillRect(-3.5, -0.8, 7, 1.6); break;
+      case 'cover': g.fillStyle = b.c; g.fillRect(-2.6, -3.4, 5.2, 6.8); g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(-2.6, -3.4, 1, 6.8); break;
+      case 'cardboard': g.fillStyle = '#a8875a'; g.fillRect(-2.2, -2, 4.4, 4); g.fillStyle = 'rgba(0,0,0,0.15)'; g.fillRect(-2.2, 1, 4.4, 1); break;
+    }
+  }
+  drawBits(ctx, dt) {
+    const w = this.world;
+    const stamp = (b) => { const { x, y, rot } = b; this.decal(x, y, (g) => { g.save(); g.translate(x, y); g.rotate(rot); g.globalAlpha = 0.9; this.bitShape(g, b, true); g.restore(); }); };
+    for (const b of this.bits) {
+      const ox = b.x, oy = b.y;
+      if (b.kind === 'page') {
+        b.ph += dt * 7; b.vz = Math.max(b.vz - 300 * dt, -32); b.z += b.vz * dt;
+        const drag = Math.max(0, 1 - dt * 2.2); b.vx *= drag; b.vy *= drag;
+        b.x += (b.vx + Math.cos(b.ph) * 24) * dt; b.y += (b.vy + Math.sin(b.ph * 0.7) * 9) * dt; b.rot += b.vr * dt;
+        if (b.z <= 0) { b.z = 0; b.done = true; }
+      } else {
+        b.vz -= 900 * dt; b.z += b.vz * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.rot += b.vr * dt;
+        if (b.z <= 0) {
+          b.z = 0;
+          if (b.bounces++ >= (b.kind === 'can' ? 3 : 2) || Math.abs(b.vz) < 50) b.done = true;
+          else { b.vz *= -0.38; const f = b.kind === 'can' ? 0.8 : 0.55; b.vx *= f; b.vy *= f; b.vr *= 0.5; }
+        }
+      }
+      // bounce off walls instead of flying into the next room
+      if (opaqueAt(w, Math.floor(b.x / TILE), Math.floor(b.y / TILE))) { b.x = ox; b.y = oy; b.vx *= -0.4; b.vy *= -0.4; }
+      if (b.done) { stamp(b); continue; }
+      if (b.z > 1) { ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(b.x - 2, b.y - 1, 4, 2); }
+      ctx.save(); ctx.translate(b.x, b.y - b.z * 0.6); ctx.rotate(b.rot); this.bitShape(ctx, b, false); ctx.restore();
+    }
+    this.bits = this.bits.filter((b) => !b.done);
+    if (this.bits.length > 500) { for (const b of this.bits.splice(0, this.bits.length - 500)) stamp(b); }
+  }
+  // the blood trail: fresh drops are bright and wet, then darken to brown and fade out as they dry
+  drawBloodTrail(ctx, vx0, vy0, vx1, vy1, now) {
+    if (!this.trail.length) return;
+    this.trail = this.trail.filter((b) => now - b.t < BLOOD_LIFE && now >= b.t - 1);
+    for (const b of this.trail) {
+      if (b.x < vx0 - 10 || b.x > vx1 + 10 || b.y < vy0 - 10 || b.y > vy1 + 10) continue;
+      const age = (now - b.t) / BLOOD_LIFE, dry = Math.min(1, age * 2.5), a = age < 0.6 ? 0.85 : 0.85 * (1 - (age - 0.6) / 0.4);
+      const r = 1.6 + b.lv * 0.9;
+      ctx.fillStyle = `rgba(${Math.round(150 - 80 * dry)},${Math.round(8 + 14 * dry)},${Math.round(8 + 6 * dry)},${a})`;
+      ctx.beginPath(); ctx.ellipse(b.x, b.y, r, r * 0.8, b.h * 6, 0, 7); ctx.fill();
+      for (let k = 0; k < b.lv + 1; k++) { const an = b.h * 40 + k * 2.1, d = r + 1.5 + ((b.h * (k + 3) * 7) % 1) * 4; ctx.beginPath(); ctx.arc(b.x + Math.cos(an) * d, b.y + Math.sin(an) * d, 0.6 + ((b.h * (k + 5) * 3) % 1) * 0.9, 0, 7); ctx.fill(); }
+      if (age < 0.1) { ctx.fillStyle = `rgba(255,150,150,${0.4 * (1 - age * 10)})`; ctx.beginPath(); ctx.arc(b.x - r * 0.3, b.y - r * 0.3, r * 0.3, 0, 7); ctx.fill(); }
+    }
+  }
+  drawClutter(ctx, w, vx0, vy0, vx1, vy1) {
+    for (const c of w.clutter || []) {
+      if (c.broken || c.x < vx0 - 20 || c.x > vx1 + 20 || c.y < vy0 - 20 || c.y > vy1 + 20) continue;
+      ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.a);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      switch (c.kind) {
+        case 'books': { ctx.fillRect(-4, -4, 11, 13); const n = 2 + (c.v % 2); for (let k = 0; k < n; k++) { const o = -k * 1.4; ctx.fillStyle = BOOK_COL[(c.v + k) % 4]; ctx.fillRect(-5 + k * 0.8, -6 + o, 10, 12); ctx.fillStyle = '#e8e2d0'; ctx.fillRect(4 + k * 0.8, -5 + o, 1.2, 10); } break; }
+        case 'papers': for (let k = 0; k < 3; k++) { ctx.save(); ctx.rotate((k - 1) * 0.5 + c.v); ctx.fillStyle = PAGE_COL[(c.v + k) % PAGE_COL.length]; ctx.fillRect(-4 + k * 2, -5, 8, 10); ctx.fillStyle = 'rgba(60,60,70,0.3)'; ctx.fillRect(-3 + k * 2, -3, 6, 0.8); ctx.fillRect(-3 + k * 2, -1, 5, 0.8); ctx.fillRect(-3 + k * 2, 1, 6, 0.8); ctx.restore(); } break;
+        case 'box': ctx.fillRect(-5, -4, 14, 12); ctx.fillStyle = '#a8875a'; ctx.fillRect(-7, -6, 14, 12); ctx.fillStyle = '#c8ad80'; ctx.fillRect(-7, -1, 14, 2); ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fillRect(-7, 4, 14, 2); break;
+        case 'bottle': ctx.fillRect(-1, -3, 6, 10); ctx.fillStyle = c.v % 2 ? '#3f7a3a' : '#7a4a22'; ctx.beginPath(); ctx.roundRect(-2.5, -4, 5, 9, 2); ctx.fill(); ctx.fillRect(-1, -7, 2, 3.5); ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(-1.6, -3, 1, 6); break;
+        case 'cans': for (let k = 0; k < 3; k++) { const x = (k - 1) * 5.5, y = (k % 2) * 4 - 2; ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.arc(x + 1, y + 1.5, 3.2, 0, 7); ctx.fill(); ctx.fillStyle = '#a0a6ac'; ctx.beginPath(); ctx.arc(x, y, 3, 0, 7); ctx.fill(); ctx.fillStyle = ['#c84a3a', '#3a7ac8', '#c8a03a'][(c.v + k) % 3]; ctx.beginPath(); ctx.arc(x, y, 1.8, 0, 7); ctx.fill(); } break;
+      }
+      ctx.restore();
+    }
+  }
+  drawTables(ctx, w, vx0, vy0, vx1, vy1, hl) {
+    for (const ti of w.tables || []) {
+      const t = w.props[ti]; if (t.hp <= 0) continue;
+      const X = t.x * TILE, Y = t.y * TILE, W = t.w * TILE, H = t.h * TILE;
+      if (X > vx1 + 20 || X + W < vx0 - 20 || Y > vy1 + 20 || Y + H < vy0 - 20) continue;
+      if (!t.flip) {
+        ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(X + 4, Y + 5, W, H);
+        ctx.fillStyle = '#7a5a3a'; ctx.fillRect(X, Y, W, H); ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fillRect(X + 2, Y + 2, W - 4, 3);
+        ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(X, Y + H - 2, W, 2);
+        if (ti === hl) { ctx.strokeStyle = this.hlCol; ctx.lineWidth = 2; ctx.strokeRect(X - 1, Y - 1, W + 2, H + 2); }
+        continue;
+      }
+      let a = this.tableAnim.get(ti), k = 1;
+      if (a !== undefined) { a += this.dt; k = Math.min(1, a / 0.2); if (a > 0.4) this.tableAnim.delete(ti); else this.tableAnim.set(ti, a); }
+      const e = 1 + 2.4 * Math.pow(k - 1, 3) + 1.4 * Math.pow(k - 1, 2); // ease out with a little overshoot: it slams down
+      const R = tableRect(t), r = [X + (R[0] - X) * e, Y + (R[1] - Y) * e, W + (R[2] - W) * e, H + (R[3] - H) * e];
+      const nx = t.flip === 2 ? 1 : t.flip === 4 ? -1 : 0, ny = t.flip === 3 ? 1 : t.flip === 1 ? -1 : 0;
+      const lift = Math.sin(Math.PI * k) * 6;
+      ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(r[0] + nx * (4 + lift), r[1] + ny * (4 + lift) + 3, r[2], r[3]);
+      ctx.fillStyle = '#4e3820'; ctx.fillRect(r[0], r[1] - lift * 0.3, r[2], r[3]);
+      ctx.fillStyle = '#8a6a44'; if (nx) ctx.fillRect(r[0] + (nx > 0 ? 0 : r[2] - 2), r[1], 2, r[3]); else ctx.fillRect(r[0], r[1] + (ny > 0 ? 0 : r[3] - 2), r[2], 2);
+      // legs point back at whoever flipped it
+      ctx.fillStyle = '#3a2a18'; const L = 8 * k;
+      if (nx) for (const yy of [r[1] + 3, r[1] + r[3] - 6]) ctx.fillRect(nx > 0 ? r[0] - L : r[0] + r[2], yy, L, 3);
+      else for (const xx of [r[0] + 3, r[0] + r[2] - 6]) ctx.fillRect(xx, ny > 0 ? r[1] - L : r[1] + r[3], 3, L);
+      if (t.hp < 60) { ctx.strokeStyle = 'rgba(20,12,6,0.8)'; ctx.lineWidth = 1; ctx.beginPath(); const n = Math.ceil((60 - t.hp) / 15); for (let q = 0; q < n; q++) { const fx = r[0] + r[2] * (0.2 + 0.6 * hash2(ti, q, 3)), fy = r[1] + r[3] * (0.2 + 0.6 * hash2(q, ti, 4)); ctx.moveTo(fx - 3, fy - 2); ctx.lineTo(fx + 1, fy); ctx.lineTo(fx + 3, fy + 3); } ctx.stroke(); }
+    }
+  }
+  // dodge roll: tucked, one full spin along the direction of travel, with a fading afterimage
+  rollFigure(ctx, p, st) {
+    const k = Math.min(1, p.roll.t / ROLL_DUR), ra = Math.atan2(p.roll.dy, p.roll.dx), G = p.gear || {};
+    const spin = (1 - Math.pow(1 - k, 2)) * Math.PI * 2, tuck = 1 - 0.3 * Math.sin(Math.PI * k);
+    const fr = playerFrame(p.wpn ? p.wpn.id : 'fists', G.body && G.body.id, p.bag && p.bag.id, 'heal', 0, G.head && G.head.id, G.feet && G.feet.id, (p.wpn && p.wpn.mods) || []);
+    const tr = st.trail || (st.trail = []);
+    tr.push({ x: p.x, y: p.y, a: ra + spin }); if (tr.length > 5) tr.shift();
+    for (let i = 0; i < tr.length - 1; i += 2) {
+      const g = tr[i]; ctx.save(); ctx.globalAlpha *= 0.14 + i * 0.05; ctx.translate(g.x, g.y); ctx.rotate(g.a); ctx.scale(tuck, tuck); ctx.drawImage(fr, -P_FRAME / 2, -P_FRAME / 2, P_FRAME, P_FRAME); ctx.restore();
+    }
+    ctx.save(); ctx.translate(p.x, p.y);
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(2, 3, 11 * tuck, 9 * tuck, 0, 0, 7); ctx.fill();
+    ctx.translate(0, -Math.sin(Math.PI * k) * 3); ctx.rotate(ra + spin); ctx.scale(tuck, tuck * 0.94);
+    ctx.drawImage(this.bloodied(fr, p, st), -P_FRAME / 2, -P_FRAME / 2, P_FRAME, P_FRAME);
+    ctx.restore();
+  }
+  // Blood soaked into the clothes: stains painted only onto the body's own pixels, more and bigger the worse the bleeding.
+  // They stay wet and glistening while bleeding, and dry and fade for a while after it's stopped.
+  bloodied(fr, p, st) {
+    st.stain = p.bleeding ? Math.max(st.stain || 0, p.bleedLv || 1) : Math.max(0, (st.stain || 0) - this.dt / 12);
+    if (st.stain <= 0) return fr;
+    const c = this.stainCv || (this.stainCv = document.createElement('canvas'));
+    if (c.width !== fr.width) { c.width = fr.width; c.height = fr.height; }
+    const g = c.getContext('2d'), k = fr.width / P_FRAME, seed = (p.id || 'p').charCodeAt(1) || 1, lv = st.stain, wet = p.bleeding;
+    g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over'; g.clearRect(0, 0, c.width, c.height); g.drawImage(fr, 0, 0);
+    g.globalCompositeOperation = 'source-atop'; g.setTransform(k, 0, 0, k, c.width / 2, c.height / 2);
+    const n = Math.ceil(lv * 2.5), pulse = wet ? 0.08 * Math.sin(this.time * 5) : 0;
+    for (let i = 0; i < n; i++) { // torso, shoulders and arms, never quite the same spots for two players
+      const a = hash2(i, seed, 11) * 6.28, d = 2 + hash2(seed, i, 12) * 8, x = Math.cos(a) * d - 1, y = Math.sin(a) * d * 1.1, r = (1.6 + hash2(i, i, seed) * 2.2) * (0.6 + lv * 0.3);
+      g.fillStyle = wet ? `rgba(130,6,6,${Math.min(0.85, 0.45 + lv * 0.12 + pulse)})` : `rgba(80,20,14,${0.55 * Math.min(1, lv)})`;
+      g.beginPath(); g.ellipse(x, y, r, r * 0.75, a, 0, 7); g.fill();
+      if (lv >= 2) { g.fillRect(x - 0.5, y, 1, r * 1.6); g.beginPath(); g.arc(x, y + r * 1.6, 0.9, 0, 7); g.fill(); } // runs down from the wound
+      if (wet) { g.fillStyle = 'rgba(255,140,140,0.35)'; g.beginPath(); g.arc(x - r * 0.3, y - r * 0.3, r * 0.25, 0, 7); g.fill(); }
+    }
+    // drops falling off the body; they land as the trail the sim lays down
+    if (wet && Math.random() < this.dt * (p.bleedLv || 1) * 6) { const a = Math.random() * 6.28; this.parts.push({ x: p.x + Math.cos(a) * 7, y: p.y + Math.sin(a) * 7, vx: (Math.random() - 0.5) * 20, vy: 10 + Math.random() * 20, life: 0.3, max: 0.3, c: '#8a0808', s: 1.6 + (p.bleedLv || 1) * 0.4 }); }
+    return c;
+  }
   player(ctx, p) {
     const st = this.anim(p), wd = p.wpn ? ITEMS[p.wpn.id] : null;
+    if (p.roll) return this.rollFigure(ctx, p, st);
+    st.trail = null;
     const gait = p.sprinting ? 'run' : 'walk', stride = st.d / (p.sprinting ? 125 : 70);
     let anim = 'idle', t = (this.time * 0.9) % 1;
     if (p.channel) { anim = 'heal'; t = (this.time * 1.6) % 1; }
@@ -816,7 +1000,7 @@ export class Renderer {
     ctx.fillStyle = 'rgba(0,0,0,0.32)'; ctx.beginPath(); ctx.ellipse(2, 3, 12, 10, 0, 0, 7); ctx.fill();
     ctx.rotate(p.ang);
     if (acting) ctx.drawImage(legsFrame(G.feet && G.feet.id, gait, stride), -P_FRAME / 2, -P_FRAME / 2, P_FRAME, P_FRAME);
-    ctx.drawImage(fr, -P_FRAME / 2, -P_FRAME / 2, P_FRAME, P_FRAME);
+    ctx.drawImage(this.bloodied(fr, p, st), -P_FRAME / 2, -P_FRAME / 2, P_FRAME, P_FRAME);
     if (p.muzzle > 0 && wd && wd.cat === 'gun') {
       const m = muzzleTip(p.wpn.id);
       if (m) { ctx.fillStyle = '#fff2b0'; ctx.beginPath(); ctx.moveTo(m[0], m[1] - 4); ctx.lineTo(m[0] + 12, m[1]); ctx.lineTo(m[0], m[1] + 4); ctx.fill(); ctx.fillStyle = '#ffb040'; ctx.beginPath(); ctx.arc(m[0] + 2, m[1], 3.5, 0, 7); ctx.fill(); }

@@ -141,7 +141,18 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   else if (p.channel) { prog = p.channel.t / p.channel.dur; ptxt = `Using ${ITEMS[p.channel.id].name}...`; }
   else if (p.pry) { prog = p.pry.t / p.pry.dur; ptxt = 'Prying the door...'; }
   else if (p.climb) { prog = p.climb.t / p.climb.dur; ptxt = 'Climbing...'; }
-  else if (p.reload > 0 && p.wpn) { prog = 1 - p.reload / ITEMS[p.wpn.id].reload; ptxt = 'Reloading...'; }
+  // reloads get a quick bar over the head instead of the ring: a tick runs across it, and it flashes when the gun is ready
+  const wdh = p.wpn && ITEMS[p.wpn.id];
+  if (p.reload > 0 && wdh && prog === null) {
+    const k = 1 - p.reload / wdh.reload, bw = 46, x0 = ps.x - bw / 2, y0 = ps.y - 34;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(x0 - 2, y0 - 2, bw + 4, 8);
+    ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(x0, y0, bw, 4);
+    ctx.fillStyle = '#ffd27a'; ctx.fillRect(x0, y0, bw * k, 4);
+    ctx.fillStyle = '#fff'; ctx.fillRect(x0 + bw * k - 1, y0 - 3, 2, 10);
+  } else if (wdh && wdh.cat === 'gun' && p.wpn.mag <= 0 && !p.dead && prog === null && (performance.now() % 700) < 450) {
+    ctx.font = '800 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillText('RELOAD [R]', ps.x + 1, ps.y - 29);
+    ctx.fillStyle = '#ffd27a'; ctx.fillText('RELOAD [R]', ps.x, ps.y - 30);
+  }
   if (prog !== null) {
     ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(ps.x, ps.y, 26, 0, 7); ctx.stroke();
     ctx.strokeStyle = '#ffd27a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(ps.x, ps.y, 26, -Math.PI / 2, -Math.PI / 2 + prog * Math.PI * 2); ctx.stroke();

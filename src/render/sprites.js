@@ -4,7 +4,7 @@ import { MODS } from '../data/items.js';
 const S = 2;          // pixel density of the cached frames
 const OUT = '#16171b'; // outline colour
 
-export const P_ANIMS = { idle: 6, walk: 10, run: 10, attack: 12, reload: 16, heal: 4, shove: 6 };
+export const P_ANIMS = { idle: 6, walk: 10, run: 10, attack: 12, reload: 28, heal: 4, shove: 6 };
 export const Z_ANIMS = { idle: 4, walk: 8, attack: 6, hit: 3, death: 7 };
 
 const lerp = (a, b, t) => a + (b - a) * t;

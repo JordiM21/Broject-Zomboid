@@ -1,12 +1,13 @@
 import { SAVE_KEY } from './config.js';
 import { createState } from './sim/sim.js';
+import { tablesChanged } from './sim/props.js';
 
 const toB64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode.apply(null, u8.subarray(i, i + 8192)); return btoa(s); };
 const fromB64 = (b) => { const s = atob(b), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
 
 function packPlayer(p) {
   const { inv, wpn, bag, gear } = p;
-  return { id: p.id, x: p.x, y: p.y, hp: p.hp, hunger: p.hunger, thirst: p.thirst, stamina: p.stamina, bleeding: p.bleeding, infection: p.infection,
+  return { id: p.id, x: p.x, y: p.y, hp: p.hp, hunger: p.hunger, thirst: p.thirst, stamina: p.stamina, bleeding: p.bleeding, bleedLv: p.bleedLv || 0, infection: p.infection,
     regen: p.regen, inv, wpn: inv.indexOf(wpn), bag, gear, hotbar: (p.hotbar || []).map((h) => (h ? [h.id, inv.indexOf(h.ref)] : null)), buffs: p.buffs, flashlight: p.flashlight, sneak: p.sneak, dead: p.dead };
 }
 
@@ -23,6 +24,7 @@ export function saveGame(s, explored) {
   const data = {
     v: 1, seed: s.seed, testGear: s.testGear, time: s.time, dawnIdx: s.dawnIdx, nextId: s.nextId, upgrades: s.upgrades, hordeDay: s.hordeDay, obj: s.obj,
     stats: s.stats, tradePoints: s.tradePoints, loose: s.loose, cont, doors, windows,
+    clutter: w.clutter.flatMap((c, i) => (c.broken ? [i] : [])), tables: w.tables.flatMap((ti) => { const t = w.props[ti]; return t.flip || t.hp < 60 ? [[ti, t.flip, t.hp]] : []; }),
     players: [...Object.values(s.players).map(packPlayer), ...Object.values(s.parked || {}).map((p) => ({ ...packPlayer(p), parked: true }))],
     zombies: s.zombies.map((z) => [z.type, Math.round(z.x), Math.round(z.y), Math.round(z.hp)]),
     explored: explored ? toB64(explored) : null, savedAt: Date.now(),
@@ -51,6 +53,9 @@ export function loadGame(spawnZombie, newPlayer) {
   s.loose = s.loose.filter((id) => w.containers[id]);
   for (const [i, o, hp, b, bar, lk] of d.doors) if (w.doors[i]) Object.assign(w.doors[i], { open: !!o, hp, broken: !!b, bar: bar || 0, locked: !!lk });
   for (const [i, o, b, hp] of d.windows || []) if (w.windows[i]) Object.assign(w.windows[i], { open: !!o, broken: !!b, hp });
+  for (const i of d.clutter || []) if (w.clutter[i]) w.clutter[i].broken = true;
+  for (const [ti, flip, hp] of d.tables || []) if (w.props[ti] && w.props[ti].kind === 'table') Object.assign(w.props[ti], { flip, hp });
+  tablesChanged(w);
   for (const pp of d.players) {
     const p = newPlayer(s, pp.id, 'none');
     Object.assign(p, pp); p.inv = pp.inv; p.wpn = pp.wpn >= 0 ? p.inv[pp.wpn] : null;

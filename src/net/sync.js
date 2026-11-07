@@ -1,5 +1,6 @@
 // Co-op state sync. The host owns the simulation and sends the partner only what changed, near the partner.
 // Pure functions with no browser or socket code, so tests/coop.test.mjs can run both sides headless.
+import { tablesChanged } from '../sim/props.js';
 
 const r1 = (v) => Math.round(v * 10) / 10, r2 = (v) => Math.round(v * 100) / 100;
 export const FRAME_HZ = 30, WORLD_HZ = 10;
@@ -7,12 +8,13 @@ const SEE_RADIUS = 36 * 32, FORGET_RADIUS = 42 * 32, EVENT_RADIUS = 1500;
 
 // ---------- players ----------
 // sent every frame, as an array in this order, to keep messages small
-const FAST = ['x', 'y', 'ang', 'hp', 'hunger', 'thirst', 'stamina', 'reload', 'swing', 'swingDur', 'muzzle', 'hurt', 'bloom', 'vis', 'infection', 'openCid', 'moving', 'sprinting', 'sneak', 'ads', 'flashlight', 'dead', 'bleeding', 'act', 'channel', 'search', 'peek', 'climb', 'pry'];
+const FAST = ['x', 'y', 'ang', 'hp', 'hunger', 'thirst', 'stamina', 'reload', 'swing', 'swingDur', 'muzzle', 'hurt', 'bloom', 'vis', 'infection', 'openCid', 'moving', 'sprinting', 'sneak', 'ads', 'flashlight', 'dead', 'bleeding', 'act', 'channel', 'search', 'peek', 'climb', 'pry', 'roll', 'bleedLv'];
+const ROLL_I = FAST.indexOf('roll');
 const fastRow = (p) => FAST.map((k) => { const v = p[k]; return typeof v === 'number' ? (k === 'x' || k === 'y' ? r1(v) : r2(v)) : v ?? null; });
-const SKIP_FOR_SELF = new Set(['x', 'y', 'ang']); // the partner predicts their own position and aim
+const SKIP_FOR_SELF = new Set(['x', 'y', 'ang', 'roll']); // the partner predicts their own position, aim and dodge roll
 function applyFast(p, row, self) {
   FAST.forEach((k, i) => { if (self && SKIP_FOR_SELF.has(k)) return; p[k] = row[i]; });
-  if (self) { p.hostX = row[0]; p.hostY = row[1]; }
+  if (self) { p.hostX = row[0]; p.hostY = row[1]; p.hostRoll = row[ROLL_I]; }
 }
 // sent only when it changes
 const slowOf = (p) => ({ inv: p.inv, wpn: p.inv.indexOf(p.wpn), bag: p.bag, gear: p.gear, hotbar: (p.hotbar || []).map((h) => (h ? [h.id, p.inv.indexOf(h.ref)] : null)), buffs: Object.fromEntries(Object.entries(p.buffs || {}).map(([k, v]) => [k, Math.ceil(v)])) }); // whole seconds: exact timers would resend everything every frame
@@ -26,7 +28,7 @@ const ZTYPES = ['walker', 'runner', 'brute', 'soldier'], ZSTATES = ['idle', 'inv
 const zRow = (z) => [z.id, ZTYPES.indexOf(z.type), Math.round(z.x), Math.round(z.y), r1(z.ang), Math.round(z.hp), ZSTATES.indexOf(z.state), r2(z.atk), r2(z.hitT || 0), r2(z.flash || 0), r1(z.sus || 0), z.wounds || 0, z.hitAge === undefined || z.hitAge >= 3.5 ? -1 : r1(z.hitAge)]; // the hit timer counts forever, but only matters for the health bar's 3 s
 
 // ---------- host: build messages ----------
-export const newTracker = () => ({ pl: {}, z: new Map(), doors: new Map(), win: new Map(), cont: [], loose: '', meta: '', thrown: '' });
+export const newTracker = () => ({ pl: {}, z: new Map(), doors: new Map(), win: new Map(), cont: [], loose: '', meta: '', thrown: '', clutter: '', tables: '' });
 
 export function packFrame(s, t, guestId, ack, events) {
   const f = { k: 'f', t: r1(s.time), a: ack, r: r2(s.weather.rain), p: {} };
@@ -77,6 +79,10 @@ export function packWorld(s, t) {
   }
   if (d.length) { o.d = d; any = true; }
   if (wi.length) { o.wi = wi; any = true; }
+  const cl = w.clutter.flatMap((q, i) => (q.broken ? [i] : [])), cls = cl.join();
+  if (cls !== t.clutter) { t.clutter = cls; o.cl = cl; any = true; }
+  const tb = w.tables.flatMap((ti) => { const q = w.props[ti]; return q.flip || q.hp < 60 ? [[ti, q.flip, Math.round(q.hp)]] : []; }), tbs = JSON.stringify(tb);
+  if (tbs !== t.tables) { t.tables = tbs; o.tb = tb; any = true; }
   if (c.length) { o.c = c; any = true; }
   const loose = JSON.stringify(s.loose); if (loose !== t.loose) { t.loose = loose; o.loose = s.loose; any = true; }
   const meta = JSON.stringify({ upgrades: s.upgrades, obj: s.obj, stats: s.stats, tradePoints: s.tradePoints, hordeDay: s.hordeDay, dawnIdx: s.dawnIdx });
@@ -113,6 +119,8 @@ export function applyWorld(s, o) {
   const w = s.world;
   if (o.d) for (const [i, open, broken, locked, bar] of o.d) if (w.doors[i]) Object.assign(w.doors[i], { open: !!open, broken: !!broken, locked: !!locked, bar });
   if (o.wi) for (const [i, open, broken] of o.wi) if (w.windows[i]) Object.assign(w.windows[i], { open: !!open, broken: !!broken });
+  if (o.cl) for (const i of o.cl) if (w.clutter[i]) w.clutter[i].broken = true;
+  if (o.tb) { for (const ti of w.tables) { w.props[ti].flip = 0; w.props[ti].hp = 60; } for (const [ti, flip, hp] of o.tb) Object.assign(w.props[ti], { flip, hp }); tablesChanged(w); }
   if (o.c) for (const [i, c] of o.c) {
     if (i < s.baseConts && w.containers[i] && c) { const q = w.containers[i]; q.items = c.items; q.searched = c.searched; q.salt = c.salt; }
     else if (i < s.baseConts && w.containers[i]) { w.containers[i].items = null; w.containers[i].searched = false; w.containers[i].salt = 0; } // back to untouched: it restocked
@@ -138,7 +146,7 @@ export function smooth(s, dt, localId) {
 
 // ---------- inputs ----------
 // One-shot keys must survive even if a message is merged or a tick is skipped.
-const EDGES = ['sneak', 'interact', 'reload', 'shove', 'flash', 'heal', 'throwN', 'throwB', 'barricade', 'peekStart'];
+const EDGES = ['sneak', 'interact', 'reload', 'roll', 'shove', 'flash', 'heal', 'throwN', 'throwB', 'barricade', 'peekStart'];
 export function compactInput(inp) { const o = {}; for (const k in inp) { const v = inp[k]; if (v === false || v === undefined || v === -1) continue; o[k] = v; } return o; }
 const expand = (i) => ({ sel: -1, hotEquip: -1, ...i });
 // Takes the partner's next input for this tick. Falls back to holding the last one, without repeating one-shot keys.

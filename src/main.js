@@ -120,7 +120,7 @@ function newGame() {
   addPlayer(st, LOCAL);
   begin(st, null);
   addMsg('You wake up in the safehouse. Supplies are almost gone.', '#ffd27a');
-  addMsg('WASD move · Mouse aim · Click attack · E interact · Tab inventory', '#bbb');
+  addMsg('WASD move · Mouse aim · Click attack · Space dodge roll · E interact · Tab inventory', '#bbb');
   addMsg('Loot the town and bring it back to the Stash. Zombies cannot enter the fence.', '#bbb');
   save();
 }
@@ -193,7 +193,7 @@ function buildInput(first) {
     mx: panels.isOpen || ui.bigMap ? undefined : ui.mouseWorld.x, my: panels.isOpen || ui.bigMap ? undefined : ui.mouseWorld.y,
     up: k('KeyW') || k('ArrowUp'), down: k('KeyS') || k('ArrowDown'), left: k('KeyA') || k('ArrowLeft'), right: k('KeyD') || k('ArrowRight'),
     sprint: k('ShiftLeft') || k('ShiftRight'), attack: mouse.down && !ui.bigMap && !panels.isOpen, aim: mouse.aim && !ui.bigMap && !panels.isOpen,
-    sneak: ed('KeyC'), interact: ed('KeyE'), reload: ed('KeyR'), shove: ed('Space'), flash: ed('KeyF'), heal: ed('KeyH'), throwN: ed('KeyG'), throwB: ed('KeyX'), barricade: ed('KeyB'),
+    sneak: ed('KeyC'), interact: ed('KeyE'), reload: ed('KeyR'), roll: ed('Space'), shove: ed('KeyV'), flash: ed('KeyF'), heal: ed('KeyH'), throwN: ed('KeyG'), throwB: ed('KeyX'), barricade: ed('KeyB'),
     sel: first ? selPending : -1, hotEquip: first ? hotEquipPending : -1,
     peek: k('KeyQ') && !panels.isOpen && !ui.bigMap, peekStart: ed('KeyQ'),
   };

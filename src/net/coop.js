@@ -113,7 +113,7 @@ export class CoopGuest {
     const p = this.s.players[GUEST_ID]; if (p.hostX === undefined) return;
     while (this.history.length && this.history[0].seq <= ack) this.history.shift();
     if (!this.ready) { p.x = p.hostX; p.y = p.hostY; return; }
-    const seenX = p.x, seenY = p.y; p.x = p.hostX; p.y = p.hostY;
+    const seenX = p.x, seenY = p.y; p.x = p.hostX; p.y = p.hostY; p.roll = p.hostRoll ? { ...p.hostRoll } : null;
     for (const h of this.history) predictMove(this.s, p, h.inp, h.dt);
     const miss = Math.hypot(p.x - seenX, p.y - seenY);
     if (miss < 48) { p.x = seenX + (p.x - seenX) * 0.25; p.y = seenY + (p.y - seenY) * 0.25; } // small slip: ease it out

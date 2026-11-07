@@ -5,6 +5,7 @@ import { RACK_ITEMS, MOD_STASH_ITEMS, MODS, modFits, gunStats, CAT_ORDER, ITEMS,
 import { generateWorld, T, SOLID } from '../world/worldgen.js';
 import { solidAt, collide, los, castRay, bulletBlock, isSafe, FlowField } from '../world/world.js';
 import { makeItem, addItem, countItem, removeItem, invWeight, rollLoot } from './inventory.js';
+import { trample, smashClutter, collideTables, tableInReach, flipTable, damageTable } from './props.js';
 
 export const ZT = {
   walker: { hp: 60, spd: 36, dmg: 8, sight: 7, r: 10 },
@@ -77,7 +78,7 @@ export function addPlayer(s, id) { s.players[id] = newPlayer(s, id); return s.pl
 export function parkPlayer(s, id) { const p = s.players[id]; if (!p) return; (s.parked = s.parked || {})[id] = p; delete s.players[id]; }
 export function joinPlayer(s, id) {
   if (s.parked && s.parked[id]) { s.players[id] = s.parked[id]; delete s.parked[id]; }
-  if (s.players[id]) { const b = s.players[id]; Object.assign(b, { openCid: -1, search: null, channel: null, peek: null, climb: null, pry: null, reload: 0 }); return b; } // nothing left half-done from last time
+  if (s.players[id]) { const b = s.players[id]; Object.assign(b, { openCid: -1, search: null, channel: null, peek: null, climb: null, pry: null, reload: 0, roll: null }); return b; } // nothing left half-done from last time
   const p = addPlayer(s, id); p.x += 40; // next to the host's start, not on top of them
   return p;
 }
@@ -153,6 +154,7 @@ export function step(s, inputs, dt) {
   }
   for (const n of s.noises) if (n.pl && n.r >= 2 * TILE) ev(s, { type: 'noise', x: n.x, y: n.y, r: n.r });
   s.noises.length = 0;
+  if (s.blood && s.blood.length && s.time - s.blood[0].t > BLOOD_LIFE) s.blood = s.blood.filter((b) => s.time - b.t <= BLOOD_LIFE);
   // looted corpses fade out after 15 s
   if ((s.cleanT = (s.cleanT || 0) - dt) <= 0) {
     s.cleanT = 1;
@@ -207,6 +209,8 @@ export function getInteract(s, p) {
     const d = Math.hypot(c.px - ax, c.py - ay);
     if (Math.hypot(c.px - p.x, c.py - p.y) < 44 && d < bd) { bd = d; best = { kind: 'cont', cid, label: contAction(s, c) }; }
   }
+  // a table only wins when nothing else is close: a door or a container right there still comes first
+  if (!best || bd > 30) { const ti = tableInReach(w, p, ax, ay); if (ti !== null) best = { kind: 'table', ti, label: 'Flip Table (cover)' }; }
   return best;
 }
 function contAction(s, c) {
@@ -248,6 +252,16 @@ function barricade(s, p) {
 function doInteract(s, p) {
   const it = getInteract(s, p); if (!it) return;
   const w = s.world;
+  if (it.kind === 'table') {
+    const f = flipTable(s, p, it.ti); if (!f) return;
+    p.swing = p.swingDur = 0.3; p.act = 'shove'; p.atkCd = Math.max(p.atkCd, 0.3);
+    for (const z of s.zombies) { // the edge catches anything on the far side
+      if (z.hp <= 0 || Math.hypot(z.x - f.cx, z.y - f.cy) > 34 + ZT[z.type].r) continue;
+      const res = z.type === 'brute' ? 0.35 : 1;
+      z.vx += f.nx * 320 * res; z.vy += f.ny * 320 * res; z.stagger = Math.max(z.stagger, 1.2 * res); z.atk = 0; z.hitT = 0.28; z.hitDir = Math.atan2(f.ny, f.nx); z.flash = 0.08;
+    }
+    return;
+  }
   if (it.kind === 'door') {
     const d = w.doors[it.i];
     if (d.broken) { msg(s, 'This door is broken.', '#aaa', p.id); return; }
@@ -310,11 +324,11 @@ function moveIntent(p, inp) {
 function applyMove(s, p, mx, my, dt) {
   const w = s.world, over = carried(p) / capacity(p), slow = over > 1 ? Math.max(0.4, 1 - (over - 1) * 1.2) : 1;
   let speed = p.sneak ? 62 : p.sprinting ? (hasPerk(p, 'sprinter') ? 192 : 172) : 112;
-  speed *= slow * gearStats(p).slow; if (p.buffs && p.buffs.adrenaline) speed *= 1.3; if (p.channel) speed *= 0.4; if (p.reload > 0) speed *= 0.8; if (p.peek) speed *= 0.5;
+  speed *= slow * gearStats(p).slow; if (p.buffs && p.buffs.adrenaline) speed *= 1.3; if (p.channel) speed *= 0.4; if (p.reload > 0) speed *= 0.9; if (p.peek) speed *= 0.5;
   if (w.tiles[Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE)] === T.BUSH) speed *= 0.6;
   const bx = p.x, by = p.y;
   p.x += mx * speed * dt; p.y += my * speed * dt;
-  collide(p, PLAYER_R, (tx, ty) => solidAt(w, tx, ty));
+  collide(p, PLAYER_R, (tx, ty) => solidAt(w, tx, ty)); collideTables(w, p, PLAYER_R);
   // doorway assist: if blocked while moving along one axis, slide toward the open tile's center
   if (p.moving && Math.hypot(p.x - bx, p.y - by) < speed * dt * 0.3 && (Math.abs(mx) < 0.35 || Math.abs(my) < 0.35)) { // nearly axis-aligned, so it also works in the rotating view
     const ax = Math.abs(mx) < 0.35, cx = Math.floor(p.x / TILE), cy = Math.floor(p.y / TILE);
@@ -324,16 +338,36 @@ function applyMove(s, p, mx, my, dt) {
     collide(p, PLAYER_R, (tx, ty) => solidAt(w, tx, ty));
   }
 }
+// ---------- dodge roll ----------
+// A quick tumble: fast out of the gate, easing off, untouchable for most of it. Costs stamina, keeps a reload going.
+export const ROLL_DUR = 0.42, ROLL_IFRAMES = 0.75, ROLL_STAM = 16;
+function startRoll(p, mx, my) {
+  if (p.roll || p.climb || p.dead || p.stamina < ROLL_STAM || (p.rollCd || 0) > 0) return false;
+  if (!mx && !my) { mx = Math.cos(p.ang); my = Math.sin(p.ang); }
+  p.roll = { t: 0, dx: mx, dy: my }; p.stamina -= ROLL_STAM; p.channel = null; p.search = null; p.peek = null; p.pry = null;
+  return true;
+}
+function stepRoll(s, p, dt) {
+  const r = p.roll, w = s.world; r.t += dt;
+  const k = Math.min(1, r.t / ROLL_DUR), over = carried(p) / capacity(p), slow = over > 1 ? Math.max(0.5, 1 - (over - 1)) : 1;
+  const v = (390 * Math.pow(1 - k, 1.4) + 70) * slow * gearStats(p).slow;
+  p.x += r.dx * v * dt; p.y += r.dy * v * dt; p.moving = true; p.sprinting = false;
+  collide(p, PLAYER_R, (tx, ty) => solidAt(w, tx, ty)); collideTables(w, p, PLAYER_R);
+  if (k >= 1) { p.roll = null; p.rollCd = 0.12; }
+}
+export const rolling = (p) => !!p.roll && p.roll.t < ROLL_DUR * ROLL_IFRAMES;
+
 export function predictMove(s, p, inp, dt) {
   if (inp.ang !== undefined) p.ang = inp.ang;
   const [mx, my] = moveIntent(p, inp);
-  if (!p.climb) applyMove(s, p, mx, my, dt);
+  if (inp.roll) startRoll(p, mx, my);
+  if (p.roll) stepRoll(s, p, dt); else if (!p.climb) applyMove(s, p, mx, my, dt);
 }
 
 function updatePlayer(s, p, inp, dt) {
   if (p.dead) return;
   const w = s.world;
-  p.atkCd -= dt; p.swing -= dt; p.invuln -= dt; p.hurt -= dt; p.muzzle -= dt;
+  p.atkCd -= dt; p.swing -= dt; p.invuln -= dt; p.hurt -= dt; p.muzzle -= dt; p.rollCd = (p.rollCd || 0) - dt;
   p.bloom = Math.max(0, (p.bloom || 0) - dt * 1.6);
   p.buffs = p.buffs || {}; for (const k in p.buffs) { p.buffs[k] -= dt; if (p.buffs[k] <= 0) { delete p.buffs[k]; msg(s, k === 'adrenaline' ? 'The adrenaline wears off.' : 'The energy boost fades.', '#aaa', p.id); } }
   if (inp.ang !== undefined) p.ang = inp.ang; else if (inp.mx !== undefined) p.ang = Math.atan2(inp.my - p.y, inp.mx - p.x);
@@ -347,7 +381,7 @@ function updatePlayer(s, p, inp, dt) {
   if (p.climb) {
     const c = p.climb; c.t += dt; const k = Math.min(1, c.t / c.dur);
     p.x = c.x0 + (c.x1 - c.x0) * k; p.y = c.y0 + (c.y1 - c.y0) * k; p.moving = true;
-    if (k >= 1) { p.climb = null; if (c.glass && rnd() < 0.35 && !p.bleeding && !hasPerk(p, 'glassproof')) { p.bleeding = true; p.hp -= 5; msg(s, 'You cut yourself on the broken glass!', '#ff6a6a', p.id); ev(s, { type: 'phurt', x: p.x, y: p.y, pid: p.id, ang: 0 }); } }
+    if (k >= 1) { p.climb = null; if (c.glass && rnd() < 0.35 && !p.bleeding && !hasPerk(p, 'glassproof')) { p.bleeding = true; p.bleedLv = 1; p.hp -= 5; msg(s, 'You cut yourself on the broken glass!', '#ff6a6a', p.id); ev(s, { type: 'phurt', x: p.x, y: p.y, pid: p.id, ang: 0 }); } }
     survival(s, p, dt); if (p.hp <= 0) killPlayer(s, p);
     return;
   }
@@ -362,7 +396,14 @@ function updatePlayer(s, p, inp, dt) {
       msg(s, 'Door pried open.', '#9fe09f', p.id); p.pry = null;
     }
   }
-  applyMove(s, p, mx, my, dt);
+  if (inp.roll && startRoll(p, mx, my)) {
+    ev(s, { type: 'roll', x: p.x, y: p.y, ang: Math.atan2(p.roll.dy, p.roll.dx), pid: p.id });
+    s.noises.push({ pl: 1, x: p.x, y: p.y, r: 2.5 * TILE });
+  }
+  const wasRolling = !!p.roll;
+  if (p.roll) { stepRoll(s, p, dt); if (!p.roll) ev(s, { type: 'rollEnd', x: p.x, y: p.y, pid: p.id }); }
+  else applyMove(s, p, mx, my, dt);
+  if (p.moving) trample(s, { x: p.x, y: p.y, ang: wasRolling ? Math.atan2(p.roll ? p.roll.dy : my, p.roll ? p.roll.dx : mx) : Math.atan2(my, mx) }, PLAYER_R, true, p.sneak && !wasRolling);
   const gs = gearStats(p), tHere = w.tiles[Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE)];
   const safeNow = isSafe(w, p.x, p.y);
   if (safeNow && p.wasSafe === false) {
@@ -403,10 +444,11 @@ function updatePlayer(s, p, inp, dt) {
     const c = getCont(s, p.openCid);
     if (!c || dist(p, contPos(c)) > 72) { p.openCid = -1; ev(s, { type: 'close', pid: p.id }); }
   }
-  if (inp.interact) doInteract(s, p);
+  if (inp.interact && !p.roll) doInteract(s, p);
   if (inp.barricade) barricade(s, p);
   if (inp.reload) startReload(s, p);
   if (p.reload > 0) { p.reload -= dt; if (p.reload <= 0) finishReload(s, p); }
+  if (p.roll) { survival(s, p, dt); if (p.hp <= 0) killPlayer(s, p); return; } // mid-tumble: no swinging, shooting or using things
   if (inp.shove) shove(s, p);
   if (inp.heal) quickHeal(s, p);
   if (inp.throwN) throwItem(s, p, 'noisemaker', inp);
@@ -418,12 +460,37 @@ function updatePlayer(s, p, inp, dt) {
   if (p.hp <= 0) killPlayer(s, p);
 }
 
+// ---------- blood trail ----------
+// A bleeding player leaves drops: more and faster the worse the bleeding. They dry up after BLOOD_LIFE seconds.
+// Zombies that aren't already chasing smell the freshest drop near them and follow the trail to its end.
+export const BLOOD_LIFE = 60;
+const DRIP_EVERY = [0, 0.9, 0.5, 0.25], SMELL = [0, 3.5, 4.5, 6]; // seconds between drops; tiles a drop can be smelled from
+function dripBlood(s, p, dt) {
+  p.dripT = (p.dripT || 0) - dt * (p.moving ? 1 : 0.4);
+  if (p.dripT > 0) return;
+  p.dripT = DRIP_EVERY[p.bleedLv] * (0.7 + rnd() * 0.6);
+  if (isSafe(s.world, p.x, p.y)) return; // the safehouse gets mopped
+  const b = { x: p.x + (rnd() - 0.5) * 8, y: p.y + (rnd() - 0.5) * 8, t: s.time, lv: p.bleedLv };
+  (s.blood = s.blood || []).push(b);
+  if (s.blood.length > 400) s.blood.shift();
+  ev(s, { type: 'bleed', x: b.x, y: b.y, lv: b.lv });
+}
+function smellBlood(s, z) {
+  let best = null;
+  for (const b of s.blood) {
+    const r = SMELL[b.lv] * TILE, dx = b.x - z.x, dy = b.y - z.y;
+    if (dx > r || dx < -r || dy > r || dy < -r || dx * dx + dy * dy > r * r) continue;
+    if (!best || b.t > best.t) best = b;
+  }
+  return best;
+}
+
 function survival(s, p, dt) {
   p.hunger = Math.max(0, p.hunger - (dt * 100) / (DAY_LENGTH * 1.6));
   p.thirst = Math.max(0, p.thirst - ((dt * 100) / (DAY_LENGTH * 1.1)) * (p.sprinting ? 1.6 : 1));
   if (p.sprinting && !(p.buffs && p.buffs.adrenaline)) p.stamina = Math.max(0, p.stamina - (hasPerk(p, 'sprinter') ? 15 : 20) * dt);
   else if (p.atkCd < 0) p.stamina = Math.min(100, p.stamina + (p.hunger < 15 || p.thirst < 15 ? 7 : 15) * (p.buffs && p.buffs.energy ? 2 : 1) * dt);
-  if (p.bleeding) p.hp -= 1.0 * dt;
+  if (p.bleeding) { p.bleedLv = p.bleedLv || 1; p.hp -= (0.6 + 0.4 * p.bleedLv) * dt; dripBlood(s, p, dt); }
   if (p.infection > 0) {
     p.infection = Math.min(100, p.infection + (dt * 100) / (DAY_LENGTH * 2));
     if (p.infection > 50) p.hp -= (p.infection >= 100 ? 3 : 0.5) * dt;
@@ -460,6 +527,7 @@ function attack(s, p) {
   if (p.stamina < wd.stam) { mult = 0.5; p.atkCd *= 1.5; }
   p.stamina = Math.max(0, p.stamina - wd.stam);
   ev(s, { type: 'swing', x: p.x, y: p.y, ang: p.ang, pid: p.id, arc: wd.arc, range: wd.range });
+  { const r = wd.range * 0.5, cx = p.x + Math.cos(p.ang) * r, cy = p.y + Math.sin(p.ang) * r; smashClutter(s, cx, cy, cx, cy, r, true); }
   let hit = false, loud = false;
   for (const z of s.zombies) {
     if (z.hp <= 0) continue;
@@ -554,6 +622,7 @@ function updateBullets(s, dt) {
     }
     b.px = b.x; b.py = b.y;
     b.x += ca * end; b.y += sa * end; b.left -= step;
+    smashClutter(s, b.px, b.py, b.x, b.y, 2, true); // shots tear straight through books and bottles
     if (wallD < step && b.left > 0 && b.pierce > 0) { b.left = 0; ev(s, { type: 'bimpact', x: b.x, y: b.y, ang: a, wall: true, gun: b.gun }); }
   }
   s.bullets = s.bullets.filter((b) => b.left > 0 || (b.dead = (b.dead || 0) + 1) < 2);
@@ -563,17 +632,19 @@ function startReload(s, p) {
   if (!p.wpn || p.reload > 0) return;
   const wd = ITEMS[p.wpn.id]; if (wd.cat !== 'gun' || p.wpn.mag >= gunStats(p.wpn).mag) return;
   if (countItem(p.inv, wd.ammo) <= 0) { msg(s, `No ${ITEMS[wd.ammo].name}.`, '#aaa', p.id); return; }
-  p.reload = wd.reload; ev(s, { type: 'reload', x: p.x, y: p.y });
+  p.reload = wd.reload; ev(s, { type: 'reload', x: p.x, y: p.y, ang: p.ang, gun: p.wpn.id, pid: p.id });
 }
 function finishReload(s, p) {
   if (!p.wpn) return; const wd = ITEMS[p.wpn.id]; if (wd.cat !== 'gun') return;
   p.wpn.mag += removeItem(p.inv, wd.ammo, gunStats(p.wpn).mag - p.wpn.mag);
+  ev(s, { type: 'reloaded', x: p.x, y: p.y, gun: p.wpn.id, pid: p.id });
 }
 
 function shove(s, p) {
   if (p.stamina < 8 || p.atkCd > 0) return;
   p.stamina -= 12; p.atkCd = 0.45; p.swing = p.swingDur = 0.3; p.act = 'shove';
   ev(s, { type: 'shove', x: p.x, y: p.y, ang: p.ang });
+  smashClutter(s, p.x + Math.cos(p.ang) * 20, p.y + Math.sin(p.ang) * 20, p.x + Math.cos(p.ang) * 20, p.y + Math.sin(p.ang) * 20, 20, true);
   for (const z of s.zombies) {
     if (z.hp <= 0) continue;
     const d = dist(p, z); if (d > 48 + ZT[z.type].r) continue;
@@ -615,7 +686,7 @@ function quickHeal(s, p) {
 function applyMed(s, p, id) {
   const d = ITEMS[id];
   if (d.heal) p.hp = Math.min(100, p.hp + d.heal);
-  if (d.stopBleed && p.bleeding && rnd() < d.stopBleed) { p.bleeding = false; msg(s, 'Bleeding stopped.', '#9fe09f', p.id); }
+  if (d.stopBleed && p.bleeding && rnd() < d.stopBleed) { p.bleeding = false; p.bleedLv = 0; msg(s, 'Bleeding stopped.', '#9fe09f', p.id); }
   else if (d.stopBleed && p.bleeding) msg(s, 'The rag did not stop the bleeding.', '#ffb070', p.id);
   if (d.regen) p.regen += d.regen;
   if (d.cure && p.infection > 0) { p.infection = 0; msg(s, 'The infection is gone.', '#9fe09f', p.id); }
@@ -648,6 +719,8 @@ function updateThrown(s, dt) {
     } else if (o.life <= 0) {
       ev(s, { type: 'explode', x: o.x, y: o.y });
       s.noises.push({ x: o.x, y: o.y, r: 32 * TILE });
+      smashClutter(s, o.x, o.y, o.x, o.y, 120, true);
+      for (const ti of s.world.tables) { const t = s.world.props[ti], tx = (t.x + t.w / 2) * TILE, ty = (t.y + t.h / 2) * TILE; if (t.hp > 0 && Math.hypot(tx - o.x, ty - o.y) < 110) damageTable(s, t, 999, tx, ty); }
       for (const z of s.zombies) {
         const d = dist(o, z); if (d > 110 || z.hp <= 0) continue;
         const a = Math.atan2(z.y - o.y, z.x - o.x);
@@ -663,12 +736,14 @@ function updateThrown(s, dt) {
 
 function hurtPlayer(s, p, z) {
   if (p.invuln > 0 || p.dead) return;
+  if (rolling(p)) { ev(s, { type: 'dodge', x: p.x, y: p.y, pid: p.id }); return; }
   const zt = ZT[z.type];
   const gs = gearStats(p), arm = { biteProt: gs.bite };
   p.hp -= zt.dmg * (1 - gs.armor) * (0.85 + rnd() * 0.3);
   p.invuln = 0.25; p.hurt = 0.45; p.channel = null; p.search = null;
   const prot = arm ? arm.biteProt : 0;
-  if (!p.bleeding && rnd() < 0.2 * (1 - prot)) { p.bleeding = true; msg(s, 'You are bleeding! [H] to bandage.', '#ff6a6a', p.id); }
+  if (!p.bleeding && rnd() < 0.2 * (1 - prot)) { p.bleeding = true; p.bleedLv = 1; msg(s, 'You are bleeding! [H] to bandage.', '#ff6a6a', p.id); }
+  else if (p.bleeding && p.bleedLv < 3 && rnd() < (z.type === 'brute' ? 0.8 : 0.4) * (1 - prot)) { p.bleedLv++; msg(s, p.bleedLv === 3 ? 'You are bleeding badly! Zombies can smell the trail.' : 'The bleeding gets worse.', '#ff6a6a', p.id); }
   if (p.infection <= 0 && rnd() < 0.05 * (1 - prot)) { p.infection = 1; msg(s, 'You were bitten. Find Antibiotics.', '#c6ff6a', p.id); }
   ev(s, { type: 'phurt', x: p.x, y: p.y, pid: p.id, ang: Math.atan2(p.y - z.y, p.x - z.x) });
 }
@@ -676,7 +751,7 @@ function hurtPlayer(s, p, z) {
 function killPlayer(s, p) {
   const kit = p.inv.findIndex((i) => i.id === 'reviver');
   if (kit >= 0) {
-    p.inv.splice(kit, 1); p.hp = 50; p.bleeding = false; p.invuln = 2; p.stamina = 100;
+    p.inv.splice(kit, 1); p.hp = 50; p.bleeding = false; p.bleedLv = 0; p.invuln = 2; p.stamina = 100;
     for (const z of s.zombies) { const d = dist(p, z); if (d < 150 && z.hp > 0) { const a = Math.atan2(z.y - p.y, z.x - p.x); z.vx += Math.cos(a) * 420; z.vy += Math.sin(a) * 420; z.stagger = 1.5; z.hp -= 30; } }
     msg(s, 'SELF-REVIVE! You got a second chance.', '#ff6ab0', p.id); ev(s, { type: 'revive', x: p.x, y: p.y, pid: p.id });
     return;
@@ -798,7 +873,7 @@ function updateZombies(s, dt) {
       if (Math.abs(z.vx) < 1 && Math.abs(z.vy) < 1) z.vx = z.vy = 0;
     }
     z.atkCd -= dt;
-    if (z.stagger > 0) { z.stagger -= dt; collide(z, zt.r, block); continue; }
+    if (z.stagger > 0) { z.stagger -= dt; collide(z, zt.r, block); collideTables(w, z, zt.r); continue; }
 
     // perception
     z.think -= dt;
@@ -819,6 +894,10 @@ function updateZombies(s, dt) {
         if (od < 1.2 * TILE && !pSafe && !o.sneak) z.sus = 1;
         if (z.sus >= 1) { z.state = 'chase'; z.pid = o.id; z.lx = o.x; z.ly = o.y; z.lost = 0; ev(s, { type: 'alert', x: z.x, y: z.y }); }
         else if (z.seen && z.sus > 0.35 && z.state === 'idle') { z.state = 'investigate'; z.tx = o.x; z.ty = o.y; z.stuck = 0; }
+      }
+      if (z.state !== 'chase' && s.blood && s.blood.length && d < 40 * TILE) {
+        const b = smellBlood(s, z);
+        if (b && b.t > (z.smelt || -1)) { z.smelt = b.t; z.state = 'investigate'; z.tx = b.x; z.ty = b.y; z.stuck = 0; z.sus = Math.max(z.sus || 0, 0.4); }
       }
       if (z.state === 'chase') {
         const tp = s.players[z.pid];
@@ -898,6 +977,12 @@ function updateZombies(s, dt) {
         }
       }
       collide(z, zt.r, block);
+      const tb = collideTables(w, z, zt.r);
+      if (tb && z.state !== 'idle') { // a flipped table in the way: hammer on it until it gives
+        z.tbash = (z.tbash || 0) + dt;
+        if (z.tbash >= 0.9) { z.tbash = 0; damageTable(s, tb, z.type === 'brute' ? 30 : 9, (tb.x + tb.w / 2) * TILE, (tb.y + tb.h / 2) * TILE); }
+      }
+      if (d < 30 * TILE) trample(s, z, zt.r * 0.8, false);
       const moved = Math.hypot(z.x - ox, z.y - oy);
       z.stuck = moved < step * 0.3 ? z.stuck + dt : Math.max(0, z.stuck - dt);
     } else collide(z, zt.r, block);
@@ -916,7 +1001,7 @@ function updateZombies(s, dt) {
       const ddx = z.x - q.x, ddy = z.y - q.y, rr = zt.r + PLAYER_R, d2 = ddx * ddx + ddy * ddy;
       if (d2 < rr * rr && d2 > 0.01) { const dd = Math.sqrt(d2); z.x += (ddx / dd) * (rr - dd); z.y += (ddy / dd) * (rr - dd); }
     }
-    collide(z, zt.r, block);
+    collide(z, zt.r, block); collideTables(w, z, zt.r);
     z.groan -= dt;
     if (z.groan <= 0) { z.groan = 5 + rnd() * 10; if (d < 14 * TILE) ev(s, { type: 'groan', x: z.x, y: z.y, ztype: z.type }); }
   }

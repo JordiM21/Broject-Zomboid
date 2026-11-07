@@ -22,11 +22,12 @@ const ROOF = { house: ['#5a3a32', '#4a4a52', '#3e4f5c', '#6a5038', '#58443c'], g
 export function generateWorld(seed, { testGear = false } = {}) {
   const W = WORLD_W, H = WORLD_H, N = W * H;
   const rng = new RNG(seed);
+  const crng = new RNG((seed ^ 0x9e3779b9) >>> 0); // clutter has its own stream, so adding it never moves the rest of the town
   const world = {
     seed, w: W, h: H,
     tiles: new Uint8Array(N), floor: new Uint8Array(N), deco: new Uint8Array(N), furn: new Uint8Array(N),
     bld: new Int16Array(N).fill(-1), safe: new Uint8Array(N), contAt: new Int32Array(N).fill(-1),
-    buildings: [], containers: [], doors: {}, cars: [], props: [], safeRect: null, spawn: null, fixtures: {}, windows: {}, zones: [], lamps: [], fires: [],
+    buildings: [], containers: [], clutter: [], tables: [], doors: {}, cars: [], props: [], safeRect: null, spawn: null, fixtures: {}, windows: {}, zones: [], lamps: [], fires: [],
   };
   const I = (x, y) => y * W + x;
   const inb = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
@@ -78,6 +79,16 @@ export function generateWorld(seed, { testGear = false } = {}) {
     for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) { obj(xx, yy, T.CAR); if (cid >= 0) world.contAt[I(xx, yy)] = cid; }
   };
   const prop = (x, y, w, h, kind) => world.props.push({ x, y, w, h, kind, v: rng.int(0, 3) });
+  const FLOORS = [T.FLOOR, T.TILE, T.CARPET, T.CONCRETE];
+  // n loose items somewhere on open floor inside the rectangle
+  const scatter = (x, y, w, h, kinds, n) => {
+    for (let k = 0, tries = 0; k < n && tries < n * 6; tries++) {
+      const tx = x + crng.int(0, w - 1), ty = y + crng.int(0, h - 1);
+      if (!FLOORS.includes(tile(tx, ty))) continue;
+      world.clutter.push({ x: (tx + 0.2 + crng.next() * 0.6) * 32, y: (ty + 0.2 + crng.next() * 0.6) * 32, kind: crng.pick(kinds), v: crng.int(0, 3), a: crng.next() * 6.28 });
+      k++;
+    }
+  };
 
   // ---------- base: grass + roads ----------
   const RW = 4, M = 7;
@@ -169,6 +180,7 @@ export function generateWorld(seed, { testGear = false } = {}) {
     if (inRoadX(x) || inRoadX(x + 1) || inRoadX(x - 1) || inRoadX(x + 2)) continue;
     if (rng.chance(0.45)) addCar(x, ry + (rng.chance(0.5) ? 0 : 3), false, rng.chance(0.8));
   }
+  world.props.forEach((p, i) => { if (p.kind === 'table') { p.flip = 0; p.hp = 60; world.tables.push(i); } });
   return world;
 
   // ================= builders =================
@@ -245,6 +257,8 @@ export function generateWorld(seed, { testGear = false } = {}) {
       const open = cands.filter(([xx, yy]) => !SOLID[tile(xx + 1, yy)] || !SOLID[tile(xx - 1, yy)] || !SOLID[tile(xx, yy + 1)] || !SOLID[tile(xx, yy - 1)]);
       if (open.length) { const [xx, yy] = rng.pick(open); addCase(xx, yy, CASES.home, 0.1); }
     }
+    const ck = { living: [['books', 'books', 'papers'], 3 + crng.int(0, 2)], bedroom: [['books', 'papers', 'bottle', 'box'], 1 + crng.int(0, 2)], kitchen: [['bottle', 'cans', 'cans', 'papers'], 2 + crng.int(0, 2)], bathroom: [['bottle'], crng.int(0, 1)], combo: [['books', 'bottle', 'cans', 'papers'], 3 + crng.int(0, 2)] }[role];
+    scatter(r.x, r.y, r.w, r.h, ck[0], ck[1]);
     const mx = r.x + Math.floor(r.w / 2), my = r.y + Math.floor(r.h / 2);
     if (role === 'bedroom') { prop(mx - 0.5, my - 1, 1.4, 2, 'bed'); if (r.w > 3) prop(r.x + 0.15, r.y + r.h - 0.9, 0.7, 0.7, 'plant'); }
     else if (role === 'living' || role === 'combo') {
@@ -334,6 +348,8 @@ export function generateWorld(seed, { testGear = false } = {}) {
         else { obj(sx, sy, T.FURN); world.furn[I(sx, sy)] = FK[kind]; }
       }
     }
+    scatter(x + 1, y + 3, w - 2, h - 4, kind === 'hardware' ? ['box', 'cans'] : kind === 'pharmacy' ? ['box', 'bottle', 'papers'] : ['cans', 'bottle', 'box'], 8 + crng.int(0, 5));
+    scatter(x + 1, oy + 1, ox - x - 1, y + h - oy - 2, ['papers', 'papers', 'books'], 3);
     windows(x, y, w, h, 0.6);
     for (let yy = y + h; yy < b.y + b.h; yy++) for (let xx = b.x; xx < b.x + b.w; xx++) ground(xx, yy, T.CONCRETE);
     for (let xx = b.x; xx < b.x + b.w; xx++) ground(xx, b.y, T.CONCRETE);
@@ -359,6 +375,7 @@ export function generateWorld(seed, { testGear = false } = {}) {
     addCase(x + 1, y + h - 2, CASES.police, 1); // the evidence corner
     addCont(x + 2, y + 2, 'desk'); addCont(x + w - 3, y + 2, 'filing'); addCont(x + 3, y + 2, 'filing');
     prop(x + 3, y + 3, 2, 1, 'table'); prop(x + w - 5, y + 3, 2, 1, 'table');
+    scatter(x + 1, y + 1, w - 2, 5, ['papers', 'papers', 'books', 'box'], 7);
     windows(x, y, w, h, 0.5);
     for (let xx = b.x; xx < b.x + b.w; xx += 3) if (rng.chance(0.5)) addCar(xx, y + h + 1, true);
   }
@@ -371,6 +388,7 @@ export function generateWorld(seed, { testGear = false } = {}) {
     door(x + 4, y, false);
     addCont(x + 1, y + 1, 'register');
     for (let xx = x + 2; xx < x + w - 1; xx += 2) addCont(xx, y + 4, 'grocery');
+    scatter(x + 1, y + 1, w - 2, h - 2, ['cans', 'bottle', 'box'], 4);
     addCont(x + w - 2, y + 1, 'fridge'); addCont(x + w - 2, y + 2, 'toolbox');
     windows(x, y, w, h, 0.6);
     for (let k = 0; k < 3; k++) prop(b.x + 4 + k * 5, b.y + 3, 1, 1, 'pump');
@@ -404,6 +422,7 @@ export function generateWorld(seed, { testGear = false } = {}) {
     // reception
     addCont(x + 2, y + 2, 'register'); addCont(x + 3, y + 2, 'medcab'); addCont(x + w - 3, y + 2, 'medcab');
     prop(mx - 2, y + 2, 4, 1, 'table');
+    scatter(x + 1, y + 1, w - 2, 4, ['papers', 'bottle', 'box'], 6);
     const wy = y + 5;
     for (let xx = x + 1; xx < x + w - 1; xx++) obj(xx, wy, T.WALL);
     // wards
