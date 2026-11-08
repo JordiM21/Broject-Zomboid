@@ -1087,7 +1087,7 @@ function updateZombies(s, dt) {
         if (z.seen) z.sus = (z.sus || 0) + 0.2 * (0.5 + 2.5 * (1 - od / sight)) * (z.type === 'runner' ? 1.4 : 1);
         else z.sus = Math.max(0, (z.sus || 0) - 0.05);
         if (od < 1.2 * TILE && !pSafe && !o.sneak) z.sus = 1;
-        if (z.sus >= 1) { z.state = 'chase'; z.pid = o.id; z.lx = o.x; z.ly = o.y; z.lost = 0; ev(s, { type: 'alert', x: z.x, y: z.y }); }
+        if (z.sus >= 1) { z.state = 'chase'; z.pid = o.id; z.lx = o.x; z.ly = o.y; z.lost = 0; ev(s, { type: 'alert', x: z.x, y: z.y, zid: z.id, ztype: z.type }); }
         else if (z.seen && z.sus > 0.35 && z.state === 'idle') { z.state = 'investigate'; z.tx = o.x; z.ty = o.y; z.stuck = 0; }
       }
       if (z.state !== 'chase' && s.blood && s.blood.length && d < 40 * TILE) {
@@ -1142,7 +1142,7 @@ function updateZombies(s, dt) {
       if (z.atk <= 0) {
         const tp = s.players[z.pid];
         if (tp && !tp.dead && dist(z, tp) < zt.r + PLAYER_R + 18) hurtPlayer(s, tp, z);
-        ev(s, { type: 'zattack', x: z.x, y: z.y });
+        ev(s, { type: 'zattack', x: z.x, y: z.y, zid: z.id, ztype: z.type });
       }
     }
     let dx = gx - z.x, dy = gy - z.y; const dl = Math.hypot(dx, dy);
@@ -1198,7 +1198,7 @@ function updateZombies(s, dt) {
     }
     collide(z, zt.r, block); collideTables(w, z, zt.r);
     z.groan -= dt;
-    if (z.groan <= 0) { z.groan = 5 + rnd() * 10; if (d < 14 * TILE) ev(s, { type: 'groan', x: z.x, y: z.y, ztype: z.type }); }
+    if (z.groan <= 0) { z.groan = 5 + rnd() * 10; if (d < 14 * TILE) ev(s, { type: 'groan', x: z.x, y: z.y, ztype: z.type, zid: z.id }); }
   }
   s.zombies = s.zombies.filter((z) => z.hp > 0);
 }
