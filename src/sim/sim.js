@@ -1,10 +1,10 @@
 // Authoritative simulation. Pure state + inputs -> state + events.
 // Netcode-ready: every player action arrives as an input frame or a command object.
-import { TILE, DAY_LENGTH, START_HOUR, PLAYER_R, BASE_CARRY } from '../config.js';
-import { RACK_ITEMS, MOD_STASH_ITEMS, MODS, modFits, gunStats, CAT_ORDER, ITEMS, FISTS, UPGRADES, STASH_CAP, RECIPES, TRADE_COST, TRADE_POOL, OBJECTIVES, CONTAINER_LABEL } from '../data/items.js';
+import { TILE, DAY_LENGTH, START_HOUR, PLAYER_R, BASE_CARRY, CITY_H, RAID_LEN, BLEEDOUT, INV_SLOTS, HOT_SLOTS } from '../config.js';
+import { RACK_ITEMS, MOD_STASH_ITEMS, MODS, modFits, gunStats, CAT_ORDER, ITEMS, FISTS, UPGRADES, STASH_CAP, RECIPES, TRADE_COST, TRADE_POOL, OBJECTIVES, CONTAINER_LABEL, STASH_TABS, stashTab, repairCost } from '../data/items.js';
 import { generateWorld, T, SOLID } from '../world/worldgen.js';
 import { solidAt, collide, los, castRay, bulletBlock, isSafe, FlowField } from '../world/world.js';
-import { makeItem, addItem, countItem, removeItem, invWeight, rollLoot } from './inventory.js';
+import { makeItem, addItem, countItem, removeItem, invWeight, rollLoot, fixSlots, slotOf, freeSlot, stackOf } from './inventory.js';
 import { trample, smashClutter, collideTables, tableInReach, flipTable, damageTable } from './props.js';
 
 export const ZT = {
@@ -32,12 +32,13 @@ export function daylight(s) {
 const dawnIndex = (s) => Math.floor((hoursTotal(s) - 6) / 24);
 
 // ---------- state ----------
-export function createState(seed, fresh = true, { testGear = false } = {}) {
-  const world = generateWorld(seed, { testGear });
+// citySeed picks the city the next raid lands in. Between raids the city is empty and nobody is in it.
+export function createState(seed, fresh = true, { testGear = false, citySeed = seed } = {}) {
+  const world = generateWorld(seed, { testGear, citySeed });
   const s = {
-    seed, world, testGear, time: 0, dawnIdx: 0, players: {}, zombies: [], thrown: [], noises: [], events: [], nextId: 1,
+    seed, world, testGear, citySeed, raidNo: 0, raid: null, time: 0, dawnIdx: 0, players: {}, zombies: [], thrown: [], noises: [], events: [], nextId: 1,
     upgrades: Object.fromEntries(UPGRADES.map((u) => [u.id, 0])), spawnT: 0, hordeDay: 0, obj: 0,
-    stats: { kills: 0, deaths: 0, hauled: 0, bestDay: 1 }, tradePoints: 0, loose: [],
+    stats: { kills: 0, deaths: 0, hauled: 0, bestDay: 1, raids: 0, extracts: 0 }, tradePoints: 0, loose: [],
     weather: { rain: 0, target: 0, t: 120 },
   };
   s.dawnIdx = dawnIndex(s);
@@ -46,9 +47,92 @@ export function createState(seed, fresh = true, { testGear = false } = {}) {
     const rk = world.containers[world.fixtures.rack]; rk.items = []; rk.searched = true; for (const [id, n] of RACK_ITEMS) { const it = makeItem(id, n); if (ITEMS[id].cat === 'gun') it.mag = ITEMS[id].mag; rk.items.push(it); }
     const ms = world.containers[world.fixtures.modstash]; ms.searched = true; ms.items = MOD_STASH_ITEMS.map((id) => makeItem(id));
   }
-  if (fresh) { for (let k = 0; k < 520; k++) spawnRandomZombie(s, 22, false); for (const zn of world.zones) spawnInZone(s, zn, zn.kind === 'military' ? 45 : 28); }
+  if (fresh) populateCity(s); // tests poke at a live city; the game itself starts in the empty outpost
   initRuntime(s);
   return s;
+}
+const zoneCount = (zn) => (zn.kind === 'military' ? 45 : zn.kind === 'bunker' ? 12 : 28);
+function populateCity(s) { const n = Math.round(520 * ((s.raid && s.raid.density) || 1)); for (let k = 0; k < n; k++) spawnRandomZombie(s, 22, false); for (const zn of s.world.zones) spawnInZone(s, zn, zoneCount(zn)); }
+// Every city is different: its own streets and buildings (from citySeed), a surplus of one kind of loot, and its own crowd.
+const SURPLUS = [['ammo', 'ammunition'], ['med', 'medical supplies'], ['food', 'canned food and water'], ['mat', 'building materials'], ['throw', 'explosives and noise makers'], ['armor', 'clothing and armor'], ['val', 'valuables to trade']];
+
+// ---------- raids ----------
+// Everyone boards the bus in the outpost; a fresh city is generated and the team is dropped at its edge.
+// The clock runs RAID_LEN seconds, then overtime: the dead get faster, hit harder and come in waves.
+export const raidHeat = (s) => (s.raid ? s.raid.t / s.raid.len : 0);
+export const overtime = (s) => Math.max(0, raidHeat(s) - 1); // 0.067 per minute past the limit
+export const inCity = (p) => p.y < CITY_H * TILE;
+export function startRaid(s) {
+  const old = s.world;
+  s.raidNo++;
+  s.citySeed = (Math.imul(s.seed ^ 0x51ed27, 2654435761) + s.raidNo * 7919) >>> 0;
+  const w = generateWorld(s.seed, { testGear: s.testGear, citySeed: s.citySeed });
+  for (let i = 0; i < w.hubConts; i++) w.containers[i] = old.containers[i]; // the outpost keeps everything in it
+  s.world = w; s.baseConts = w.containers.length;
+  s.loose = s.loose.flatMap((cid) => { const c = old.containers[cid]; if (!c || c.py < CITY_H * TILE) return []; c.id = w.containers.length; w.containers.push(c); return [c.id]; }); // piles dropped in the outpost stay
+  s.zombies = []; s.blood = []; s.bullets = []; s.thrown = []; s.flows = {};
+  const sur = SURPLUS[s.citySeed % SURPLUS.length], density = 0.8 + ((s.citySeed >>> 8) % 50) / 100; // 0.8 .. 1.29
+  s.raid = { id: s.raidNo, t: 0, len: RAID_LEN, warn: 0, waveT: 0, surplus: sur[0], density };
+  s.stats.raids = (s.stats.raids || 0) + 1;
+  ev(s, { type: 'newCity' });
+  for (const p of Object.values(s.players)) if (p.boarded) deploy(s, p);
+  populateCity(s); // after the drop, so nothing spawns on top of the team
+  msg(s, `Raid ${s.raidNo}: ${Math.round(RAID_LEN / 60)} minutes before the city turns. The drop crate is by the bus stop. Green smoke marks the way out.`, '#ffd27a');
+  msg(s, `Radio chatter: this part of town is stocked with ${sur[1]}${density > 1.12 ? ', and crawling with the dead' : density < 0.92 ? '. The streets are quieter than usual' : ''}.`, '#9ab0ff');
+  completeObjective(s, 'deploy');
+}
+function deploy(s, p) {
+  const n = Object.values(s.players).filter((q) => q.inRaid === s.raid.id).length, a = n * 2.1;
+  p.x = s.world.insert.x + Math.cos(a) * 26; p.y = s.world.insert.y + Math.sin(a) * 26;
+  collide(p, PLAYER_R, (tx, ty) => solidAt(s.world, tx, ty));
+  Object.assign(p, { inRaid: s.raid.id, boarded: false, extractT: 0, openCid: -1, search: null, channel: null, downed: null, reviving: null });
+  ev(s, { type: 'deploy', pid: p.id, x: p.x, y: p.y });
+}
+function extractPlayer(s, p) {
+  const n = p.inv.length + (p.bag ? 1 : 0);
+  if (p.downed) { p.downed = null; p.hp = Math.max(p.hp, 25); }
+  const b = s.world.busAt, k = Object.values(s.players).filter((q) => !q.inRaid).length;
+  p.x = b.x - 70 - k * 26; p.y = b.y; p.inRaid = 0; p.extractT = 0; p.openCid = -1;
+  s.stats.extracts = (s.stats.extracts || 0) + 1;
+  msg(s, `Extracted with ${n} item stack${n === 1 ? '' : 's'}. Put your haul in the Stash.`, '#9fe09f', p.id);
+  ev(s, { type: 'extracted', pid: p.id, x: p.x, y: p.y });
+  completeObjective(s, 'extract');
+  checkRaidOver(s);
+}
+function checkRaidOver(s) {
+  if (!s.raid || Object.values(s.players).some((q) => q.inRaid === s.raid.id && !q.dead)) return;
+  msg(s, `Raid ${s.raid.id} is over. The bus is back at the outpost.`, '#ffd27a');
+  s.raid = null; s.zombies = []; s.bullets = []; s.thrown = [];
+}
+function updateRaid(s, dt) {
+  const ps = Object.values(s.players);
+  if (!s.raid) { if (ps.length && ps.every((p) => p.boarded && !p.dead)) startRaid(s); return; }
+  const r = s.raid; r.t += dt;
+  const left = r.len - r.t;
+  for (const [at, text] of [[300, '5 minutes left. Start heading for the green smoke.'], [120, '2 minutes. The dead are getting restless.'], [60, 'One minute! Get to the extraction!'], [0, 'OVERTIME. The city has turned. Every second makes them worse.']]) {
+    if (left <= at && r.warn < r.len - at + 1) { r.warn = r.len - at + 1; msg(s, text, at ? '#ffb070' : '#ff5a4a'); ev(s, { type: 'raidWarn', left: at }); }
+  }
+  if (left < 0) { // waves converge on everyone still out there
+    r.waveT -= dt;
+    if (r.waveT <= 0) {
+      r.waveT = Math.max(7, 22 + left / 15);
+      for (const p of ps) {
+        if (p.inRaid !== r.id || p.dead) continue;
+        const n = Math.min(26, 5 + Math.floor(-left / 20)), c = randomTile(s, 13, p, 17); if (!c) continue;
+        for (let k = 0; k < n; k++) {
+          const z = spawnZombie(s, c.x + (rnd() - 0.5) * 90, c.y + (rnd() - 0.5) * 90, rnd() < 0.55 ? 'runner' : rnd() < 0.15 ? 'brute' : 'walker');
+          collide(z, 10, zombiePass(s.world)); Object.assign(z, { state: 'chase', pid: p.id, lx: p.x, ly: p.y, lost: 0, sus: 1 });
+        }
+      }
+      ev(s, { type: 'horde' });
+    }
+  }
+  for (const p of ps) { // standing in the smoke for a few seconds gets you out; crawling in counts too
+    if (p.inRaid !== r.id || p.dead) continue;
+    const e = s.world.extract;
+    if (Math.hypot(p.x - e.x, p.y - e.y) < e.r) { p.extractT = (p.extractT || 0) + dt; if (p.extractT >= (p.downed ? 2 : 4)) extractPlayer(s, p); }
+    else p.extractT = 0;
+  }
 }
 export function initRuntime(s) {
   s.bullets = s.bullets || [];
@@ -60,7 +144,7 @@ export function newPlayer(s, id, kit = 'start') {
   const sp = s.world.spawn;
   const p = {
     id, x: sp.x, y: sp.y, ang: -Math.PI / 2, hp: 100, hunger: 85, thirst: 85, stamina: 100, bleeding: false, infection: 0, regen: 0,
-    inv: [], wpn: null, bag: null, gear: { head: null, body: null, legs: null, feet: null }, hotbar: [null, null, null, null, null, null], flashlight: true, sneak: false, atkCd: 0, swing: 0, reload: 0,
+    inv: [], wpn: null, bag: null, gear: { head: null, body: null, legs: null, feet: null }, flashlight: true, sneak: false, atkCd: 0, swing: 0, reload: 0, inRaid: 0, boarded: false, downed: null,
     channel: null, search: null, dead: false, invuln: 0, hurt: 0, moving: false, sprinting: false, openCid: -1, stepT: 0, muzzle: 0,
   };
   if (kit === 'start') {
@@ -70,7 +154,7 @@ export function newPlayer(s, id, kit = 'start') {
     addItem(p.inv, makeItem('knife')); addItem(p.inv, makeItem('bandage', 2)); addItem(p.inv, makeItem('water'));
     p.wpn = p.inv[0];
   } else addItem(p.inv, makeItem('rag', 2));
-  for (const it of p.inv) autoHot(p, it, true);
+  fixSlots(p.inv);
   return p;
 }
 export function addPlayer(s, id) { s.players[id] = newPlayer(s, id); return s.players[id]; }
@@ -78,14 +162,21 @@ export function addPlayer(s, id) { s.players[id] = newPlayer(s, id); return s.pl
 export function parkPlayer(s, id) { const p = s.players[id]; if (!p) return; (s.parked = s.parked || {})[id] = p; delete s.players[id]; }
 export function joinPlayer(s, id) {
   if (s.parked && s.parked[id]) { s.players[id] = s.parked[id]; delete s.parked[id]; }
-  if (s.players[id]) { const b = s.players[id]; Object.assign(b, { openCid: -1, search: null, channel: null, peek: null, climb: null, pry: null, reload: 0, roll: null }); return b; } // nothing left half-done from last time
+  if (s.players[id]) {
+    const b = s.players[id]; Object.assign(b, { openCid: -1, search: null, channel: null, peek: null, climb: null, pry: null, reload: 0, roll: null, reviving: null, boarded: false }); // nothing left half-done from last time
+    if (!s.raid || b.inRaid !== s.raid.id) { // the raid they left is gone: they made it home
+      if (inCity(b) && !b.dead) { b.x = s.world.spawn.x + 40; b.y = s.world.spawn.y; }
+      b.inRaid = 0; if (b.downed) { b.downed = null; b.hp = 25; }
+    }
+    return b;
+  }
   const p = addPlayer(s, id); p.x += 40; // next to the host's start, not on top of them
   return p;
 }
 
 const ev = (s, e) => s.events.push(e);
 // Mark whose action an event came from, so a partner's menu sounds stay theirs. These belong to everyone.
-const SHARED_EVENTS = new Set(['msg', 'objective', 'slept', 'horde', 'built']);
+const SHARED_EVENTS = new Set(['msg', 'objective', 'slept', 'horde', 'built', 'newCity', 'raidWarn']);
 function stampEvents(s, from, pid) { for (let i = from; i < s.events.length; i++) { const e = s.events[i]; if (e.pid === undefined && !SHARED_EVENTS.has(e.type)) e.pid = pid; } }
 const msg = (s, text, color = '#ddd', pid = null) => ev(s, { type: 'msg', text, color, pid });
 export const getCont = (s, cid) => s.world.containers[cid];
@@ -104,24 +195,59 @@ export function gearStats(p) {
   return g;
 }
 export const hasPerk = (p, k) => GEAR_SLOTS.some((s) => p.gear && p.gear[s] && ITEMS[p.gear[s].id].perk === k);
-// hotbar: slots remember an item id + reference; refill from another stack of the same item
-export function resolveHot(p, k) {
-  const h = p.hotbar && p.hotbar[k]; if (!h) return null;
-  if (h.ref && p.inv.includes(h.ref)) return h.ref;
-  h.ref = p.inv.find((i) => i.id === h.id) || null; return h.ref;
+// the hotbar is the first row of the inventory: slots 0..8
+export const resolveHot = (p, k) => slotOf(p.inv, k);
+// Whatever doesn't fit in the 36 slots falls to the floor; a weapon that left the inventory is no longer in hand.
+function tidyInv(s, p) {
+  if (p.wpn && !p.inv.includes(p.wpn)) p.wpn = null;
+  for (const it of fixSlots(p.inv)) { delete it.slot; dropToPile(s, p, it); msg(s, `No room: ${ITEMS[it.id].name} dropped at your feet.`, '#ffb070', p.id); }
 }
-const HOTABLE = new Set(['melee', 'gun', 'food', 'med', 'buff', 'throw']);
-export function autoHot(p, it, force = false) {
-  if (!it || !p.hotbar) return; const cat = ITEMS[it.id].cat;
-  if (!force && cat !== 'melee' && cat !== 'gun') return;
-  if (!HOTABLE.has(cat) || p.hotbar.some((h) => h && (h.ref === it || h.id === it.id))) return;
-  const k = p.hotbar.findIndex((h) => !h); if (k >= 0) p.hotbar[k] = { id: it.id, ref: it };
+function dropToPile(s, p, it) {
+  let pile = s.loose.map((id) => s.world.containers[id]).find((k) => k && k.type === 'pile' && Math.hypot(k.px - p.x, k.py - p.y) < 40);
+  if (!pile) { pile = makeLoose(s, p.x + Math.cos(p.ang) * 14, p.y + Math.sin(p.ang) * 14, 'pile', []); pile.label = 'Dropped Backpack'; pile.ang = p.ang + (rnd() - 0.5); ev(s, { type: 'dropbag', x: pile.px, y: pile.py }); }
+  addItem(pile.items, it);
+}
+const WEAPON_ONLY = new Set(['gunrack']);
+const storable = (c, it) => !WEAPON_ONLY.has(c.type) || ['melee', 'gun'].includes(ITEMS[it.id].cat);
+// Moves a container stack (or n of it) into the inventory, onto slot `to` when given. Returns how many moved.
+function takeInto(p, cont, idx, to, n) {
+  const it = cont.items[idx], want = Math.min(it.n, n || it.n);
+  let got = 0;
+  if (to >= 0) {
+    const B = slotOf(p.inv, to);
+    if (!B) { p.inv.push({ ...it, n: want, slot: to }); got = want; }
+    else if (B.id === it.id && stackOf(it.id) > 1) { got = Math.min(stackOf(it.id) - B.n, want); B.n += got; }
+  } else { const copy = { ...it, n: want }; delete copy.slot; got = want - addItem(p.inv, copy, INV_SLOTS); }
+  it.n -= got; if (it.n <= 0) cont.items.splice(idx, 1);
+  return got;
+}
+function putInto(s, p, cont, it, n) {
+  if (!storable(cont, it)) return 0;
+  const k = Math.min(it.n, n || it.n), copy = { ...it, n: k }; delete copy.slot;
+  const moved = k - addItem(cont.items, copy, contCap(s, cont));
+  it.n -= moved; if (it.n <= 0) { p.inv.splice(p.inv.indexOf(it), 1); if (it === p.wpn) p.wpn = null; }
+  if (moved && cont.type === 'stash') { s.stats.hauled += moved; completeObjective(s, 'deposit'); }
+  return moved;
+}
+// Stash shelves stay in order: by tab, then by name, with stacks merged.
+const TAB_I = Object.fromEntries(STASH_TABS.map(([k], i) => [k, i]));
+function sortList(list, stash) {
+  const ord = (it) => (stash ? TAB_I[stashTab(it.id)] : CAT_ORDER.indexOf(ITEMS[it.id].cat));
+  const sorted = [...list].sort((a, b) => ord(a) - ord(b) || ITEMS[a.id].name.localeCompare(ITEMS[b.id].name));
+  list.length = 0; for (const it of sorted) addItem(list, it);
 }
 export const capacity = (p) => BASE_CARRY + (p.bag ? ITEMS[p.bag.id].cap : 0) + gearStats(p).carry;
 export const carried = (p) => invWeight(p.inv) + GEAR_SLOTS.reduce((w, k) => w + (p.gear && p.gear[k] ? ITEMS[p.gear[k].id].w * 0.5 : 0), 0);
-export const contCap = (s, c) => (c.type === 'stash' ? STASH_CAP[s.upgrades.stash] : c.type === 'pile' || c.type === 'body' || c.type === 'rack' || c.type === 'modstash' ? 999 : 20);
+export const contCap = (s, c) => (c.type === 'stash' ? STASH_CAP[s.upgrades.stash] : c.type === 'gunrack' ? 6 : ['pile', 'body', 'rack', 'modstash', 'armory', 'dropcrate'].includes(c.type) ? 999 : 20);
 const contPos = (c) => (c.px !== undefined ? { x: c.px, y: c.py } : { x: (c.x + 0.5) * TILE, y: (c.y + 0.5) * TILE });
 export const contLabel = (c) => c.label || CONTAINER_LABEL[c.type] || 'Container';
+// close enough to use it: the long stash shelf, the bench and the bus count from any of their tiles
+function nearCont(s, p, c, r) {
+  if (dist(p, contPos(c)) <= r) return true;
+  const w = s.world, tx = Math.floor(p.x / TILE), ty = Math.floor(p.y / TILE);
+  for (let y = ty - 2; y <= ty + 2; y++) for (let x = tx - 2; x <= tx + 2; x++) if (w.contAt[y * w.w + x] === c.id && Math.hypot((x + 0.5) * TILE - p.x, (y + 0.5) * TILE - p.y) <= r) return true;
+  return false;
+}
 
 function completeObjective(s, id) {
   const o = OBJECTIVES[s.obj];
@@ -139,18 +265,19 @@ export function step(s, inputs, dt) {
   const day = dayOf(s);
   if (day > s.stats.bestDay) s.stats.bestDay = day;
   const h = hourOf(s);
-  if (h >= 22 && day >= 2 && s.hordeDay < day) { s.hordeDay = day; spawnHorde(s); }
-  for (const id in s.players) { const n = s.events.length; updatePlayer(s, s.players[id], inputs[id] || {}, dt); stampEvents(s, n, id); }
+  if (h >= 22 && s.raid && s.hordeDay < day) { s.hordeDay = day; spawnHorde(s); }
+  updateRaid(s, dt);
+  for (const id in s.players) { const p = s.players[id], n = s.events.length; updatePlayer(s, p, inputs[id] || {}, dt); tidyInv(s, p); stampEvents(s, n, id); }
   updateBullets(s, dt);
   updateThrown(s, dt);
   updateZombies(s, dt);
   s.spawnT -= dt;
-  if (s.spawnT <= 0) {
+  if (s.spawnT <= 0 && s.raid) {
     s.spawnT = 4;
-    const night = daylight(s) < 0.3;
-    const target = Math.min(900, 480 + day * 35) + (night ? 90 : 0);
-    for (let k = 0; k < 5 && s.zombies.length < target; k++) spawnRandomZombie(s, 30, night);
-    for (const zn of s.world.zones) { let n = 0; for (const z of s.zombies) if (Math.abs(z.x - zn.x) < zn.r && Math.abs(z.y - zn.y) < zn.r) n++; if (n < (zn.kind === 'military' ? 35 : 22)) spawnInZone(s, zn, 2, 30); }
+    const night = daylight(s) < 0.3, heat = raidHeat(s);
+    const target = Math.min(1100, 480 + heat * 260 + overtime(s) * 900) + (night ? 90 : 0);
+    for (let k = 0; k < 5 + Math.floor(heat * 4) && s.zombies.length < target; k++) spawnRandomZombie(s, 30, night);
+    for (const zn of s.world.zones) { let n = 0; for (const z of s.zombies) if (Math.abs(z.x - zn.x) < zn.r && Math.abs(z.y - zn.y) < zn.r) n++; if (n < zoneCount(zn) * 0.8) spawnInZone(s, zn, 2, 30); }
   }
   for (const n of s.noises) if (n.pl && n.r >= 2 * TILE) ev(s, { type: 'noise', x: n.x, y: n.y, r: n.r });
   s.noises.length = 0;
@@ -168,22 +295,15 @@ function onDawn(s) {
   msg(s, `Day ${dayOf(s)} — dawn breaks.`, '#ffd27a');
   if (s.upgrades.rain) addItem(st.items, makeItem('water', 2), cap);
   if (s.upgrades.garden) addItem(st.items, makeItem('apple', 3), cap);
-  if (s.upgrades.rain || s.upgrades.garden) msg(s, 'Base produced supplies overnight.', '#9fe09f');
-  const ps = Object.values(s.players);
-  let n = 0;
-  for (const c of s.world.containers) {
-    if (!c || !c.searched || ['stash', 'bench', 'bed', 'radio', 'body', 'pile', 'zombie', 'zsoldier', 'weaponcase', 'modcase', 'ammocase'].includes(c.type)) continue;
-    const pos = contPos(c);
-    if (ps.some((p) => dist(p, pos) < 25 * TILE)) continue;
-    if (rnd() < 0.12) { c.items = null; c.searched = false; c.salt = (c.salt || 0) + 1; n++; }
-  }
-  if (ps.some((p) => !p.dead)) completeObjective(s, 'night');
+  if (s.upgrades.rain || s.upgrades.garden) msg(s, 'The outpost produced supplies overnight.', '#9fe09f');
 }
 
 // ---------- players ----------
 export function getInteract(s, p) {
   const w = s.world;
+  if (p.downed) return null;
   const ax = p.x + Math.cos(p.ang) * 18, ay = p.y + Math.sin(p.ang) * 18;
+  for (const q of Object.values(s.players)) if (q !== p && q.downed && !q.dead && dist(p, q) < 46) return { kind: 'revive', pid: q.id, label: 'Hold to revive your partner' };
   let best = null, bd = 1e9;
   const tx0 = Math.floor(p.x / TILE), ty0 = Math.floor(p.y / TILE);
   for (let ty = ty0 - 2; ty <= ty0 + 2; ty++) for (let tx = tx0 - 2; tx <= tx0 + 2; tx++) {
@@ -192,12 +312,12 @@ export function getInteract(s, p) {
     const cx = (tx + 0.5) * TILE, cy = (ty + 0.5) * TILE;
     if (Math.hypot(cx - p.x, cy - p.y) > 50) continue;
     let cand = null;
-    if (t === T.DOOR) { const d = w.doors[i]; cand = { kind: 'door', i, tx, ty, label: d.broken ? 'Broken Door' : d.open ? 'Close Door' : d.locked ? (countItem(p.inv, 'crowbar') ? 'Pry Open (Crowbar)' : 'Locked Door') : 'Open Door' }; }
+    if (t === T.DOOR) { const d = w.doors[i]; cand = { kind: 'door', i, tx, ty, label: d.broken ? 'Broken Door' : d.open ? 'Close Door' : d.vault && d.locked ? VAULT_LABEL[d.vault](p) : d.locked ? (countItem(p.inv, 'crowbar') ? 'Pry Open (Crowbar)' : 'Locked Door') : 'Open Door' }; }
     else if (t === T.WINDOW && w.windows[i]) { const wi = w.windows[i]; cand = { kind: 'window', i, tx, ty, label: wi.broken || wi.open ? (wi.broken ? 'Climb Through (glass!)' : 'Climb Through') : 'Open Window' }; }
     else if (w.contAt[i] >= 0) {
       const c = w.containers[w.contAt[i]];
       if (c.type === 'car') { const car = w.cars.find((k) => k.cid === c.id); if (!car) continue; }
-      cand = { kind: 'cont', cid: c.id, label: contAction(s, c) };
+      cand = { kind: 'cont', cid: c.id, label: contAction(s, c, p) };
     }
     if (!cand) continue;
     const d = Math.hypot(cx - ax, cy - ay);
@@ -207,14 +327,23 @@ export function getInteract(s, p) {
     const c = w.containers[cid];
     if (!c || (c.searched && (!c.items || !c.items.length))) continue;
     const d = Math.hypot(c.px - ax, c.py - ay);
-    if (Math.hypot(c.px - p.x, c.py - p.y) < 44 && d < bd) { bd = d; best = { kind: 'cont', cid, label: contAction(s, c) }; }
+    if (Math.hypot(c.px - p.x, c.py - p.y) < 44 && d < bd) { bd = d; best = { kind: 'cont', cid, label: contAction(s, c, p) }; }
   }
   // a table only wins when nothing else is close: a door or a container right there still comes first
   if (!best || bd > 30) { const ti = tableInReach(w, p, ax, ay); if (ti !== null) best = { kind: 'table', ti, label: 'Flip Table (cover)' }; }
   return best;
 }
-function contAction(s, c) {
+const VAULT_LABEL = {
+  vault: (p) => (countItem(p.inv, 'keycard') ? 'Swipe the Vault Keycard' : 'Vault Door (needs a keycard)'),
+  levers: () => 'Twin-Lock Door (pull both levers together)',
+  keypad: () => 'Enter the keypad code',
+};
+function contAction(s, c, p) {
   const name = contLabel(c);
+  if (c.type === 'bus') return s.raid ? (p && !p.inRaid ? 'Ride back out to the raid' : 'The bus') : p && p.boarded ? 'Get off the bus' : 'Board the bus (deploy)';
+  if (c.type === 'lever') return 'Pull the lever';
+  if (c.type === 'board') return 'Read the Raid Board';
+  if (c.type === 'gunrack') return 'Open Gun Display';
   if (c.type === 'bench') return 'Use Workbench';
   if (c.type === 'radio') return s.upgrades.radio ? 'Use Ham Radio' : 'Ham Radio (not built)';
   if (c.type === 'bed') return s.upgrades.bed ? 'Sleep' : 'Bed (not built)';
@@ -249,9 +378,37 @@ function barricade(s, p) {
   msg(s, `Door barricaded (${d.bar}/3).`, '#9fe09f', p.id);
 }
 
+// Sealed rooms. Each opens its door for good; the armory inside holds two loaded guns, ammo and mods.
+function openVault(s, d, i) {
+  d.locked = false; d.open = true;
+  const x = ((i % s.world.w) + 0.5) * TILE, y = (Math.floor(i / s.world.w) + 0.5) * TILE;
+  ev(s, { type: 'door', x, y, open: true }); ev(s, { type: 'vault', x, y });
+  s.noises.push({ x, y, r: 14 * TILE });
+  msg(s, 'The seal hisses open. The armory is inside.', '#9fe09f');
+  completeObjective(s, 'vault');
+}
+function tryVault(s, p, d, i) {
+  if (d.vault === 'vault') {
+    if (!removeItem(p.inv, 'keycard', 1)) { msg(s, 'A keycard reader. The police kept a Vault Keycard in one of their offices.', '#ffb070', p.id); ev(s, { type: 'locked', x: p.x, y: p.y }); return; }
+    openVault(s, d, i);
+  } else if (d.vault === 'levers') {
+    msg(s, 'Two locks. Pull the levers in both pump sheds within 4 seconds of each other.', '#ffb070', p.id); ev(s, { type: 'locked', x: p.x, y: p.y });
+  } else if (d.vault === 'keypad') ev(s, { type: 'ui', pid: p.id, panel: 'keypad', door: i });
+}
+function pullLever(s, p, c) {
+  c.pulled = s.time; ev(s, { type: 'lever', x: (c.x + 0.5) * TILE, y: (c.y + 0.5) * TILE });
+  s.noises.push({ pl: 1, x: p.x, y: p.y, r: 12 * TILE }); // the clank carries
+  for (const k in s.world.doors) {
+    const d = s.world.doors[k]; if (!d.levers || !d.levers.includes(c.id) || !d.locked) continue;
+    const times = d.levers.map((cid) => s.world.containers[cid].pulled || -99);
+    if (Math.max(...times) - Math.min(...times) <= 4) openVault(s, d, +k);
+    else msg(s, 'The lever clanks and springs back. The other one has to be pulled at the same time.', '#ffb070', p.id);
+  }
+}
 function doInteract(s, p) {
   const it = getInteract(s, p); if (!it) return;
   const w = s.world;
+  if (it.kind === 'revive') { p.reviving = { pid: it.pid, t: 0, dur: 4 }; ev(s, { type: 'reviveStart', x: p.x, y: p.y }); return; }
   if (it.kind === 'table') {
     const f = flipTable(s, p, it.ti); if (!f) return;
     p.swing = p.swingDur = 0.3; p.act = 'shove'; p.atkCd = Math.max(p.atkCd, 0.3);
@@ -265,6 +422,7 @@ function doInteract(s, p) {
   if (it.kind === 'door') {
     const d = w.doors[it.i];
     if (d.broken) { msg(s, 'This door is broken.', '#aaa', p.id); return; }
+    if (d.vault && d.locked) { tryVault(s, p, d, it.i); return; }
     if (d.locked && !d.open) {
       if (countItem(p.inv, 'crowbar')) { p.pry = { i: it.i, t: 0, dur: 1.6, x: (it.tx + 0.5) * TILE, y: (it.ty + 0.5) * TILE }; ev(s, { type: 'pry', x: p.pry.x, y: p.pry.y }); }
       else { msg(s, 'Locked. Pry it with a Crowbar, smash it with a weapon, or use a window.', '#ffb070', p.id); ev(s, { type: 'locked', x: (it.tx + 0.5) * TILE, y: (it.ty + 0.5) * TILE }); }
@@ -294,6 +452,13 @@ function doInteract(s, p) {
     return;
   }
   const c = getCont(s, it.cid);
+  if (c.type === 'bus') {
+    if (s.raid && !p.inRaid) { deploy(s, p); msg(s, 'The bus drops you back at the edge of town.', '#ffd27a', p.id); }
+    else if (!s.raid) { p.boarded = !p.boarded; ev(s, { type: 'click', x: p.x, y: p.y }); const wait = Object.values(s.players).some((q) => q !== p && !q.boarded); if (p.boarded && wait) msg(s, 'On the bus. It leaves when your partner boards too.', '#ffd27a'); else if (!p.boarded) msg(s, 'You stepped off the bus.', '#aaa', p.id); }
+    return;
+  }
+  if (c.type === 'lever') { pullLever(s, p, c); return; }
+  if (c.type === 'board') { ev(s, { type: 'ui', pid: p.id, panel: 'base', tab: 'stats' }); return; }
   if (c.type === 'bench') { ev(s, { type: 'ui', pid: p.id, panel: 'base', tab: 'upgrades' }); return; }
   if (c.type === 'radio') { ev(s, { type: 'ui', pid: p.id, panel: 'base', tab: 'radio' }); return; }
   if (c.type === 'bed') { command(s, p.id, { t: 'sleep' }); return; }
@@ -301,7 +466,7 @@ function doInteract(s, p) {
   else { p.search = { cid: c.id, t: 0, dur: SEARCH_TIME[c.type] || 0.8 }; const cp = contPos(c); ev(s, { type: 'searchStart', x: cp.x, y: cp.y, ctype: c.type, dur: p.search.dur, pid: p.id }); }
 }
 function openCont(s, p, c) {
-  if (c.items === null) c.items = rollLoot(c.type, s.seed, c.id, c.salt || 0);
+  if (c.items === null) { const hub = c.id < s.world.hubConts; c.items = rollLoot(c.type, hub ? s.seed : s.citySeed, c.id, c.salt || 0, !hub && s.raid ? s.raid.surplus : null); if (c.bonus) c.items.push(...c.bonus.map((b) => ({ ...b }))); }
   const first = !c.searched;
   c.searched = true; p.openCid = c.id;
   if ((c.type === 'zombie' || c.type === 'zsoldier') && !c.items.length && !c.emptyT) c.emptyT = s.time;
@@ -318,12 +483,12 @@ function moveIntent(p, inp) {
     mx = fwd * c - side * n; my = fwd * n + side * c;
   }
   p.moving = ml > 0;
-  p.sprinting = !!inp.sprint && p.moving && p.stamina > 3 && !p.channel && !p.sneak;
+  p.sprinting = !!inp.sprint && p.moving && p.stamina > 3 && !p.channel && !p.sneak && !p.downed;
   return [mx, my];
 }
 function applyMove(s, p, mx, my, dt) {
   const w = s.world, over = carried(p) / capacity(p), slow = over > 1 ? Math.max(0.4, 1 - (over - 1) * 1.2) : 1;
-  let speed = p.sneak ? 62 : p.sprinting ? (hasPerk(p, 'sprinter') ? 192 : 172) : 112;
+  let speed = p.downed ? 34 : p.sneak ? 62 : p.sprinting ? (hasPerk(p, 'sprinter') ? 192 : 172) : 112;
   speed *= slow * gearStats(p).slow; if (p.buffs && p.buffs.adrenaline) speed *= 1.3; if (p.channel) speed *= 0.4; if (p.reload > 0) speed *= 0.9; if (p.peek) speed *= 0.5;
   if (w.tiles[Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE)] === T.BUSH) speed *= 0.6;
   const bx = p.x, by = p.y;
@@ -360,7 +525,7 @@ export const rolling = (p) => !!p.roll && p.roll.t < ROLL_DUR * ROLL_IFRAMES;
 export function predictMove(s, p, inp, dt) {
   if (inp.ang !== undefined) p.ang = inp.ang;
   const [mx, my] = moveIntent(p, inp);
-  if (inp.roll) startRoll(p, mx, my);
+  if (inp.roll && !p.downed) startRoll(p, mx, my);
   if (p.roll) stepRoll(s, p, dt); else if (!p.climb) applyMove(s, p, mx, my, dt);
 }
 
@@ -371,6 +536,16 @@ function updatePlayer(s, p, inp, dt) {
   p.bloom = Math.max(0, (p.bloom || 0) - dt * 1.6);
   p.buffs = p.buffs || {}; for (const k in p.buffs) { p.buffs[k] -= dt; if (p.buffs[k] <= 0) { delete p.buffs[k]; msg(s, k === 'adrenaline' ? 'The adrenaline wears off.' : 'The energy boost fades.', '#aaa', p.id); } }
   if (inp.ang !== undefined) p.ang = inp.ang; else if (inp.mx !== undefined) p.ang = Math.atan2(inp.my - p.y, inp.mx - p.x);
+  if (p.downed) { updateDowned(s, p, inp, dt); return; }
+  if (p.reviving) {
+    const q = s.players[p.reviving.pid];
+    if (!q || !q.downed || q.dead || dist(p, q) > 58 || !inp.use || inp.attack) p.reviving = null;
+    else if ((p.reviving.t += dt) >= p.reviving.dur) {
+      Object.assign(q, { downed: null, hp: 35, invuln: 2, bleeding: false, bleedLv: 0, stamina: 60 }); p.reviving = null;
+      msg(s, 'Back on your feet. Patch up before the next one.', '#9fe09f', q.id); msg(s, 'Your partner is back up.', '#9fe09f', p.id);
+      ev(s, { type: 'revive', x: q.x, y: q.y, pid: q.id });
+    }
+  }
   if (inp.sneak) { p.sneak = !p.sneak; msg(s, p.sneak ? 'Sneaking: quieter, harder to spot.' : 'Walking.', '#aaa', p.id); }
   if (inp.flash) { p.flashlight = !p.flashlight; ev(s, { type: 'click', x: p.x, y: p.y }); }
   if (inp.sel !== undefined && inp.sel >= 0) activateHot(s, p, inp.sel, inp);
@@ -405,12 +580,7 @@ function updatePlayer(s, p, inp, dt) {
   else applyMove(s, p, mx, my, dt);
   if (p.moving) trample(s, { x: p.x, y: p.y, ang: wasRolling ? Math.atan2(p.roll ? p.roll.dy : my, p.roll ? p.roll.dx : mx) : Math.atan2(my, mx) }, PLAYER_R, true, p.sneak && !wasRolling);
   const gs = gearStats(p), tHere = w.tiles[Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE)];
-  const safeNow = isSafe(w, p.x, p.y);
-  if (safeNow && p.wasSafe === false) {
-    const n = p.inv.filter((i) => i !== p.wpn).length;
-    msg(s, n ? `Back at the safehouse with ${n} item stack${n > 1 ? 's' : ''}. Put them in the Stash.` : 'Back at the safehouse.', '#9fe09f', p.id);
-  }
-  p.wasSafe = safeNow;
+  // getting home is announced by the extraction itself
   if (p.moving) {
     p.stepT -= dt;
     if (p.stepT <= 0) {
@@ -437,12 +607,12 @@ function updatePlayer(s, p, inp, dt) {
   // searching
   if (p.search) {
     const c = getCont(s, p.search.cid);
-    if (!c || dist(p, contPos(c)) > 60 || inp.attack) p.search = null;
+    if (!c || !nearCont(s, p, c, 60) || inp.attack) p.search = null;
     else { p.search.t += dt; if (p.search.t >= p.search.dur) { p.search = null; openCont(s, p, c); } }
   }
   if (p.openCid >= 0) {
     const c = getCont(s, p.openCid);
-    if (!c || dist(p, contPos(c)) > 72) { p.openCid = -1; ev(s, { type: 'close', pid: p.id }); }
+    if (!c || !nearCont(s, p, c, 72)) { p.openCid = -1; ev(s, { type: 'close', pid: p.id }); }
   }
   if (inp.interact && !p.roll) doInteract(s, p);
   if (inp.barricade) barricade(s, p);
@@ -458,6 +628,18 @@ function updatePlayer(s, p, inp, dt) {
 
   survival(s, p, dt);
   if (p.hp <= 0) killPlayer(s, p);
+}
+
+// Down, not dead: crawl, bleed out, wait for a partner. Reaching the extraction still gets you out.
+function updateDowned(s, p, inp, dt) {
+  const d = p.downed, helped = Object.values(s.players).some((q) => q.reviving && q.reviving.pid === p.id);
+  if (!helped) d.t -= dt;
+  p.ads = false; p.sneak = false; p.hp = 0;
+  const [mx, my] = moveIntent(p, inp); applyMove(s, p, mx, my, dt);
+  p.vis = 0.5;
+  if (p.moving && (p.stepT -= dt) <= 0) { p.stepT = 0.8; ev(s, { type: 'step', x: p.x, y: p.y, pid: p.id, sneak: true, surf: s.world.tiles[Math.floor(p.y / TILE) * s.world.w + Math.floor(p.x / TILE)] }); }
+  if (p.bleeding) dripBlood(s, p, dt);
+  if (d.t <= 0) fatal(s, p);
 }
 
 // ---------- blood trail ----------
@@ -502,11 +684,11 @@ function survival(s, p, dt) {
   p.hp = Math.min(100, p.hp);
 }
 
-function weaponList(p) { return [null, ...p.inv.filter((i) => { const c = ITEMS[i.id].cat; return c === 'melee' || c === 'gun'; }).slice(0, 5)]; }
+function weaponList(p) { return [null, ...p.inv.filter((i) => i.slot < HOT_SLOTS && ['melee', 'gun'].includes(ITEMS[i.id].cat)).sort((a, b) => a.slot - b.slot)]; }
 export { weaponList };
 function activateHot(s, p, k, inp) {
   const it = resolveHot(p, k);
-  if (!it) { if (p.hotbar[k]) msg(s, `No ${ITEMS[p.hotbar[k].id].name} left.`, '#aaa', p.id); return; }
+  if (!it) return;
   const d = ITEMS[it.id];
   if (d.cat === 'melee' || d.cat === 'gun') { p.wpn = p.wpn === it ? null : it; p.reload = 0; ev(s, { type: 'equip', pid: p.id }); }
   else if (d.cat === 'throw') throwItem(s, p, it.id, inp);
@@ -737,10 +919,11 @@ function updateThrown(s, dt) {
 function hurtPlayer(s, p, z) {
   if (p.invuln > 0 || p.dead) return;
   if (rolling(p)) { ev(s, { type: 'dodge', x: p.x, y: p.y, pid: p.id }); return; }
+  if (p.downed) { p.downed.t -= 5 * (1 + overtime(s) * 4); p.invuln = 0.6; p.hurt = 0.45; ev(s, { type: 'phurt', x: p.x, y: p.y, pid: p.id, ang: Math.atan2(p.y - z.y, p.x - z.x) }); return; }
   const zt = ZT[z.type];
   const gs = gearStats(p), arm = { biteProt: gs.bite };
-  p.hp -= zt.dmg * (1 - gs.armor) * (0.85 + rnd() * 0.3);
-  p.invuln = 0.25; p.hurt = 0.45; p.channel = null; p.search = null;
+  p.hp -= zt.dmg * (1 - gs.armor) * (0.85 + rnd() * 0.3) * Math.min(2.5, 1 + overtime(s) * 5);
+  p.invuln = 0.25; p.hurt = 0.45; p.channel = null; p.search = null; p.reviving = null;
   const prot = arm ? arm.biteProt : 0;
   if (!p.bleeding && rnd() < 0.2 * (1 - prot)) { p.bleeding = true; p.bleedLv = 1; msg(s, 'You are bleeding! [H] to bandage.', '#ff6a6a', p.id); }
   else if (p.bleeding && p.bleedLv < 3 && rnd() < (z.type === 'brute' ? 0.8 : 0.4) * (1 - prot)) { p.bleedLv++; msg(s, p.bleedLv === 3 ? 'You are bleeding badly! Zombies can smell the trail.' : 'The bleeding gets worse.', '#ff6a6a', p.id); }
@@ -756,16 +939,28 @@ function killPlayer(s, p) {
     msg(s, 'SELF-REVIVE! You got a second chance.', '#ff6ab0', p.id); ev(s, { type: 'revive', x: p.x, y: p.y, pid: p.id });
     return;
   }
-  p.dead = true; p.hp = 0;
+  if (p.inRaid && !p.downed) {
+    Object.assign(p, { downed: { t: BLEEDOUT, max: BLEEDOUT }, hp: 0, channel: null, search: null, reload: 0, openCid: -1, reviving: null, roll: null, peek: null, pry: null, sneak: false });
+    const solo = !Object.values(s.players).some((q) => q !== p && q.inRaid === p.inRaid && !q.dead && !q.downed);
+    msg(s, solo ? `You're down. Crawl to the green smoke before you bleed out (${BLEEDOUT} s).` : `You're down! Your partner can revive you. Crawl toward them or the extraction.`, '#ff6a6a', p.id);
+    if (!solo) msg(s, 'Your partner is down! Get to them and hold [E] to revive.', '#ff8a6a', Object.values(s.players).find((q) => q !== p).id);
+    ev(s, { type: 'pdown', pid: p.id, x: p.x, y: p.y });
+    return;
+  }
+  fatal(s, p);
+}
+function fatal(s, p) {
+  p.dead = true; p.hp = 0; p.downed = null; p.reviving = null;
   const items = [...p.inv]; if (p.bag) items.push(p.bag); for (const k of GEAR_SLOTS) if (p.gear[k]) items.push(p.gear[k]);
   if (items.length) {
     const c = makeLoose(s, p.x, p.y, 'body', items);
     c.label = `Body (Day ${dayOf(s)})`;
   }
-  p.inv = []; p.bag = null; p.gear = { head: null, body: null, legs: null, feet: null }; p.hotbar = p.hotbar.map(() => null); p.wpn = null; p.openCid = -1; p.channel = null; p.search = null;
+  p.inv = []; p.bag = null; p.gear = { head: null, body: null, legs: null, feet: null }; p.wpn = null; p.openCid = -1; p.channel = null; p.search = null;
   s.stats.deaths++;
   ev(s, { type: 'pdie', pid: p.id, x: p.x, y: p.y });
-  if (Object.keys(s.players).length > 1) msg(s, 'A survivor is down! Their gear is on their body, marked on the map.', '#ff8a6a');
+  if (Object.keys(s.players).length > 1 && p.inRaid) msg(s, 'A survivor died. Their gear is on their body, marked ✕ on the map. Bring it home.', '#ff8a6a');
+  p.inRaid = 0; checkRaidOver(s);
 }
 function makeLoose(s, x, y, type, items) {
   const id = s.world.containers.length;
@@ -795,8 +990,8 @@ function randomTile(s, minD, near = null, rad = 0) {
   for (let k = 0; k < 40; k++) {
     let tx, ty;
     if (near) { const a = rnd() * 6.28; tx = Math.floor(near.x / TILE + Math.cos(a) * rad); ty = Math.floor(near.y / TILE + Math.sin(a) * rad); }
-    else { tx = 3 + ((rnd() * (w.w - 6)) | 0); ty = 3 + ((rnd() * (w.h - 6)) | 0); }
-    if (tx < 2 || ty < 2 || tx >= w.w - 2 || ty >= w.h - 2) continue;
+    else { tx = 3 + ((rnd() * (w.w - 6)) | 0); ty = 3 + ((rnd() * (w.cityH - 6)) | 0); }
+    if (tx < 2 || ty < 2 || tx >= w.w - 2 || ty >= w.cityH - 2) continue;
     const i = ty * w.w + tx, t = w.tiles[i];
     if (SOLID[t] || t === T.DOOR || w.safe[i]) continue;
     const x = (tx + 0.5) * TILE, y = (ty + 0.5) * TILE;
@@ -809,7 +1004,7 @@ function randomTile(s, minD, near = null, rad = 0) {
 function spawnRandomZombie(s, minD, night) {
   const pos = randomTile(s, minD); if (!pos) return;
   const r = rnd();
-  const type = r < (night ? 0.22 : 0.08) ? 'runner' : r > 0.95 ? 'brute' : 'walker';
+  const type = r < (night ? 0.22 : 0.08) + raidHeat(s) * 0.12 ? 'runner' : r > 0.95 ? 'brute' : 'walker';
   spawnZombie(s, pos.x, pos.y, type);
 }
 function spawnInZone(s, zn, n, minD = 0) {
@@ -821,7 +1016,7 @@ function spawnInZone(s, zn, n, minD = 0) {
   }
 }
 function spawnHorde(s) {
-  const alive = Object.values(s.players).filter((q) => !q.dead); if (!alive.length) return;
+  const alive = Object.values(s.players).filter((q) => !q.dead && q.inRaid); if (!alive.length) return;
   const p = alive[(rnd() * alive.length) | 0], n = 10 + dayOf(s) * 3;
   const center = randomTile(s, 26, p, 34); if (!center) return;
   for (let k = 0; k < n; k++) {
@@ -837,7 +1032,7 @@ function updateZombies(s, dt) {
   const w = s.world;
   const players = Object.values(s.players).filter((p) => !p.dead);
   const block = zombiePass(w);
-  const dark = daylight(s) < 0.35;
+  const dark = daylight(s) < 0.35, rage = Math.min(2.1, 1 + 0.2 * Math.min(1, raidHeat(s)) + overtime(s) * 4);
   // flow fields per player
   for (const p of players) {
     const f = s.flows[p.id] || (s.flows[p.id] = new FlowField(w));
@@ -916,7 +1111,7 @@ function updateZombies(s, dt) {
       }
     }
 
-    let gx = z.x, gy = z.y, spd = zt.spd * (dark ? 1.2 : 1);
+    let gx = z.x, gy = z.y, spd = zt.spd * (dark ? 1.2 : 1) * rage;
     if (z.state === 'chase') {
       const tp = s.players[z.pid] || p;
       z.lost += z.seen ? 0 : dt;
@@ -1028,12 +1223,13 @@ export function costStatus(s, p, cost) {
   return Object.entries(cost).map(([id, n]) => ({ id, n, have: countItem(p.inv, id) + (isSafe(s.world, p.x, p.y) ? countItem(stashItems(s), id) : 0) }));
 }
 
-export function command(s, pid, c) { const n = s.events.length; runCommand(s, pid, c); stampEvents(s, n, pid); }
+export function command(s, pid, c) { const n = s.events.length; runCommand(s, pid, c); if (s.players[pid]) tidyInv(s, s.players[pid]); stampEvents(s, n, pid); }
 function runCommand(s, pid, c) {
   const p = s.players[pid]; if (!p) return;
   const w = s.world;
   if (c.t === 'respawn') {
     if (!p.dead) return;
+    p.inRaid = 0; checkRaidOver(s);
     const np = newPlayer(s, pid, s.upgrades.locker ? 'locker' : 'none');
     s.players[pid] = np; ev(s, { type: 'respawn', pid }); return;
   }
@@ -1043,32 +1239,77 @@ function runCommand(s, pid, c) {
   switch (c.t) {
     case 'take': {
       if (!contOk) return; const it = cont.items[c.idx]; if (!it) return;
-      cont.items.splice(c.idx, 1); addItem(p.inv, it); autoHot(p, p.inv.findLast((x) => x.id === it.id));
+      const got = takeInto(p, cont, c.idx, c.to);
+      if (!got) { msg(s, 'Your inventory is full.', '#ffb070', p.id); return; }
       if (!cont.items.length && (cont.type === 'zombie' || cont.type === 'zsoldier')) cont.emptyT = s.time;
-      ev(s, { type: 'pickup', cat: ITEMS[it.id].cat, x: p.x, y: p.y, pid: p.id, text: `+ ${ITEMS[it.id].name}${it.n > 1 ? ' x' + it.n : ''}` });
+      ev(s, { type: 'pickup', cat: ITEMS[it.id].cat, x: p.x, y: p.y, pid: p.id, text: `+ ${ITEMS[it.id].name}${got > 1 ? ' x' + got : ''}` });
       break;
     }
     case 'takeAll': {
       if (!contOk) return;
-      const nTaken = cont.items.length;
-      for (const it of cont.items) { addItem(p.inv, it); autoHot(p, p.inv.findLast((x) => x.id === it.id)); }
-      cont.items.length = 0; if (cont.type === 'zombie' || cont.type === 'zsoldier') cont.emptyT = s.time; ev(s, { type: 'pickup', cat: 'bag', x: p.x, y: p.y, pid: p.id, text: nTaken ? `+ ${nTaken} item${nTaken > 1 ? 's' : ''}` : '' });
+      let nTaken = 0;
+      for (let i = cont.items.length - 1; i >= 0; i--) if (takeInto(p, cont, i)) nTaken++;
+      if (cont.items.length) msg(s, 'Your inventory is full.', '#ffb070', p.id);
+      if (cont.type === 'zombie' || cont.type === 'zsoldier') cont.emptyT = s.time; ev(s, { type: 'pickup', cat: 'bag', x: p.x, y: p.y, pid: p.id, text: nTaken ? `+ ${nTaken} item${nTaken > 1 ? 's' : ''}` : '' });
+      break;
+    }
+    case 'mv': { // Minecraft-style: drop what you picked up onto a slot. Inventory sides use slot numbers, containers list indexes.
+      const { a, b } = c; if (!a || !b) return;
+      if (a.side === 'inv') {
+        const A = slotOf(p.inv, a.i); if (!A) return;
+        if (b.side === 'inv') {
+          if (b.i === a.i || !(b.i >= 0 && b.i < INV_SLOTS)) return;
+          const B = slotOf(p.inv, b.i), n = Math.min(A.n, c.n || A.n);
+          if (!B) { if (n < A.n) { A.n -= n; p.inv.push({ ...A, n, slot: b.i }); } else A.slot = b.i; }
+          else if (B.id === A.id && stackOf(A.id) > 1) { const m = Math.min(stackOf(A.id) - B.n, n); B.n += m; A.n -= m; if (A.n <= 0) p.inv.splice(p.inv.indexOf(A), 1); }
+          else if (n === A.n) [A.slot, B.slot] = [B.slot, A.slot];
+        } else { if (!contOk) return; if (!putInto(s, p, cont, A, c.n)) msg(s, storable(cont, A) ? 'No room.' : 'Only weapons go on the display.', '#aaa', p.id); if (cont.type === 'stash') sortList(cont.items, true); }
+      } else {
+        if (!contOk || b.side !== 'inv' || !(b.i >= 0 && b.i < INV_SLOTS)) return;
+        const A = cont.items[a.i]; if (!A) return;
+        const B = slotOf(p.inv, b.i);
+        if (B && !(B.id === A.id && stackOf(A.id) > 1)) { // swap the two
+          if (c.n && c.n < A.n) return;
+          if (!storable(cont, B)) { msg(s, 'Only weapons go on the display.', '#aaa', p.id); return; }
+          p.inv.splice(p.inv.indexOf(B), 1); delete B.slot; cont.items[a.i] = B; p.inv.push({ ...A, slot: b.i });
+        } else takeInto(p, cont, a.i, b.i, c.n);
+        if (cont.type === 'stash') sortList(cont.items, true);
+      }
+      ev(s, { type: 'click' });
+      break;
+    }
+    case 'quick': { // shift-click with nothing open: hop between the hotbar and the backpack
+      const A = slotOf(p.inv, c.i); if (!A) return;
+      const hot = A.slot < HOT_SLOTS, used = new Set(p.inv.map((i) => i.slot));
+      const same = p.inv.find((i) => i !== A && i.id === A.id && i.n < stackOf(i.id) && (i.slot < HOT_SLOTS) !== hot);
+      if (same) { const m = Math.min(stackOf(A.id) - same.n, A.n); same.n += m; A.n -= m; if (A.n <= 0) p.inv.splice(p.inv.indexOf(A), 1); break; }
+      for (let k = hot ? HOT_SLOTS : 0; k < (hot ? INV_SLOTS : HOT_SLOTS); k++) if (!used.has(k)) { A.slot = k; break; }
+      break;
+    }
+    case 'repair': { // at the workbench: scrap brings a weapon back to full durability
+      if (!isSafe(w, p.x, p.y)) return;
+      const list = c.where === 'stash' ? stashItems(s) : p.inv, it = list[c.idx]; if (!it) return;
+      const n = repairCost(it); if (!n) return;
+      if (!haveCost(s, p, { scrap: n })) { msg(s, `Repairing needs ${n} Scrap Metal.`, '#ff8a6a', p.id); return; }
+      payCost(s, p, { scrap: n }); it.dur = ITEMS[it.id].dur;
+      msg(s, `${ITEMS[it.id].name} repaired.`, '#9fe09f', p.id); ev(s, { type: 'crafted' });
+      break;
+    }
+    case 'keypad': {
+      const d = w.doors[c.door]; if (!d || d.vault !== 'keypad' || !d.locked) return;
+      const dx = ((c.door % w.w) + 0.5) * TILE, dy = (Math.floor(c.door / w.w) + 0.5) * TILE;
+      if (Math.hypot(dx - p.x, dy - p.y) > 80) return;
+      if (String(c.code) === d.code) openVault(s, d, c.door);
+      else { msg(s, 'The keypad buzzes. Wrong code.', '#ff8a6a', p.id); ev(s, { type: 'locked', x: dx, y: dy }); s.noises.push({ pl: 1, x: dx, y: dy, r: 6 * TILE }); }
       break;
     }
     case 'put': case 'putAll': {
       if (!contOk) return;
-      const cap = contCap(s, cont);
-      const list = c.t === 'put' ? [p.inv[c.idx]].filter(Boolean) : p.inv.filter((i) => i !== p.wpn);
+      const list = c.t === 'put' ? [p.inv[c.idx]].filter(Boolean) : p.inv.filter((i) => i !== p.wpn && storable(cont, i));
       let moved = 0;
-      for (const it of list) {
-        const left = addItem(cont.items, it, cap);
-        const n = it.n - left;
-        if (n <= 0) continue;
-        moved += n;
-        if (left > 0) it.n = left; else { const i = p.inv.indexOf(it); p.inv.splice(i, 1); if (it === p.wpn) p.wpn = null; }
-      }
-      if (moved && cont.type === 'stash') { s.stats.hauled += moved; completeObjective(s, 'deposit'); }
-      if (!moved) msg(s, 'No room.', '#aaa', p.id);
+      for (const it of list) moved += putInto(s, p, cont, it);
+      if (moved && cont.type === 'stash') sortList(cont.items, true);
+      if (!moved) msg(s, list.length && !storable(cont, list[0]) ? 'Only weapons go on the display.' : 'No room.', '#aaa', p.id);
       ev(s, { type: 'stow', cat: list[0] ? ITEMS[list[0].id].cat : 'bag', x: p.x, y: p.y, pid: p.id });
       break;
     }
@@ -1127,27 +1368,15 @@ function runCommand(s, pid, c) {
     case 'drop': {
       const it = p.inv[c.idx]; if (!it) return;
       p.inv.splice(c.idx, 1); if (it === p.wpn) p.wpn = null;
-      let pile = s.loose.map((id) => w.containers[id]).find((k) => k.type === 'pile' && Math.hypot(k.px - p.x, k.py - p.y) < 40);
-      if (!pile) { pile = makeLoose(s, p.x + Math.cos(p.ang) * 14, p.y + Math.sin(p.ang) * 14, 'pile', []); pile.label = 'Dropped Backpack'; pile.ang = p.ang + (rnd() - 0.5); ev(s, { type: 'dropbag', x: pile.px, y: pile.py }); }
-      addItem(pile.items, it);
+      delete it.slot; dropToPile(s, p, it);
       break;
     }
-    case 'hotbar': { // assign an inventory item to a hotbar slot (idx null clears it)
-      if (c.slot < 0 || c.slot > 5) return;
-      if (c.idx === null || c.idx === undefined) { p.hotbar[c.slot] = null; break; }
-      const it = p.inv[c.idx]; if (!it || !HOTABLE.has(ITEMS[it.id].cat)) { msg(s, "That can't go on the hotbar.", '#aaa', p.id); return; }
-      // two guns of a type can sit on separate slots, since their mods can differ
-      p.hotbar = p.hotbar.map((h) => (h && (h.ref === it || (h.id === it.id && ITEMS[it.id].cat !== 'gun')) ? null : h));
-      p.hotbar[c.slot] = { id: it.id, ref: it }; ev(s, { type: 'click' });
-      break;
-    }
-    case 'hotswap': { const a = p.hotbar[c.a]; p.hotbar[c.a] = p.hotbar[c.b]; p.hotbar[c.b] = a; break; }
-    case 'sort': {
-      const list = c.which === 'cont' ? (contOk ? cont.items : null) : p.inv;
-      if (!list) return;
-      const ord = (it) => CAT_ORDER.indexOf(ITEMS[it.id].cat) * 1000 + ITEMS[it.id].name.charCodeAt(0);
-      const sorted = [...list].sort((a2, b2) => ord(a2) - ord(b2) || ITEMS[a2.id].name.localeCompare(ITEMS[b2.id].name));
-      list.length = 0; for (const it of sorted) { if (it === p.wpn) list.push(it); else addItem(list, it); }
+    case 'sort': { // a container, or the backpack part of the inventory (the hotbar row stays where you put it)
+      if (c.which === 'cont') { if (contOk) sortList(cont.items, cont.type === 'stash'); ev(s, { type: 'click' }); break; }
+      const main = p.inv.filter((i) => i.slot >= HOT_SLOTS && i !== p.wpn);
+      for (const it of main) p.inv.splice(p.inv.indexOf(it), 1);
+      sortList(main, false);
+      main.forEach((it, k) => { it.slot = HOT_SLOTS + k; p.inv.push(it); });
       ev(s, { type: 'click' });
       break;
     }

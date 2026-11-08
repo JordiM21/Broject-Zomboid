@@ -7,6 +7,7 @@ import { createServer } from 'node:http';
 import { createHmac, createHash, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
+import { makeWorldStore } from './worldstore.mjs';
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I or O: they read like 1 and 0
 const MAX_ROOMS = 20; // it's two people: anything more is someone else
@@ -27,8 +28,8 @@ export function tokenOK(password, token, now = Date.now()) {
   return got.length === want.length && timingSafeEqual(got, want);
 }
 
-export function attachRelay(httpServer, { path = '/coop', password = process.env.RELAY_PASSWORD } = {}) {
-  const rooms = new Map(); // code -> { host, guest }
+export function attachRelay(httpServer, { path = '/coop', password = process.env.RELAY_PASSWORD, world = makeWorldStore() } = {}) {
+  const rooms = new Map(); // code -> { host, guest, world }
   const fails = new Map(); // ip -> [timestamps]
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE });
   const say = (ws, relay, extra) => { if (ws && ws.readyState === OPEN) ws.send(JSON.stringify({ relay, ...extra })); };
@@ -45,8 +46,11 @@ export function attachRelay(httpServer, { path = '/coop', password = process.env
       if (role === 'login') return login(ws, ip);
       if (!tokenOK(password, q.get('token'))) { say(ws, 'auth'); ws.close(); return; }
       if (role === 'check') { say(ws, 'ok'); ws.close(); return; }
-      if (role === 'host') return host(ws, (q.get('code') || '').toUpperCase());
-      join(ws, (q.get('room') || '').toUpperCase());
+      if (role === 'find') { say(ws, 'world-host', { code: worldRoom() }); ws.close(); return; }
+      if (role === 'load') { world.load().then((data) => say(ws, 'world', { data }), () => say(ws, 'error', { why: 'The saved world could not be read.' })).finally(() => ws.close()); return; }
+      if (role === 'save') return saveWorld(ws);
+      if (role === 'host') return host(ws, (q.get('code') || '').toUpperCase(), q.get('world') === '1');
+      join(ws, (q.get('room') || '').toUpperCase(), (q.get('who') || '').slice(0, 24));
     });
   });
 
@@ -65,19 +69,33 @@ export function attachRelay(httpServer, { path = '/coop', password = process.env
       setTimeout(() => bye(ws, 'Wrong password.'), 800); // slow down guessing
     });
   }
+  // The shared world: whoever is hosting it right now. Only one session runs it at a time.
+  const worldRoom = () => { for (const [c, r] of rooms) if (r.world && r.host.readyState === OPEN) return c; return null; };
+  function saveWorld(ws) {
+    const t = setTimeout(() => ws.close(), 15000);
+    ws.once('message', async (m) => {
+      clearTimeout(t);
+      let o = null; try { o = JSON.parse(m); } catch { /* not ours */ }
+      if (!o || typeof o.data !== 'string') return bye(ws, 'Not a save.');
+      try { const why = await world.save(o.data, !!o.force); if (why) return bye(ws, why); say(ws, 'saved'); ws.close(); }
+      catch (e) { bye(ws, 'The world could not be saved: ' + e.message); }
+    });
+  }
   // A host that lost its connection asks for its old code back, so its partner can rejoin.
-  function host(ws, want) {
+  function host(ws, want, isWorld) {
     if (rooms.size >= MAX_ROOMS) return bye(ws, 'The server is full. Try again soon.');
-    const code = /^[A-Z]{4}$/.test(want) && !rooms.has(want) ? want : newCode(), room = { host: ws, guest: null };
+    const busy = isWorld && worldRoom();
+    if (busy && busy !== want) { say(ws, 'error', { why: 'Your partner is already playing the world.', code: busy }); ws.close(); return; }
+    const code = /^[A-Z]{4}$/.test(want) && !rooms.has(want) ? want : newCode(), room = { host: ws, guest: null, world: isWorld };
     rooms.set(code, room); say(ws, 'room', { code });
     ws.on('message', (m, isBinary) => { if (room.guest && room.guest.readyState === OPEN) room.guest.send(m, { binary: isBinary }); });
     ws.on('close', () => { if (rooms.get(code) === room) rooms.delete(code); say(room.guest, 'host-left'); if (room.guest) room.guest.close(); });
   }
-  function join(ws, code) {
+  function join(ws, code, who) {
     const room = rooms.get(code);
     if (!room) return bye(ws, 'No game with that code.');
     if (room.guest) return bye(ws, 'That game already has two players.');
-    room.guest = ws; say(room.host, 'peer-joined'); say(ws, 'joined');
+    room.guest = ws; say(room.host, 'peer-joined', { who }); say(ws, 'joined');
     ws.on('message', (m, isBinary) => { if (room.host.readyState === OPEN) room.host.send(m, { binary: isBinary }); });
     ws.on('close', () => { if (room.guest === ws) { room.guest = null; say(room.host, 'peer-left'); } });
   }

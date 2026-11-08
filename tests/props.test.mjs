@@ -32,7 +32,7 @@ assert.ok(paper.broken, 'bullet shreds the papers');
 p.wpn = null;
 
 // flip a table: it becomes a slab that blocks zombies, and they bash through it
-const ti = w.tables[0], t = w.props[ti];
+const ti = w.tables.find((k) => w.props[k].y < w.cityH), t = w.props[ti]; // a table in the city, not the outpost
 const cx = (t.x + t.w / 2) * 32, cy = (t.y + t.h / 2) * 32;
 p.x = cx; p.y = t.y * 32 - 14; p.ang = Math.PI / 2; // standing just north, facing it
 ev = tick({ interact: true, mx: cx, my: cy + 50 });

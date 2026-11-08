@@ -8,7 +8,7 @@ const SEE_RADIUS = 36 * 32, FORGET_RADIUS = 42 * 32, EVENT_RADIUS = 1500;
 
 // ---------- players ----------
 // sent every frame, as an array in this order, to keep messages small
-const FAST = ['x', 'y', 'ang', 'hp', 'hunger', 'thirst', 'stamina', 'reload', 'swing', 'swingDur', 'muzzle', 'hurt', 'bloom', 'vis', 'infection', 'openCid', 'moving', 'sprinting', 'sneak', 'ads', 'flashlight', 'dead', 'bleeding', 'act', 'channel', 'search', 'peek', 'climb', 'pry', 'roll', 'bleedLv'];
+const FAST = ['x', 'y', 'ang', 'hp', 'hunger', 'thirst', 'stamina', 'reload', 'swing', 'swingDur', 'muzzle', 'hurt', 'bloom', 'vis', 'infection', 'openCid', 'moving', 'sprinting', 'sneak', 'ads', 'flashlight', 'dead', 'bleeding', 'act', 'channel', 'search', 'peek', 'climb', 'pry', 'roll', 'bleedLv', 'downed', 'reviving', 'extractT', 'inRaid', 'boarded'];
 const ROLL_I = FAST.indexOf('roll');
 const fastRow = (p) => FAST.map((k) => { const v = p[k]; return typeof v === 'number' ? (k === 'x' || k === 'y' ? r1(v) : r2(v)) : v ?? null; });
 const SKIP_FOR_SELF = new Set(['x', 'y', 'ang', 'roll']); // the partner predicts their own position, aim and dodge roll
@@ -17,10 +17,9 @@ function applyFast(p, row, self) {
   if (self) { p.hostX = row[0]; p.hostY = row[1]; p.hostRoll = row[ROLL_I]; }
 }
 // sent only when it changes
-const slowOf = (p) => ({ inv: p.inv, wpn: p.inv.indexOf(p.wpn), bag: p.bag, gear: p.gear, hotbar: (p.hotbar || []).map((h) => (h ? [h.id, p.inv.indexOf(h.ref)] : null)), buffs: Object.fromEntries(Object.entries(p.buffs || {}).map(([k, v]) => [k, Math.ceil(v)])) }); // whole seconds: exact timers would resend everything every frame
+const slowOf = (p) => ({ inv: p.inv, wpn: p.inv.indexOf(p.wpn), bag: p.bag, gear: p.gear, buffs: Object.fromEntries(Object.entries(p.buffs || {}).map(([k, v]) => [k, Math.ceil(v)])) }); // whole seconds: exact timers would resend everything every frame
 function applySlow(p, o) {
   p.inv = o.inv; p.wpn = o.wpn >= 0 ? p.inv[o.wpn] : null; p.bag = o.bag; p.gear = o.gear; p.buffs = o.buffs;
-  p.hotbar = o.hotbar.map((h) => (h ? { id: h[0], ref: h[1] >= 0 ? p.inv[h[1]] : null } : null));
 }
 
 // ---------- zombies ----------
@@ -85,7 +84,7 @@ export function packWorld(s, t) {
   if (tbs !== t.tables) { t.tables = tbs; o.tb = tb; any = true; }
   if (c.length) { o.c = c; any = true; }
   const loose = JSON.stringify(s.loose); if (loose !== t.loose) { t.loose = loose; o.loose = s.loose; any = true; }
-  const meta = JSON.stringify({ upgrades: s.upgrades, obj: s.obj, stats: s.stats, tradePoints: s.tradePoints, hordeDay: s.hordeDay, dawnIdx: s.dawnIdx });
+  const meta = JSON.stringify({ upgrades: s.upgrades, obj: s.obj, stats: s.stats, tradePoints: s.tradePoints, hordeDay: s.hordeDay, dawnIdx: s.dawnIdx, raidNo: s.raidNo, citySeed: s.citySeed, raid: s.raid && { ...s.raid, t: Math.floor(s.raid.t) } });
   if (meta !== t.meta) { t.meta = meta; o.meta = JSON.parse(meta); any = true; }
   return any ? o : null;
 }

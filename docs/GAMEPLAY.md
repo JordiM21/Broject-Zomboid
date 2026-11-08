@@ -4,6 +4,17 @@ The rules for how this game should feel, and what keeps it going after the town 
 
 **The promise:** you and a partner bet what you're carrying on one more trip into a town that gets worse every day, until you decide you've got enough to leave.
 
+## 2.0: outpost and raids (supersedes parts of sections 2, 3 and 8)
+
+The town is no longer one persistent map with a safehouse in the middle. 2.0 splits it in two:
+
+- **The Outpost** is a fenced hub south of the forest that zombies can never reach. It holds the Stash (200 to 800 slots, with tabs per category), the Workbench (upgrades, crafting, repairs with Scrap), the radio, the bed, the Raid Board and four gun displays.
+- **A raid** starts when everyone boards the bus. Each raid generates a fresh city with no safe zones, drops the team at a bus stop next to a crate of 2 melee weapons and 2 loaded guns with ammo and a mod, and marks an extraction pad with green smoke across town.
+- **The clock** gives 15 minutes. After that, overtime: zombies get faster, hit harder and come in waves aimed at whoever is still out there. This replaces "no countdown timers" in section 8.
+- **Downed, not dead.** At 0 health in a raid you go down for 75 seconds: crawl, get revived by a partner holding E, or crawl into the extraction ring. Bleeding out is death: your carried gear stays on your body in that city, so a partner still out there can bring it home.
+- **Sealed rooms** in every city: a keycard vault (the card is in a police office), a twin-lever bunker (both levers within 4 seconds, built for two) and a keypad bunker (four notes in the camps around it). Each armory holds 2+ loaded guns, ammo and mods.
+- **Inventory** works like Minecraft: 36 slots with the first 9 as the hotbar, click to pick up and put down, right-click for half or one, shift-click to send across.
+
 ## 1. Where the game stands today
 
 "What next?" currently has no good answer. From the code:

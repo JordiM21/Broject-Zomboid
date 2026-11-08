@@ -72,6 +72,9 @@ export const ITEMS = {
   watch: { name: 'Gold Watch', cat: 'val', w: 0.1, stack: 10, val: 5 },
   jewelry: { name: 'Jewelry', cat: 'val', w: 0.1, stack: 10, val: 8 },
   cash: { name: 'Cash Bundle', cat: 'val', w: 0.05, stack: 20, val: 3, roll: [1, 3] },
+
+  keycard: { name: 'Vault Keycard', cat: 'key', w: 0.05 },
+  note: { name: 'Torn Note', cat: 'key', w: 0 },
 };
 
 // Weapon mods. A gun carries at most one of each, listed in its `mods` array.
@@ -97,7 +100,7 @@ export const MOD_STASH_ITEMS = ['silencer', 'silencer', 'silencer', 'silencer', 
 
 export const CAT_COLOR = {
   food: '#e0a050', med: '#e05a5a', mat: '#9aa3ad', melee: '#c9c9c9', gun: '#6f8fb0', mod: '#5ad0c8',
-  ammo: '#d9c26b', buff: '#5ad0c8', perk: '#ff6ab0', bag: '#8d6e4b', armor: '#5d7a5a', throw: '#c77ad6', val: '#f2d14a',
+  ammo: '#d9c26b', buff: '#5ad0c8', perk: '#ff6ab0', bag: '#8d6e4b', armor: '#5d7a5a', throw: '#c77ad6', val: '#f2d14a', key: '#ff9a3a',
 };
 
 export const FISTS = { name: 'Fists', cat: 'melee', dmg: 9, range: 30, arc: 1.4, cd: 0.38, stam: 3, knock: 70 };
@@ -128,7 +131,7 @@ export const CONTAINER_LABEL = {
 };
 
 export const UPGRADES = [
-  { id: 'stash', name: 'Stash Shelving', desc: 'More stash slots (24 → 40 → 64 → 96).', levels: [
+  { id: 'stash', name: 'Stash Shelving', desc: 'More stash slots (200 → 320 → 480 → 800).', levels: [
     { plank: 3, nails: 8 }, { plank: 6, nails: 14, scrap: 4 }, { scrap: 10, tape: 4, plank: 6 }] },
   { id: 'bench', name: 'Workbench', desc: 'Unlocks crafting.', levels: [{ plank: 4, nails: 10, scrap: 2 }] },
   { id: 'bed', name: 'Proper Bed', desc: 'Sleep through the night and recover health.', levels: [{ plank: 3, cloth: 6 }] },
@@ -137,7 +140,19 @@ export const UPGRADES = [
   { id: 'locker', name: 'Armory Locker', desc: 'Respawn with a knife, bandages and water.', levels: [{ scrap: 6, nails: 8, plank: 2 }] },
   { id: 'radio', name: 'Ham Radio', desc: 'Trade valuables for supply drops.', levels: [{ electronics: 5, scrap: 3, tape: 2 }] },
 ];
-export const STASH_CAP = [24, 40, 64, 96];
+export const STASH_CAP = [200, 320, 480, 800];
+// Stash tabs. Drinks are food that quenches more than it fills.
+export const STASH_TABS = [['all', 'All'], ['weapons', 'Weapons'], ['ammo', 'Ammo'], ['mods', 'Mods'], ['med', 'Healing'], ['food', 'Food'], ['drink', 'Drink'], ['gear', 'Gear'], ['throw', 'Throwables'], ['mat', 'Materials'], ['val', 'Valuables'], ['key', 'Keys & Notes']];
+export function stashTab(id) {
+  const d = ITEMS[id], c = d.cat;
+  if (c === 'melee' || c === 'gun') return 'weapons';
+  if (c === 'food') return (d.thirst || 0) > (d.hunger || 0) ? 'drink' : 'food';
+  if (c === 'med' || c === 'buff' || c === 'perk') return 'med';
+  if (c === 'armor' || c === 'bag') return 'gear';
+  return { mod: 'mods', ammo: 'ammo', throw: 'throw', mat: 'mat', val: 'val', key: 'key' }[c] || 'mat';
+}
+// Scrap to bring a worn weapon back to full: one per quarter of its durability that's gone.
+export const repairCost = (it) => { const d = ITEMS[it.id]; return d.dur && it.dur < d.dur ? Math.max(1, Math.ceil(((d.dur - it.dur) / d.dur) * 4)) : 0; };
 
 export const RECIPES = [
   { id: 'bandage', out: ['bandage', 1], cost: { cloth: 2 } },
@@ -160,12 +175,12 @@ export const TRADE_COST = 12; // valuable points per supply drop
 export const TRADE_POOL = [['ammo9', 14], ['ammomed', 10], ['ammo308', 5], ['shells', 6], ['bandage', 3], ['antibiotics', 1], ['mre', 2], ['electronics', 2], ['tape', 2], ['medkit', 1]];
 
 export const OBJECTIVES = [
-  { id: 'search', text: 'Search a container [E]' },
-  { id: 'kill', text: 'Kill a zombie' },
-  { id: 'deposit', text: 'Bring loot back and put it in the Stash' },
+  { id: 'deploy', text: 'Board the bus to deploy into the city' },
+  { id: 'search', text: 'Open the drop crate by the bus stop [E]' },
+  { id: 'extract', text: 'Reach the extraction (green smoke) and get out' },
+  { id: 'deposit', text: 'Put your haul in the Stash' },
   { id: 'build', text: 'Build any upgrade at the Workbench' },
-  { id: 'craft', text: 'Craft an item' },
-  { id: 'night', text: 'Survive until dawn' },
+  { id: 'vault', text: 'Crack a sealed room: keycard vault, twin levers or keypad bunker' },
   { id: 'all', text: 'Build every base upgrade' },
 ];
 
@@ -197,6 +212,7 @@ export const DESC = {
   schoolbag: 'Wear to carry more.', hikingbag: 'Wear to carry a lot more.', milbag: 'The best bag. Haul everything home.',
   jacket: 'Cuts damage and protects against bites.', vest: 'Heavy protection. Bites rarely get through.',
   noisemaker: 'Throw [G] to lure zombies away for 10 s.', pipebomb: 'Throw [X]. Explodes after 2 s. Lure a crowd first.',
+  keycard: 'Opens the Vault Door in this city. Used up when you swipe it.', note: 'Scribbled by whoever sealed a bunker. One digit of its keypad code.',
   watch: 'Valuable. Trade over the Ham Radio.', jewelry: 'Valuable. Trade over the Ham Radio.', cash: 'Valuable. Trade over the Ham Radio.',
 };
 
@@ -230,6 +246,7 @@ export function itemStats(it) {
   else if (d.cat === 'armor') { s.push(['Slot', { head: 'Head', body: 'Body', legs: 'Legs', feet: 'Feet' }[d.slot] || 'Body']); if (d.armor) s.push(['Damage taken', '-' + Math.round(d.armor * 100) + '%']); if (d.biteProt) s.push(['Bite protection', Math.round(d.biteProt * 100) + '%']); if (d.carry) s.push(['Carry', '+' + d.carry + ' kg']); if (d.perk) s.push(['Perk', PERK_NAME[d.perk]]); if (d.slow) s.push(['Speed', '-' + Math.round((1 - d.slow) * 100) + '%']); if (d.stealth) s.push(['Visibility', '-' + Math.round((1 - d.stealth) * 100) + '%']); }
   else if (d.cat === 'buff') s.push(['Duration', d.time + ' s']);
   else if (d.cat === 'perk') s.push(['Effect', 'Passive (carry it)']);
+  else if (it.txt) s.push(['Reads', it.txt]);
   if (d.silent) s.push(['Perk', 'Silent kills']);
   if (d.stun) s.push(['Stun', d.stun + ' s']);
   else if (d.cat === 'val') s.push(['Trade value', d.val]);
@@ -239,7 +256,7 @@ export function itemStats(it) {
 }
 
 export const PERK_NAME = { nvg: 'Night vision', headlamp: 'Head light', quiet: 'Quiet steps', glassproof: 'Glass-proof', sprinter: 'Sprinter' };
-export const CAT_ORDER = ['gun', 'melee', 'mod', 'ammo', 'perk', 'buff', 'med', 'food', 'throw', 'bag', 'armor', 'mat', 'val'];
+export const CAT_ORDER = ['gun', 'melee', 'mod', 'ammo', 'perk', 'buff', 'med', 'food', 'throw', 'bag', 'armor', 'mat', 'val', 'key'];
 
 LOOT.medcab = { rolls: [1, 3], t: [['adrenaline', 0.5], ['reviver', 0.08], ['bandage', 5], ['painkillers', 4], ['antibiotics', 3], ['medkit', 1.6], ['rag', 2], ['water', 1]] };
 LOOT.milcrate = { rolls: [1, 3], t: [['carbine', 0.6], ['ammomed', 2], ['milhelmet', 0.6], ['nvg', 0.3], ['kevlarpants', 0.35], ['boots', 0.5], ['smg', 0.5], ['riotgear', 0.3], ['crossbow', 0.3], ['ammomed', 1], ['adrenaline', 0.5], ['reviver', 0.12], ['ammo9', 4], ['ammo308', 3], ['shells', 3], ['mre', 3], ['pistol', 1], ['shotgun', 0.8], ['rifle', 0.8], ['vest', 1], ['milbag', 0.6], ['pipebomb', 1], ['machete', 0.8], ['bandage', 1]] };
@@ -300,5 +317,12 @@ LOOT.weaponcase = { rolls: [1, 1], t: [['spikedbat', 6], ...WEAPON_TIERS.flatMap
 LOOT.modcase = { rolls: [1, 1], t: MOD_IDS.map((id) => [id, 1]) };
 LOOT.ammocase = { all: true, t: ['ammo9', 'ammomed', 'shells', 'ammo308'].map((id) => [id, 1]) };
 Object.assign(CONTAINER_LABEL, { weaponcase: 'Weapon Case', modcase: 'Mod Case', ammocase: 'Ammo Case' });
+Object.assign(CONTAINER_LABEL, { bus: 'Bus', gunrack: 'Gun Display', armory: 'Sealed Armory', dropcrate: 'Drop Crate', lever: 'Lever', keypad: 'Keypad', board: 'Raid Board' });
+// Kits: the drop crate every raid starts with, and what a sealed room keeps. Guns come loaded, with spare rounds and a mod.
+export const KITS = {
+  dropcrate: { melee: 2, guns: 2, tiers: [0, 1, 1, 0.25], mags: 2, extra: [['bandage', 2], ['water', 1]] },
+  armory: { melee: 0, guns: 2, tiers: [0, 0.4, 1, 0.8], mags: 3, mods: 2, extra: [['medkit', 1], ['pipebomb', 1]] },
+};
+export const weaponPool = (cat, tiers) => WEAPON_TIERS.flatMap((ids, t) => ids.filter((id) => ITEMS[id].cat === cat).map((id) => [id, tiers[t]])).filter(([, w]) => w > 0);
 
 export const RACK_ITEMS = [['katana',1],['sledge',1],['spear',1],['crossbow',1],['ammomed',40],['carbine',1],['smg',1],['ammo9',60],['ammo9',60],['pistol',1],['shotgun',1],['shells',30],['rifle',1],['ammo308',30],['axe',1],['machete',1],['spikedbat',1],['crowbar',1],['bat',1],['riotgear',1],['ghillie',1],['vest',1],['jacket',1],['milbag',1],['adrenaline',3],['energy',3],['reviver',1],['pipebomb',3],['noisemaker',3],['medkit',2],['helmet',1],['milhelmet',1],['nvg',1],['headlamp',1],['jeans',1],['cargo',1],['kevlarpants',1],['sneakers',1],['boots',1],['runners',1],['hikingbag',1],['schoolbag',1]];

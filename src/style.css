@@ -143,3 +143,43 @@ body.dropping #game { outline: 3px dashed rgba(255,150,90,0.6); outline-offset: 
 @media (max-height: 680px) { .panel { padding: 10px 14px; } .hrow .hs { height: 38px; } .gearcol { grid-auto-rows: 30px; gap: 3px; } .eslot img { width: 24px; height: 24px; } .wbar { margin-bottom: 5px; } .hrow { margin-bottom: 5px; } .doll img { width: 120px; height: 120px; } .details { height: 112px; margin-top: 6px; padding-top: 6px; } .details img { width: 44px; height: 44px; } .dDesc { display: none; } .dBtns { gap: 2px; } .dBtns button { padding: 2px 8px; } .foot { margin-top: 4px; } }
 @media (max-width: 640px) { .cols { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: max-content; overflow-y: auto; } .col .hdr { padding-right: 30px; } .grid { flex: none; overflow: visible; } .details { height: 132px; } .details img { display: none; } .dBtns { width: 120px; max-height: 100%; overflow-y: auto; }
   #hotbar { left: 50%; gap: 4px; bottom: 6px; } #hotbar .hs { width: 44px; height: 44px; } #hotbar .fist { width: 34px; height: 44px; } }
+
+/* ---------- 2.0 inventory: Minecraft-style slots ---------- */
+#inv { width: min(640px, calc(100vw - 24px)); height: min(820px, calc(100vh - 24px)); }
+#invBody { gap: 10px; }
+.sect { display: flex; flex-direction: column; min-height: 0; }
+.sect.cont, .sect.char { flex: 1; }
+.sect .hdr { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; padding-right: 30px; }
+.sect .hdr .sp { flex: 1; }
+.sgrid { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 4px; align-content: start; }
+.sgrid.tall { flex: 1; min-height: 120px; overflow-y: auto; scrollbar-gutter: stable; padding-right: 2px; }
+.sect.cont .sgrid:not(.tall) { overflow-y: auto; max-height: 100%; }
+.sgrid.hotrow { margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(255,210,122,0.25); }
+.slot { position: relative; aspect-ratio: 1; min-width: 0; background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(0,0,0,0.2)); border: 1px solid rgba(255,255,255,0.1); border-bottom: 2px solid var(--cat, rgba(255,255,255,0.1)); border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; user-select: none; }
+.slot.empty { background: rgba(0,0,0,0.25); border-color: rgba(255,255,255,0.05); }
+.slot:hover { border-color: rgba(255,210,122,0.7); background-color: rgba(255,210,122,0.08); }
+.slot.held img { opacity: 0.3; }
+.slot.eq { box-shadow: inset 0 0 0 2px rgba(255,210,122,0.7); }
+.slot img { width: 74%; height: 74%; pointer-events: none; }
+.slot .cnt { position: absolute; right: 3px; bottom: 1px; font: 800 12px system-ui; color: #fff; text-shadow: 0 1px 2px #000, 0 0 3px #000; pointer-events: none; }
+.slot .mag { position: absolute; right: 3px; bottom: 2px; font: 700 9px system-ui; color: #cfe0ff; text-shadow: 0 1px 2px #000; pointer-events: none; }
+.slot .dur { position: absolute; left: 5px; right: 5px; bottom: 3px; height: 3px; background: rgba(0,0,0,0.6); border-radius: 2px; } .slot .dur i { display: block; height: 100%; border-radius: 2px; }
+.hotrow .slot::before { content: attr(data-key); position: absolute; left: 3px; top: 1px; font: 700 10px system-ui; color: var(--acc); text-shadow: 0 1px 2px #000; pointer-events: none; }
+.heldIcon { position: fixed; z-index: 40; width: 46px; height: 46px; transform: translate(-50%, -50%); pointer-events: none; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.7)); }
+.heldIcon img { width: 100%; height: 100%; } .heldIcon span { position: absolute; right: -2px; bottom: -2px; font: 800 13px system-ui; color: #fff; text-shadow: 0 1px 2px #000; }
+.stabs { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 6px; }
+.stab { padding: 2px 8px; font-size: 11px; border-radius: 10px; background: rgba(255,255,255,0.04); }
+.stab.on { background: rgba(255,210,122,0.2); border-color: var(--acc); color: var(--acc); }
+.sect.char .charTop { flex: 1; min-height: 0; }
+.sect.char #charStats { flex: 1; min-width: 0; font-size: 12px; }
+.sect.char .doll { max-width: 170px; }
+.sect.char .doll img { width: 150px; height: 150px; }
+.eslot { cursor: pointer; } .eslot:hover { border-color: var(--acc); }
+#inv .details { height: 132px; }
+.keypad { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px; }
+.kdisp { font: 800 34px ui-monospace, monospace; letter-spacing: 0.25em; color: #7ae07a; background: #081008; border: 1px solid #2a4a2a; border-radius: 6px; padding: 6px 18px; }
+.kgrid { display: grid; grid-template-columns: repeat(3, 72px); gap: 8px; } .kgrid button { height: 52px; font: 700 18px system-ui; }
+@media (max-height: 760px) { #inv .details { height: 96px; } .dDesc { display: none; } .sect.char .doll img { width: 110px; height: 110px; } }
+.sgrid { grid-template-columns: repeat(9, minmax(0, 54px)); justify-content: center; }
+@media (max-height: 760px) { .sgrid { grid-template-columns: repeat(9, minmax(0, 40px)); } #inv { height: calc(100vh - 16px); } .sect.char .doll img { width: 90px; height: 90px; } .sect.char .gearcol { grid-auto-rows: 34px; } }
+.joinRow input.name { letter-spacing: 0.05em; text-transform: none; font-size: 16px; }

@@ -1,47 +1,33 @@
-// DOM hotbar: drag items from the inventory onto slots, drag slots to reorder, drag off or right-click to clear.
+// DOM hotbar: the first row of the inventory (slots 0..8). Click or press 1-9 to use; the wheel cycles weapons.
 import { ITEMS } from '../data/items.js';
+import { HOT_SLOTS } from '../config.js';
+import { slotOf } from '../sim/inventory.js';
 import { iconURL } from './icons.js';
 
-const findRef = (p, h) => (h ? (h.ref && p.inv.includes(h.ref) ? h.ref : p.inv.find((i) => i.id === h.id) || null) : null);
-
-// One slot's markup. The inventory shows the same slots as this bar.
-export function hotSlot(p, k) {
-  const h = p.hotbar && p.hotbar[k], it = findRef(p, h);
+function hotSlot(p, k) {
+  const it = slotOf(p.inv, k);
   let extra = '';
-  if (h) {
-    const d = ITEMS[h.id];
-    if (d.cat === 'gun' && it) { const res = p.inv.filter((i) => i.id === d.ammo).reduce((a, b) => a + b.n, 0); extra = `<span class="cnt ${it.mag ? '' : 'red'}">${it.mag}/${res}</span>`; }
-    else if (d.dur && it && it.dur !== undefined) { const f = it.dur / d.dur; extra = `<div class="dur"><i style="width:${Math.round(f * 100)}%;background:${f > 0.5 ? '#7ad07a' : f > 0.2 ? '#d0c04a' : '#d05a4a'}"></i></div>`; }
-    else if (d.cat !== 'melee') { const n = p.inv.filter((i) => i.id === h.id).reduce((a, b) => a + b.n, 0); extra = `<span class="cnt ${n ? '' : 'red'}">${n}</span>`; }
+  if (it) {
+    const d = ITEMS[it.id];
+    if (d.cat === 'gun') { const res = p.inv.filter((i) => i.id === d.ammo).reduce((a, b) => a + b.n, 0); extra = `<span class="cnt ${it.mag ? '' : 'red'}">${it.mag}/${res}</span>`; }
+    else if (d.dur && it.dur !== undefined) { const f = it.dur / d.dur; extra = `<div class="dur"><i style="width:${Math.round(f * 100)}%;background:${f > 0.5 ? '#7ad07a' : f > 0.2 ? '#d0c04a' : '#d05a4a'}"></i></div>`; }
+    else if (it.n > 1) extra = `<span class="cnt">${it.n}</span>`;
   }
-  const mods = (it && it.mods) || [];
-  const name = h ? [ITEMS[h.id].name, ...mods.map((id) => ITEMS[id].name)].join(' + ') : 'Empty: drag an item here';
-  return `<div class="hs ${it && it === p.wpn ? 'eq' : ''} ${h && !it ? 'gone' : ''}" draggable="${!!h}" data-k="${k}" title="${name}"><span class="key">${k + 1}</span>${h ? `<img src="${iconURL(h.id, mods)}" alt="" draggable="false">` : ''}${extra}</div>`;
+  const name = it ? [ITEMS[it.id].name, ...(it.mods || []).map((id) => ITEMS[id].name)].join(' + ') : 'Empty';
+  return `<div class="hs ${it && it === p.wpn ? 'eq' : ''}" data-k="${k}" title="${name}"><span class="key">${k + 1}</span>${it ? `<img src="${iconURL(it.id, it.mods)}" alt="" draggable="false">` : ''}${extra}</div>`;
 }
 
 export class HotbarUI {
   constructor(el, h) {
-    this.el = el; this.h = h; this.last = ''; this.drag = null;
+    this.el = el; this.h = h; this.last = '';
     el.addEventListener('mousedown', (e) => e.stopPropagation());
     el.addEventListener('click', (e) => { const sl = e.target.closest('.hs'); if (sl) h.use(+sl.dataset.k); else if (e.target.closest('.fist')) h.holster(); });
-    el.addEventListener('contextmenu', (e) => { e.preventDefault(); const sl = e.target.closest('.hs'); if (sl) h.cmd({ t: 'hotbar', slot: +sl.dataset.k, idx: null }); });
-    el.addEventListener('dragstart', (e) => { const sl = e.target.closest('.hs'); if (!sl) return; this.drag = +sl.dataset.k; e.dataTransfer.setData('text/plain', 'hot'); e.dataTransfer.effectAllowed = 'move'; });
-    el.addEventListener('dragend', (e) => { if (this.drag !== null && e.dataTransfer.dropEffect === 'none') h.cmd({ t: 'hotbar', slot: this.drag, idx: null }); this.drag = null; this.clearOver(); });
-    el.addEventListener('dragover', (e) => { const sl = e.target.closest('.hs'); if (!sl) return; e.preventDefault(); e.stopPropagation(); this.clearOver(); sl.classList.add('over'); });
-    el.addEventListener('dragleave', (e) => { const sl = e.target.closest('.hs'); if (sl && !sl.contains(e.relatedTarget)) sl.classList.remove('over'); });
-    el.addEventListener('drop', (e) => {
-      const sl = e.target.closest('.hs'); if (!sl) return; e.preventDefault(); e.stopPropagation(); this.clearOver();
-      const k = +sl.dataset.k;
-      if (this.drag !== null) { if (this.drag !== k) h.cmd({ t: 'hotswap', a: this.drag, b: k }); this.drag = null; }
-      else { const d = h.invDrag(); if (d) h.assign(k, d); }
-      this.last = '';
-    });
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
   }
-  clearOver() { this.el.querySelectorAll('.over').forEach((n) => n.classList.remove('over')); }
   render(p, visible) {
     this.el.classList.toggle('hidden', !visible); if (!visible || !p) return;
     let html = `<div class="fist ${p.wpn ? '' : 'eq'}" title="Unarmed"><img src="${iconURL('fists')}" alt=""></div>`;
-    for (let k = 0; k < 6; k++) html += hotSlot(p, k);
+    for (let k = 0; k < HOT_SLOTS; k++) html += hotSlot(p, k);
     if (html !== this.last) { this.last = html; this.el.innerHTML = html; }
   }
 }

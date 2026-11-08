@@ -108,19 +108,19 @@ assert.ok(farLoud > 280); assert.strictEqual(far, 0, 'silenced shots are not hea
   d.locked = true; hold({ peek: true }); assert.ok(!q.peek, 'a locked door has no gap'); d.locked = false;
 }
 
-// save and load: mods, the hotbar reference and the emptied stash all survive
+// save and load: mods, the hotbar slot and the emptied stash all survive
 const store = new Map();
 globalThis.localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
 const { saveGame, loadGame } = await import('../src/save.js');
 const { newPlayer } = await import('../src/sim/sim.js');
 const sv = createState(4242, false, { testGear: true }), q = addPlayer(sv, 'p1');
 const modded = makeItem('smg'); modded.mods = ['silencer', 'extmag']; modded.mag = 40; q.inv.push(modded); q.wpn = modded;
-command(sv, 'p1', { t: 'hotbar', slot: 3, idx: q.inv.indexOf(modded) });
+command(sv, 'p1', { t: 'mv', a: { side: 'inv', i: modded.slot }, b: { side: 'inv', i: 3 } });
 const st = getCont(sv, sv.world.fixtures.modstash); st.items.splice(0, 3);
 assert.ok(saveGame(sv, null));
 const back = loadGame(spawnZombie, newPlayer).state, q2 = back.players.p1;
 assert.deepStrictEqual(q2.wpn.mods, ['silencer', 'extmag']); assert.strictEqual(q2.wpn.mag, 40); assert.strictEqual(gunStats(q2.wpn).mag, 45);
-assert.strictEqual(q2.hotbar[3].ref, q2.wpn);
+assert.strictEqual(q2.inv.find((i) => i.slot === 3), q2.wpn);
 assert.strictEqual(getCont(back, back.world.fixtures.modstash).items.length, MOD_STASH_ITEMS.length - 3);
 
 console.log('mods test passed');

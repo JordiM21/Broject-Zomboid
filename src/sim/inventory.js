@@ -1,5 +1,25 @@
-import { ITEMS, LOOT, itemWeight } from '../data/items.js';
+import { ITEMS, LOOT, KITS, MODS, modFits, gunStats, weaponPool, itemWeight } from '../data/items.js';
+import { INV_SLOTS, HOT_SLOTS } from '../config.js';
 import { RNG } from '../rng.js';
+
+// The player's inventory is a plain list of stacks; each stack remembers which of the 36 slots it sits in
+// (0..8 are the hotbar). New stacks take the first free slot: weapons and things you use go to the hotbar first.
+const HOT_FIRST = new Set(['melee', 'gun', 'food', 'med', 'buff', 'throw']);
+export const slotOf = (inv, k) => inv.find((i) => i.slot === k) || null;
+export function freeSlot(inv, id) {
+  const used = new Set(inv.map((i) => i.slot));
+  const order = HOT_FIRST.has(ITEMS[id].cat) ? [0, INV_SLOTS] : [HOT_SLOTS, INV_SLOTS, 0, HOT_SLOTS];
+  for (let r = 0; r < order.length; r += 2) for (let k = order[r]; k < order[r + 1]; k++) if (!used.has(k)) return k;
+  return -1;
+}
+// Gives every stack a unique slot. Returns the stacks that don't fit, already taken out of the list.
+export function fixSlots(inv) {
+  const seen = new Set(), over = [];
+  for (const it of inv) { if (Number.isInteger(it.slot) && it.slot >= 0 && it.slot < INV_SLOTS && !seen.has(it.slot)) seen.add(it.slot); else it.slot = -1; }
+  for (const it of inv) if (it.slot < 0) { const k = freeSlot(inv.filter((x) => x.slot >= 0), it.id); if (k < 0) over.push(it); else it.slot = k; }
+  for (const it of over) inv.splice(inv.indexOf(it), 1);
+  return over;
+}
 
 export function makeItem(id, n = 1) {
   const d = ITEMS[id]; const it = { id, n };
@@ -33,16 +53,34 @@ export function removeItem(inv, id, n) {
 }
 export function invWeight(inv) { let w = 0; for (const s of inv) w += itemWeight(s) * s.n; return w; }
 
-export function rollLoot(type, seed, cid, salt = 0) {
-  const tab = LOOT[type]; if (!tab) return [];
+// A ready-to-fight bundle: loaded guns with spare rounds and a random mod on each, plus melee weapons.
+export function rollKit(kind, rng) {
+  const k = KITS[kind], out = [];
+  const pick = (cat, n) => { const pool = weaponPool(cat, k.tiers), got = []; for (let i = 0; i < n && pool.length; i++) { const id = rng.weighted(pool); got.push(id); pool.splice(pool.findIndex(([x]) => x === id), 1); } return got; };
+  for (const id of pick('melee', k.melee)) { const it = makeItem(id); it.dur = Math.round(ITEMS[id].dur * rng.range(0.7, 1)); out.push(it); }
+  for (const id of pick('gun', k.guns)) {
+    const g = makeItem(id), mods = Object.keys(MODS).filter((m) => modFits(id, m));
+    if (mods.length) g.mods = [rng.pick(mods)];
+    g.mag = gunStats(g).mag; out.push(g);
+    addItem(out, makeItem(ITEMS[id].ammo, ITEMS[id].mag * k.mags));
+  }
+  for (let i = 0; i < (k.mods || 0); i++) out.push(makeItem(rng.pick(Object.keys(MODS))));
+  for (const [id, n] of k.extra) addItem(out, makeItem(id, n));
+  return out;
+}
+
+// boost: an item category this city has plenty of (the raid's surplus), weighted up
+export function rollLoot(type, seed, cid, salt = 0, boost = null) {
   const rng = new RNG((seed * 31 + cid * 7919 + salt * 104729) >>> 0);
   rng.next();
+  if (KITS[type]) return rollKit(type, rng);
+  const tab = LOOT[type]; if (!tab) return [];
   if (tab.all) return tab.t.map(([id]) => makeItem(id, rng.int(...ITEMS[id].roll) + rng.int(...ITEMS[id].roll))); // two normal finds of each
   const out = [];
   // containers are empty ~22% of the time; otherwise at least one item
   const rolls = tab.rolls[0] === 0 && rng.chance(0.22) ? 0 : rng.int(Math.max(1, tab.rolls[0]), tab.rolls[1]);
   for (let k = 0; k < rolls; k++) {
-    const id = rng.weighted(tab.t);
+    const id = rng.weighted(boost ? tab.t.map(([i, wt]) => [i, ITEMS[i].cat === boost ? wt * 3 : wt]) : tab.t);
     const d = ITEMS[id];
     const n = d.roll ? rng.int(d.roll[0], d.roll[1]) : 1;
     const it = makeItem(id, n);

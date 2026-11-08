@@ -53,3 +53,10 @@ export function keepWarm() {
   setInterval(ping, 10 * 60 * 1000);
   document.addEventListener('visibilitychange', ping);
 }
+
+// ---------- the shared world ----------
+// One world for both players, kept on the server. Whoever plays first hosts it; the other joins.
+const expect = (m, kind) => { if (m.relay === 'auth') throw new Error('Please log in again.'); if (m.relay !== kind) throw Object.assign(new Error(m.why || 'The server said no.'), { code: m.code }); return m; };
+export const findWorld = (onWait) => ask('role=find', null, onWait).then((m) => expect(m, 'world-host').code || null);
+export const loadWorld = (onWait) => ask('role=load', null, onWait).then((m) => { const t = expect(m, 'world').data; return t ? JSON.parse(t) : null; });
+export const saveWorld = (data, force = false) => ask('role=save', { data: JSON.stringify(data), force }).then((m) => expect(m, 'saved'));

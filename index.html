@@ -21,9 +21,12 @@
   <div class="menuBox">
     <h1>LAST HAUL</h1>
     <p class="tag">Scavenge the dead town. Haul it home. Don't die with it on you.</p>
-    <button id="btnContinue" class="big hidden">Continue</button>
-    <button id="btnNew" class="big">New World</button>
-    <button id="btnCoop" class="big">Play Together</button>
+    <div class="joinRow"><input id="who" class="name" maxlength="16" placeholder="Your name" autocomplete="nickname" spellcheck="false" aria-label="Your name"></div>
+    <button id="btnContinue" class="big">Play</button>
+    <p class="dim small">One shared world for both of you. If your partner is playing, Play joins them; if not, you host it and they can join any time.</p>
+    <p id="menuMsg" class="warn"></p>
+    <button id="btnNew" class="big ghost">New World</button>
+    <button id="btnCoop" class="big ghost">Join with a code</button>
     <button class="btnView big ghost"></button>
     <button id="btnHelp" class="big ghost">How to Play</button>
   </div>
@@ -32,7 +35,7 @@
 <div id="coop" class="overlay hidden">
   <div class="menuBox">
     <h2>Play Together</h2>
-    <button id="btnHost" class="big">Host your world</button>
+    <button id="btnHost" class="big">Play the shared world</button>
     <p class="dim">or join with your partner's code</p>
     <div class="joinRow"><input id="coopCode" maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false" aria-label="Game code"><button id="btnJoin">Join</button></div>
     <p id="coopMsg" class="warn"></p>
@@ -49,11 +52,12 @@
       <div><b>WASD</b> move · <b>Shift</b> sprint</div><div><b>C</b> sneak · <b>Space</b> dodge roll</div><div><b>V</b> shove · <b>E</b> on a table: flip it for cover</div>
       <div><b>Click</b> attack · <b>Right-click</b> hold to aim</div><div><b>R</b> reload · <b>H</b> quick heal</div>
       <div><b>E</b> search, open, use</div><div><b>Tab</b> inventory · <b>M</b> map · <b>Esc</b> pause</div>
-      <div><b>1–6</b> hotbar · <b>Wheel</b> weapons</div><div><b>F</b> flashlight · <b>B</b> barricade door</div>
+      <div><b>1–9</b> hotbar · <b>Wheel</b> weapons</div><div><b>F</b> flashlight · <b>B</b> barricade door</div>
+      <div><b>Hold E</b> on a downed partner to revive</div><div>Downed? <b>Crawl</b> to your partner or the green smoke</div>
       <div><b>G</b> Noise Maker · <b>X</b> Pipe Bomb</div><div><b>Q</b> hold at a door or window to peek, silently</div>
     </div>
-    <p>In the inventory, hover an item for details, right-click it for actions, and drag it anywhere: onto a gun, a gear slot, the hotbar, or outside the window to drop it.</p>
-    <p>Bring loot to the <b>Stash</b> in the fenced <b>Safehouse</b> and build upgrades at the <b>Workbench</b>. Zombies can't get in. Noise draws them. If you die, your gear stays on your body, marked on the map.</p>
+    <p>The inventory works like Minecraft: <b>click</b> a slot to pick up its stack, click another to put it down (drop a mod on a gun to attach it). <b>Right-click</b> picks up half or puts down one, <b>Shift-click</b> sends a stack across, and <b>1–9</b> over an item swaps it with that hotbar slot. Click the world to drop what you hold.</p>
+    <p>The <b>Outpost</b> is safe: stash your loot, build and repair at the <b>Workbench</b>, display guns. <b>Board the bus</b> to raid a fresh city with a drop crate of weapons. You have <b>15 minutes</b> before overtime makes the dead faster, harder and endless. Reach the <b>green smoke</b> to extract. Die out there and you lose what you carried.</p>
     <button id="btnHelpClose" class="big">Got it</button>
   </div>
 </div>
@@ -74,13 +78,13 @@
   <div class="menuBox">
     <h1 class="red">YOU DIED</h1>
     <p id="deathText"></p>
-    <button id="btnRespawn" class="big">Wake up at the Safehouse</button>
+    <button id="btnRespawn" class="big">Wake up at the Outpost</button>
   </div>
 </div>
 
 <div id="hotbar" class="hidden"></div>
 <div id="inv" class="panel hidden"><button class="panelX" data-act="close" title="Close">×</button><div id="invBody"></div><div id="invDetails" class="details"></div></div>
-<div id="base" class="panel hidden"><button class="panelX" data-act="close" title="Close">×</button><h3>Safehouse</h3><div id="baseBody"></div></div>
+<div id="base" class="panel hidden"><button class="panelX" data-act="close" title="Close">×</button><h3>Outpost</h3><div id="baseBody"></div></div>
 
 <div id="touch" class="hidden">
   <div class="tbtns">

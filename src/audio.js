@@ -240,6 +240,12 @@ export class Sfx {
       case 'horde': this.voice(this.master, 60, 3, 0.15, 400); this.voice(this.master, 75, 2.6, 0.1, 500, 0.4); this.noise(3, 150, 'lowpass', 0.4); break;
       case 'pdie': if (!me) { o = L(1500, 0.3); this.voice(o, 140, 0.8, 0.2, 600); break; } this.tone(110, 35, 2.2, 'sawtooth', 0.15); this.voice(this.master, 140, 0.8, 0.2, 600); break;
       case 'slept': this.tone(392, 392, 0.4, 'sine', 0.06); this.tone(523, 523, 0.5, 'sine', 0.05, 0.3); break;
+      case 'lever': o = L(1300, 0.5); this.clank(o, 300, 0.2); this.tone(90, 40, 0.3, 'sine', 0.6, 0.05, o); this.clank(o, 450, 0.12, 0.2); break;
+      case 'vault': o = L(1500, 0.6); this.noise(1.2, 500, 'lowpass', 0.6, 0, o); this.sweep(1.2, 200, 60, 'lowpass', 0.4, 0, o); this.clank(o, 700, 0.15, 1.1); break;
+      case 'deploy': case 'extracted': this.tone(140, 90, 0.8, 'sawtooth', 0.08); this.noise(1.2, 400, 'lowpass', 0.3); this.tone(660, 660, 0.15, 'sine', 0.06, 0.6); break;
+      case 'pdown': this.tone(160, 50, 1.4, 'sawtooth', 0.12); this.voice(this.master, 150, 0.6, 0.2, 600); break;
+      case 'reviveStart': this.noise(0.3, 900, 'bandpass', 0.08); break;
+      case 'raidWarn': for (let k = 0; k < (e.left ? 2 : 4); k++) this.tone(e.left ? 880 : 520, e.left ? 880 : 380, 0.18, 'square', 0.05, k * 0.28); break;
     }
   }
   openSound(t, o) {

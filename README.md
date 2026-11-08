@@ -55,8 +55,15 @@ Four types only: **Light** (Pistol, SMG), **Medium** (Carbine, Crossbow), **Heav
 
 Two players share one world: same zombies, stash, upgrades, doors and loot, each with their own character and inventory.
 
-1. On the main menu, choose **Play Together**, then **Host your world**. You get a 4-letter code, and an invite link is copied for you. **Copy Invite Link** in the pause menu copies it again.
-2. Your partner opens the link (or chooses **Play Together** and types the code) and presses **Join**.
+There is one **shared world** for both players, kept on the relay:
+
+1. Type your name on the main menu (it decides which character is yours) and press **Play**.
+2. If the other player is already in the world, Play joins them. If not, you load the newest copy of the world and host it, and they can join any time with Play, whether or not you're around later.
+3. The host uploads the world every 20 seconds and at checkpoints (raid start and end, someone joining or leaving, quitting). An out-of-date copy can never overwrite newer progress: the relay turns it away.
+
+**Join with a code** still works for a one-off session, and **New World** replaces the shared world (it asks twice).
+
+**Where the world is stored:** with `BLOB_READ_WRITE_TOKEN` set on the relay (a Vercel Blob store), saves survive the free Render server sleeping, and the last 5 are kept as backups. Without it the relay writes a temp file, which Render wipes whenever it sleeps.
 
 The game asks for a password once per browser. It's checked by the relay, which refuses every connection without a valid login, and locks out guessing after 5 wrong tries.
 

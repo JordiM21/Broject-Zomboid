@@ -1,5 +1,5 @@
 import { RNG } from '../rng.js';
-import { WORLD_W, WORLD_H } from '../config.js';
+import { WORLD_W, WORLD_H, CITY_H } from '../config.js';
 
 export const T = {
   GRASS: 0, ROAD: 1, SIDEWALK: 2, FLOOR: 3, WALL: 4, DOOR: 5, WINDOW: 6, TREE: 7, FENCE: 8, YARD: 9,
@@ -9,7 +9,7 @@ export const SOLID = new Uint8Array(32);
 [T.WALL, T.WINDOW, T.TREE, T.FENCE, T.CAR, T.FURN].forEach((t) => (SOLID[t] = 1));
 
 export const FURN_KINDS = ['none', 'fridge', 'counter', 'cabinet', 'wardrobe', 'dresser', 'shelf', 'toolbox',
-  'grocery', 'pharmacy', 'hardware', 'register', 'locker', 'crate', 'stash', 'bench', 'bed', 'radio', 'medcab', 'milcrate', 'stove', 'sink', 'nightstand', 'bookshelf', 'tvstand', 'desk', 'filing', 'rack', 'modstash', 'weaponcase', 'modcase', 'ammocase'];
+  'grocery', 'pharmacy', 'hardware', 'register', 'locker', 'crate', 'stash', 'bench', 'bed', 'radio', 'medcab', 'milcrate', 'stove', 'sink', 'nightstand', 'bookshelf', 'tvstand', 'desk', 'filing', 'rack', 'modstash', 'weaponcase', 'modcase', 'ammocase', 'gunrack', 'armory', 'dropcrate', 'lever', 'board'];
 const FK = Object.fromEntries(FURN_KINDS.map((k, i) => [k, i]));
 
 // which case a place keeps, as weights. Tune how many there are through the chances at each addCase call.
@@ -19,18 +19,20 @@ const CASES = { home: caseMix(3, 4, 3), yard: caseMix(2, 4, 2), office: caseMix(
 const CAR_COLORS = ['#7a2e2e', '#2e4a7a', '#5d6066', '#8a7a3a', '#3f6b4a', '#a8a8a8', '#4a3a5a'];
 const ROOF = { house: ['#5a3a32', '#4a4a52', '#3e4f5c', '#6a5038', '#58443c'], grocery: ['#556070'], pharmacy: ['#5f6e6a'], hardware: ['#6a5a40'], hospital: ['#c8ccd0'], military: ['#4a5236'], police: ['#2f3c52'], gas: ['#704038'], safe: ['#3d5a3d'] };
 
-export function generateWorld(seed, { testGear = false } = {}) {
-  const W = WORLD_W, H = WORLD_H, N = W * H;
-  const rng = new RNG(seed);
-  const crng = new RNG((seed ^ 0x9e3779b9) >>> 0); // clutter has its own stream, so adding it never moves the rest of the town
+// The map holds two places that never touch: the city (rows 0..CITY_H) and the outpost below it, behind a band of forest.
+// The outpost is built first from the world seed, so its containers keep the same ids whichever city is generated.
+export function generateWorld(seed, { testGear = false, citySeed = seed } = {}) {
+  const W = WORLD_W, H = CITY_H, N = W * WORLD_H;
+  let rng = new RNG((seed ^ 0x5bd1e995) >>> 0);
+  let crng = new RNG((seed ^ 0x2545f491) >>> 0); // clutter has its own stream, so adding it never moves the rest of the town
   const world = {
-    seed, w: W, h: H,
+    seed, citySeed, w: W, h: WORLD_H, cityH: H,
     tiles: new Uint8Array(N), floor: new Uint8Array(N), deco: new Uint8Array(N), furn: new Uint8Array(N),
     bld: new Int16Array(N).fill(-1), safe: new Uint8Array(N), contAt: new Int32Array(N).fill(-1),
     buildings: [], containers: [], clutter: [], tables: [], doors: {}, cars: [], props: [], safeRect: null, spawn: null, fixtures: {}, windows: {}, zones: [], lamps: [], fires: [],
   };
   const I = (x, y) => y * W + x;
-  const inb = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
+  const inb = (x, y) => x >= 0 && y >= 0 && x < W && y < WORLD_H;
   const ground = (x, y, t) => { if (inb(x, y)) { const i = I(x, y); world.tiles[i] = t; world.floor[i] = t; } };
   const obj = (x, y, t) => { if (inb(x, y)) world.tiles[I(x, y)] = t; };
   const tile = (x, y) => (inb(x, y) ? world.tiles[I(x, y)] : T.TREE);
@@ -90,6 +92,10 @@ export function generateWorld(seed, { testGear = false } = {}) {
     }
   };
 
+  buildOutpost();
+  world.hubConts = world.containers.length;
+  rng = new RNG(citySeed); crng = new RNG((citySeed ^ 0x9e3779b9) >>> 0);
+
   // ---------- base: grass + roads ----------
   const RW = 4, M = 7;
   const xs = [], ys = [];
@@ -120,17 +126,14 @@ export function generateWorld(seed, { testGear = false } = {}) {
   }
   const ci = Math.floor((xs.length - 1) / 2), cj = Math.floor((ys.length - 1) / 2);
   const cx = W / 2, cy = H / 2, maxD = Math.hypot(W / 2, H / 2);
-  const others = [];
-  for (const b of blocks) {
-    if (b.i === ci && b.j === cj) b.type = 'safe'; else others.push(b);
-  }
+  const others = [...blocks]; // the city has no safe zone
   // shuffle
   for (let k = others.length - 1; k > 0; k--) { const r = rng.int(0, k); [others[k], others[r]] = [others[r], others[k]]; }
   { // military goes to the block farthest from the safehouse
     let fi = 0, fd = -1; others.forEach((b, k) => { const d = Math.hypot(b.x + b.w / 2 - cx, b.y + b.h / 2 - cy); if (d > fd) { fd = d; fi = k; } });
     others.unshift(others.splice(fi, 1)[0]);
   }
-  const forced = ['military', 'hospital', 'grocery', 'pharmacy', 'hardware', 'police', 'gas', 'grocery', 'pharmacy', 'hardware', 'police', 'parking', 'park', 'hospital', 'res', 'res', 'gas'];
+  const forced = ['military', 'vault', 'levers', 'keypad', 'hospital', 'grocery', 'pharmacy', 'hardware', 'police', 'gas', 'grocery', 'pharmacy', 'hardware', 'police', 'parking', 'park', 'hospital', 'res', 'res', 'gas'];
   others.forEach((b, k) => {
     if (k < forced.length) { b.type = forced[k]; return; }
     const d = Math.hypot(b.x + b.w / 2 - cx, b.y + b.h / 2 - cy) / maxD;
@@ -139,7 +142,7 @@ export function generateWorld(seed, { testGear = false } = {}) {
 
   for (const b of blocks) {
     switch (b.type) {
-      case 'safe': buildSafehouse(b); break;
+      case 'vault': case 'levers': case 'keypad': buildBunker(b, b.type); break;
       case 'res': buildResidential(b); break;
       case 'grocery': case 'pharmacy': case 'hardware': buildShop(b, b.type); break;
       case 'police': buildPolice(b); break;
@@ -180,8 +183,127 @@ export function generateWorld(seed, { testGear = false } = {}) {
     if (inRoadX(x) || inRoadX(x + 1) || inRoadX(x - 1) || inRoadX(x + 2)) continue;
     if (rng.chance(0.45)) addCar(x, ry + (rng.chance(0.5) ? 0 : 3), false, rng.chance(0.8));
   }
+  // the vault keycard is in a police office: a desk or filing cabinet, as far from the vault as possible
+  if (world.vaultAt) {
+    const offices = world.containers.filter((c) => (c.type === 'desk' || c.type === 'filing') && c.id >= world.hubConts);
+    const police = offices.filter((c) => (world.buildings[world.bld[I(c.x, c.y)]] || {}).type === 'police');
+    const pool = police.length ? police : offices, far = (c) => Math.hypot(c.x - world.vaultAt.x, c.y - world.vaultAt.y);
+    if (pool.length) { pool.sort((a, b) => far(b) - far(a)); pool[rng.int(0, Math.min(pool.length, 2) - 1)].bonus = [{ id: 'keycard', n: 1 }]; }
+  }
+  // insertion: a road crossing on the edge of town. Extraction: a crossing across town, never next door
+  {
+    const cross = []; for (let i = 0; i < xs.length; i++) for (let j = 0; j < ys.length; j++) cross.push({ i, j, x: xs[i] + RW / 2, y: ys[j] + RW / 2 });
+    const edge = cross.filter((c) => c.i === 0 || c.j === 0 || c.i === xs.length - 1 || c.j === ys.length - 1);
+    const ins = rng.pick(edge), dd = (c) => Math.hypot(c.x - ins.x, c.y - ins.y), maxD = Math.max(...cross.map(dd));
+    const ext = rng.pick(cross.filter((c) => dd(c) > maxD * 0.5 && dd(c) < maxD * 0.85));
+    world.insert = { x: ins.x * 32, y: ins.y * 32 };
+    world.extract = { x: ext.x * 32, y: ext.y * 32, r: 2.6 * 32 };
+    prop(ext.x - 1.6, ext.y - 1.6, 3.2, 3.2, 'helipad');
+    const dx = Math.floor(ins.x) + (ins.i === 0 ? 1 : -2), dy = Math.floor(ins.y) + (ins.j === 0 ? 1 : -2);
+    world.fixtures.drop = addCont(dx, dy, 'dropcrate');
+    prop(ins.x - 0.5, ins.y - 0.4, 1, 0.8, 'busstop');
+  }
   world.props.forEach((p, i) => { if (p.kind === 'table') { p.flip = 0; p.hp = 60; world.tables.push(i); } });
   return world;
+
+  // ================= puzzle rooms =================
+  // A sealed concrete room in the middle of a block. Inside: an armory with two loaded guns, ammo and mods.
+  // 'vault' opens with the keycard, 'levers' with two levers pulled together, 'keypad' with a code from four notes.
+  function buildBunker(b, kind) {
+    for (let yy = b.y; yy < b.y + b.h; yy++) for (let xx = b.x; xx < b.x + b.w; xx++) ground(xx, yy, kind === 'vault' ? T.CONCRETE : rng.chance(0.35) ? T.DIRT : T.GRASS);
+    const w = 9, h = 7, x = b.x + Math.floor((b.w - w) / 2), y = b.y + Math.floor((b.h - h) / 2);
+    const id = addBuilding(x, y, w, h, 'bunker', { vault: 'Sealed Vault', levers: 'Twin-Lock Bunker', keypad: 'Keypad Bunker' }[kind]);
+    world.buildings[id].roof = '#3a3e42';
+    shell(x, y, w, h, id, T.CONCRETE);
+    const dx = x + Math.floor(w / 2), dy = y + h - 1, di = I(dx, dy);
+    door(dx, dy, false); Object.assign(world.doors[di], { locked: true, vault: kind, hp: 9999 });
+    for (let yy = dy + 1; yy < b.y + b.h; yy++) ground(dx, yy, T.CONCRETE);
+    addCont(x + Math.floor(w / 2), y + 1, 'armory');
+    addCont(x + 1, y + 1, kind === 'vault' ? 'milcrate' : 'crate'); addCont(x + w - 2, y + 1, 'medcab'); addCont(x + 1, y + h - 2, 'ammocase');
+    prop(x + 2, y + 3, 2, 1, 'table');
+    world.lamps.push({ x: (dx + 0.5) * 32, y: (dy + 1.5) * 32, flood: true, ph: 0 });
+    world.zones.push({ x: (x + w / 2) * 32, y: (y + h / 2) * 32, r: 11 * 32, kind: 'bunker', name: world.buildings[id].name });
+    if (kind === 'vault') {
+      world.vaultAt = { x: dx, y: dy };
+      prop(x - 2, y + h + 1, 1.6, 0.6, 'sandbag'); prop(x + w + 0.4, y + h + 1, 1.6, 0.6, 'sandbag');
+      prop(b.x + 1, b.y + 1, 1.6, 1.6, 'tower'); barrel(b.x + b.w - 3, b.y + 2);
+    } else if (kind === 'levers') {
+      // two sheds on opposite sides of the block, a lever in each
+      const levers = [];
+      for (const side of [0, 1]) {
+        const sx = side ? b.x + b.w - 6 : b.x + 1, sy = b.y + 1 + rng.int(0, Math.max(0, b.h - 7));
+        const sid = addBuilding(sx, sy, 5, 5, 'shed', 'Pump Shed'); shell(sx, sy, 5, 5, sid, T.CONCRETE);
+        door(sx + 2, sy + 4, false); levers.push(addCont(sx + 2, sy + 1, 'lever'));
+      }
+      world.doors[di].levers = levers;
+    } else {
+      const code = [rng.int(0, 9), rng.int(0, 9), rng.int(0, 9), rng.int(0, 9)];
+      world.doors[di].code = code.join('');
+      const ORD = ['1st', '2nd', '3rd', '4th'];
+      // four abandoned camps around the bunker, each with one note in its crate
+      const spots = [[b.x + 2, b.y + 2], [b.x + b.w - 4, b.y + 2], [b.x + 2, b.y + b.h - 4], [b.x + b.w - 4, b.y + b.h - 4]];
+      for (let k = 0; k < 4; k++) {
+        const [cx2, cy2] = spots[k];
+        const cid = addCont(cx2, cy2, 'crate'); prop(cx2 - 1, cy2 + 1, 1, 1, 'tent');
+        world.containers[cid].bonus = [{ id: 'note', n: 1, txt: `Keypad: the ${ORD[k]} digit is ${code[k]}.` }];
+      }
+    }
+    yardDeco(b.x, b.y, b.w, b.h);
+  }
+
+  // ================= outpost =================
+  // Fenced compound below the forest: headquarters with the stash, workbench, radio, bed and gun displays, and the bus out.
+  function buildOutpost() {
+    for (let y = CITY_H; y < WORLD_H; y++) for (let x = 0; x < W; x++) { ground(x, y, T.GRASS); obj(x, y, T.TREE); }
+    const ow = 46, oh = 32, ox = Math.floor((W - ow) / 2), oy = CITY_H + 4;
+    for (let yy = oy - 2; yy < oy + oh + 2; yy++) for (let xx = ox - 3; xx < ox + ow + 3; xx++) { if (rng.chance(0.75)) { ground(xx, yy, T.GRASS); if (rng.chance(0.08)) obj(xx, yy, T.BUSH); } }
+    world.safeRect = { x: ox, y: oy, w: ow, h: oh };
+    for (let yy = oy; yy < oy + oh; yy++) for (let xx = ox; xx < ox + ow; xx++) {
+      const edge = xx === ox || yy === oy || xx === ox + ow - 1 || yy === oy + oh - 1;
+      ground(xx, yy, rng.chance(0.15) ? T.DIRT : T.YARD); if (edge) obj(xx, yy, T.FENCE);
+    }
+    for (let yy = oy - 3; yy < WORLD_H; yy++) for (let xx = ox - 4; xx < ox + ow + 4; xx++) if (inb(xx, yy)) world.safe[I(xx, yy)] = 1;
+    // headquarters
+    const x = ox + 3, y = oy + 3, w = 20, h = 12;
+    const id = addBuilding(x, y, w, h, 'safe', 'Outpost HQ');
+    shell(x, y, w, h, id, T.FLOOR);
+    door(x + 6, y + h - 1, true); door(x + 14, y + h - 1, true); door(x + w - 1, y + 6, true);
+    // the stash runs along the back wall: one big store behind several shelves
+    world.fixtures.stash = addCont(x + 1, y + 1, 'stash');
+    for (let k = 2; k <= 6; k++) { obj(x + k, y + 1, T.FURN); world.furn[I(x + k, y + 1)] = FK.stash; world.contAt[I(x + k, y + 1)] = world.fixtures.stash; }
+    world.fixtures.bench = addCont(x + 9, y + 1, 'bench');
+    obj(x + 10, y + 1, T.FURN); world.furn[I(x + 10, y + 1)] = FK.bench; world.contAt[I(x + 10, y + 1)] = world.fixtures.bench;
+    world.fixtures.radio = addCont(x + 12, y + 1, 'radio');
+    world.fixtures.board = addCont(x + 14, y + 1, 'board');
+    world.fixtures.racks = [];
+    for (let k = 0; k < 4; k++) world.fixtures.racks.push(addCont(x + w - 2, y + 2 + k * 2, 'gunrack'));
+    world.fixtures.bed = addCont(x + 1, y + h - 2, 'bed');
+    obj(x + 2, y + h - 2, T.FURN); world.furn[I(x + 2, y + h - 2)] = FK.bed; world.contAt[I(x + 2, y + h - 2)] = world.fixtures.bed;
+    if (testGear) {
+      world.fixtures.rack = addCont(x + 1, y + 4, 'rack');
+      world.fixtures.modstash = addCont(x + 1, y + 6, 'modstash');
+    }
+    prop(x + 6, y + 4, 6, 4, 'rug'); prop(x + 7, y + 5, 4, 2, 'table'); prop(x + 14, y + 6, 2.2, 1.6, 'sofa'); prop(x + 1, y + h - 4, 0.7, 0.7, 'plant');
+    windows(x, y, w, h, 0.4);
+    world.spawn = { x: (x + 9.5) * 32, y: (y + 8.5) * 32 };
+    world.safeCenter = { x: (ox + ow / 2) * 32, y: (oy + oh / 2) * 32 };
+    // yard: garden, rain collector, tents and sandbags
+    world.gardenAt = { x: ox + 27, y: oy + 3 }; world.rainAt = { x: ox + 33, y: oy + 3 };
+    prop(ox + 38, oy + 3, 3, 2.4, 'mtent'); prop(ox + 38, oy + 7, 3, 2.4, 'mtent');
+    prop(ox + 1.2, oy + 1.2, 1.6, 1.6, 'tower'); prop(ox + ow - 2.8, oy + 1.2, 1.6, 1.6, 'tower');
+    for (let k = 0; k < 4; k++) prop(ox + 26 + k * 2, oy + 12, 1.6, 0.6, 'sandbag');
+    barrel(ox + 25, oy + 9);
+    world.lamps.push({ x: (ox + 2) * 32, y: (oy + 2) * 32, flood: true, ph: 0 }, { x: (ox + ow - 2) * 32, y: (oy + 2) * 32, flood: true, ph: 0 }, { x: (ox + 30) * 32, y: (oy + 24) * 32, flood: true, ph: 0 });
+    // the bus, parked on a dirt road that runs out through the south gate
+    for (let yy = oy + 17; yy < WORLD_H; yy++) for (let xx = ox + 26; xx < ox + 32; xx++) if (inb(xx, yy)) ground(xx, yy, yy >= oy + oh - 1 ? T.ROAD : T.DIRT);
+    for (let xx = ox + 26; xx < ox + 32; xx++) ground(xx, oy + oh - 1, T.GATE);
+    const bx = ox + 28, by = oy + 19;
+    world.fixtures.bus = world.containers.length;
+    world.containers.push({ id: world.fixtures.bus, x: bx, y: by, type: 'bus', items: [], searched: true });
+    for (let yy = by; yy < by + 6; yy++) for (let xx = bx; xx < bx + 2; xx++) { obj(xx, yy, T.CAR); world.contAt[I(xx, yy)] = world.fixtures.bus; }
+    prop(bx - 0.1, by - 0.1, 2.2, 6.2, 'bus');
+    world.busAt = { x: (bx + 1) * 32, y: (by + 3) * 32 };
+  }
 
   // ================= builders =================
   function buildHouse(x, y, w, h, face) {
@@ -486,38 +608,5 @@ export function generateWorld(seed, { testGear = false } = {}) {
   function buildParking(b) {
     for (let yy = b.y; yy < b.y + b.h; yy++) for (let xx = b.x; xx < b.x + b.w; xx++) ground(xx, yy, T.CONCRETE);
     for (let yy = b.y + 2; yy < b.y + b.h - 3; yy += 5) for (let xx = b.x + 1; xx < b.x + b.w - 1; xx += 2) if (rng.chance(0.4)) addCar(xx, yy, true);
-  }
-
-  function buildSafehouse(b) {
-    world.safeRect = { x: b.x, y: b.y, w: b.w, h: b.h };
-    for (let yy = b.y; yy < b.y + b.h; yy++) for (let xx = b.x; xx < b.x + b.w; xx++) {
-      const edge = xx === b.x || yy === b.y || xx === b.x + b.w - 1 || yy === b.y + b.h - 1;
-      ground(xx, yy, T.YARD); if (edge) obj(xx, yy, T.FENCE);
-      world.safe[I(xx, yy)] = 1;
-    }
-    const gx = b.x + Math.floor(b.w / 2) - 1, gy = b.y + Math.floor(b.h / 2) - 1;
-    for (const [xx, yy] of [[gx, b.y], [gx + 1, b.y], [gx, b.y + b.h - 1], [gx + 1, b.y + b.h - 1], [b.x, gy], [b.x, gy + 1], [b.x + b.w - 1, gy], [b.x + b.w - 1, gy + 1]]) ground(xx, yy, T.GATE);
-    const w = 12, h = 9, x = b.x + Math.floor((b.w - w) / 2), y = b.y + Math.floor((b.h - h) / 2) - 1;
-    const id = addBuilding(x, y, w, h, 'safe', 'Safehouse');
-    shell(x, y, w, h, id, T.FLOOR);
-    door(x + Math.floor(w / 2), y + h - 1, true);
-    door(x + Math.floor(w / 2), y, true);
-    world.fixtures.stash = addCont(x + 1, y + 1, 'stash');
-    addCont(x + 2, y + 1, 'stash'); world.containers.pop(); world.contAt[I(x + 2, y + 1)] = world.fixtures.stash;
-    world.fixtures.bench = addCont(x + w - 2, y + 1, 'bench');
-    world.fixtures.radio = addCont(x + w - 3, y + 1, 'radio');
-    world.fixtures.bed = addCont(x + 1, y + h - 2, 'bed');
-    if (testGear) {
-      world.fixtures.rack = addCont(x + w - 2, y + 3, 'rack');
-      obj(x + w - 2, y + 4, T.FURN); world.furn[I(x + w - 2, y + 4)] = FK.rack; world.contAt[I(x + w - 2, y + 4)] = world.fixtures.rack;
-      world.fixtures.modstash = addCont(x + w - 2, y + 6, 'modstash');
-    }
-    prop(x + 4, y + 3, 4, 3, 'rug'); prop(x + 5, y + 4, 2, 1, 'table');
-    windows(x, y, w, h, 0.5);
-    world.spawn = { x: (x + Math.floor(w / 2) + 0.5) * 32, y: (y + h / 2 + 1) * 32 };
-    world.safeCenter = { x: (b.x + b.w / 2) * 32, y: (b.y + b.h / 2) * 32 };
-    world.gardenAt = { x: b.x + 3, y: b.y + 2 }; world.rainAt = { x: b.x + b.w - 5, y: b.y + 2 };
-    // Ensure path through gates to the house door
-    for (let yy = y + h; yy < b.y + b.h - 1; yy++) ground(x + Math.floor(w / 2), yy, T.DIRT);
   }
 }

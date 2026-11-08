@@ -58,7 +58,8 @@ function stanceIcon(ctx, kind, x, y, col) {
   ctx.restore();
 }
 const LOC_INFO = {
-  safe: ['Safehouse', 'Your base. Zombies cannot get past the fence. Stash, workbench, bed, radio, the weapon rack and the mod stash.', 'Safe', '#7ae07a'],
+  bunker: ['Sealed Room', 'A concrete bunker with an armory inside: two loaded guns, ammo and mods. The Vault needs a police keycard, the Twin-Lock two levers pulled together, the Keypad Bunker a code from four notes nearby.', 'Guarded', '#ffb04a'],
+  shed: ['Pump Shed', 'One of two levers that open the Twin-Lock Bunker. Both have to be pulled within 4 seconds.', 'Medium', '#e0c04a'],
   grocery: ['Grocery Store', 'Shelves of food, drinks and energy drinks. A cash register by the door.', 'Medium', '#e0c04a'],
   pharmacy: ['Pharmacy', 'Bandages, painkillers and antibiotics. Worth the detour when you are hurt.', 'Medium', '#e0c04a'],
   hardware: ['Hardware Store', 'Nails, planks, scrap, tape and electronics. Tools, sometimes a sledgehammer.', 'Medium', '#e0c04a'],
@@ -72,7 +73,7 @@ const LOC_INFO = {
 function locations(w) {
   if (w._locs) return w._locs;
   const L = [];
-  for (const b of w.buildings) { if (b.type === 'house' || b.type === 'military' || b.type === 'hospital') continue; L.push({ x: b.x + b.w / 2, y: b.y + b.h / 2, k: b.type }); }
+  for (const b of w.buildings) { if (b.type === 'house' || b.type === 'military' || b.type === 'hospital' || b.type === 'safe' || b.y >= w.cityH) continue; L.push({ x: b.x + b.w / 2, y: b.y + b.h / 2, k: b.type }); }
   for (const z of w.zones) L.push({ x: z.x / TILE, y: z.y / TILE, k: z.kind });
   for (const c of w.containers) { if (!c || c.type !== 'crate') continue; if (w.zones.some((z) => Math.hypot(z.x / TILE - c.x, z.y / TILE - c.y) < 20)) continue; if (L.some((l) => l.k === 'camp' && Math.hypot(l.x - c.x, l.y - c.y) < 8)) continue; L.push({ x: c.x + 0.5, y: c.y + 0.5, k: 'camp' }); }
   return (w._locs = L);
@@ -80,7 +81,7 @@ function locations(w) {
 function drawLocations(ctx, s, mm, x, y, size, mouse) {
   const w = s.world, sc = size / w.w, known = (l) => mm.explored[Math.floor(l.y) * w.w + Math.floor(l.x)];
   let hover = null, hd = 1e9;
-  const mx = (mouse.x - x) / sc, my = (mouse.y - y) / sc, inMap = mx >= 0 && my >= 0 && mx < w.w && my < w.h;
+  const mx = (mouse.x - x) / sc, my = (mouse.y - y) / sc, inMap = mx >= 0 && my >= 0 && mx < w.w && my < w.cityH;
   ctx.textAlign = 'center';
   for (const l of locations(w)) {
     if (!known(l)) continue;
@@ -103,7 +104,7 @@ function drawLocations(ctx, s, mm, x, y, size, mouse) {
   }
   // legend
   ctx.textAlign = 'center'; ctx.font = '600 12px system-ui'; ctx.fillStyle = '#bbb';
-  ctx.fillText('Hover a place for details  ·  ■ dropped backpack  ·  ✕ a body  ·  [M] close', x + size / 2, y + size + 2 - 6 + 18);
+  ctx.fillText('Hover a place for details  ·  green smoke: extraction  ·  ■ dropped backpack  ·  ✕ a body  ·  [M] close', x + size / 2, y + size + 2 - 6 + 18);
 }
 function statIcon(ctx, kind, x, y, col, sc) {
   ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc); ctx.fillStyle = col; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1; ctx.beginPath();
@@ -137,7 +138,9 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   // progress ring (search / heal / reload)
   const ps = rend.worldToScreen(p.x, p.y);
   let prog = null, ptxt = '';
-  if (p.search) { prog = p.search.t / p.search.dur; ptxt = 'Searching...'; }
+  if (p.reviving) { prog = p.reviving.t / p.reviving.dur; ptxt = 'Reviving... keep holding [E]'; }
+  else if (p.extractT > 0) { prog = p.extractT / (p.downed ? 2 : 4); ptxt = 'Extracting...'; }
+  else if (p.search) { prog = p.search.t / p.search.dur; ptxt = 'Searching...'; }
   else if (p.channel) { prog = p.channel.t / p.channel.dur; ptxt = `Using ${ITEMS[p.channel.id].name}...`; }
   else if (p.pry) { prog = p.pry.t / p.pry.dur; ptxt = 'Prying the door...'; }
   else if (p.climb) { prog = p.climb.t / p.climb.dur; ptxt = 'Climbing...'; }
@@ -157,6 +160,45 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
     ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(ps.x, ps.y, 26, 0, 7); ctx.stroke();
     ctx.strokeStyle = '#ffd27a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(ps.x, ps.y, 26, -Math.PI / 2, -Math.PI / 2 + prog * Math.PI * 2); ctx.stroke();
     ctx.fillStyle = '#fff'; ctx.font = '600 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(ptxt, ps.x, ps.y - 34);
+  }
+  // downed: the world goes red and the clock is all that matters
+  if (p.downed) {
+    const k = Math.max(0, p.downed.t / p.downed.max), pulse = 0.5 + 0.5 * Math.sin(performance.now() / 200);
+    const g = ctx.createRadialGradient(SW / 2, SH / 2, Math.min(SW, SH) * 0.2, SW / 2, SH / 2, Math.max(SW, SH) * 0.65);
+    g.addColorStop(0, 'rgba(90,0,0,0.15)'); g.addColorStop(1, `rgba(120,0,0,${0.55 + pulse * 0.15})`); ctx.fillStyle = g; ctx.fillRect(0, 0, SW, SH);
+    ctx.textAlign = 'center'; ctx.font = '900 30px system-ui, sans-serif'; ctx.fillStyle = '#ff5a4a'; ctx.fillText(`DOWNED · ${Math.ceil(p.downed.t)} s`, SW / 2, SH * 0.3);
+    ctx.font = '600 14px system-ui, sans-serif'; ctx.fillStyle = '#f2e0d0';
+    const mate = Object.values(s.players).some((q) => q !== p && q.inRaid && !q.dead && !q.downed);
+    ctx.fillText(mate ? 'Crawl toward your partner. They can hold [E] on you to revive.' : 'Crawl to the green smoke before you bleed out. Getting hit costs you seconds.', SW / 2, SH * 0.3 + 24);
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(SW / 2 - 150, SH * 0.3 + 36, 300, 8); ctx.fillStyle = '#ff5a4a'; ctx.fillRect(SW / 2 - 150, SH * 0.3 + 36, 300 * k, 8);
+  }
+  // a partner who is down: their bleed-out ring
+  for (const id in s.players) {
+    const m = s.players[id]; if (m === p || !m.downed || m.dead) continue;
+    const q = rend.worldToScreen(m.x, m.y), k = Math.max(0, m.downed.t / m.downed.max);
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(q.x, q.y, 22, 0, 7); ctx.stroke();
+    ctx.strokeStyle = '#ff5a4a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(q.x, q.y, 22, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2); ctx.stroke();
+    ctx.font = '800 11px system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = '#ff8a7a'; ctx.fillText(`DOWN ${Math.ceil(m.downed.t)}s`, q.x, q.y - 28);
+  }
+  // raid clock, top centre
+  {
+    let t, col;
+    if (s.raid && p.inRaid) { const left = s.raid.len - s.raid.t, a = Math.abs(left); t = `${left < 0 ? 'OVERTIME +' : 'RAID '}${Math.floor(a / 60)}:${String(Math.floor(a % 60)).padStart(2, '0')}`; col = left < 0 ? (performance.now() % 600 < 300 ? '#ff3a2a' : '#ff8a6a') : left < 120 ? '#ffb070' : '#f2ece0'; }
+    else if (s.raid) { t = 'Your partner is still out there · ride the bus to join them'; col = '#ffd27a'; }
+    else { const on = Object.values(s.players).filter((q) => q.boarded).length, all = Object.keys(s.players).length; t = on ? `On the bus ${on}/${all} · waiting for everyone` : 'OUTPOST · board the bus to raid'; col = '#9fe09f'; }
+    ctx.font = `800 ${s.raid && p.inRaid ? 20 : 14}px system-ui, sans-serif`; ctx.textAlign = 'center';
+    const tw = ctx.measureText(t).width + 24, ty = 44;
+    ctx.fillStyle = 'rgba(10,12,16,0.7)'; ctx.fillRect(SW / 2 - tw / 2, ty, tw, 30); ctx.fillStyle = col; ctx.fillText(t, SW / 2, ty + 21);
+  }
+  // the way out: an arrow at the screen edge toward the green smoke
+  if (s.raid && p.inRaid && s.world.extract) {
+    const e = s.world.extract, q = rend.worldToScreen(e.x, e.y), m = 70;
+    if (q.x < m || q.y < m || q.x > SW - m || q.y > SH - m) {
+      const ang = Math.atan2(q.y - SH / 2, q.x - SW / 2), k = Math.min((SW / 2 - m) / Math.abs(Math.cos(ang) || 1e-6), (SH / 2 - m) / Math.abs(Math.sin(ang) || 1e-6));
+      const ax = SW / 2 + Math.cos(ang) * k, ay = SH / 2 + Math.sin(ang) * k;
+      ctx.save(); ctx.translate(ax, ay); ctx.rotate(ang); ctx.fillStyle = '#5aff7a'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(-8, -10); ctx.lineTo(-3, 0); ctx.lineTo(-8, 10); ctx.closePath(); ctx.stroke(); ctx.fill(); ctx.restore();
+      ctx.fillStyle = '#5aff7a'; ctx.font = '800 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(`EXIT ${Math.round(Math.hypot(e.x - p.x, e.y - p.y) / TILE)} m`, ax - Math.cos(ang) * 26, ay - Math.sin(ang) * 26 + 4);
+    }
   }
   // bars
   const bx = 16, by = SH - 96;
@@ -214,7 +256,7 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   const bid = w.bld[ti]; const safe = w.safe[ti];
   ctx.font = '600 12px system-ui, sans-serif'; ctx.fillStyle = safe ? '#9fe09f' : '#bbb';
   const zn = w.zones.find((z) => Math.hypot(z.x - p.x, z.y - p.y) < z.r);
-  ctx.fillText((safe ? 'SAFE ZONE' : bid >= 0 ? w.buildings[bid].name : zn ? zn.name : 'Outside') + (s.weather && s.weather.rain > 0.3 ? '  ·  Raining' : ''), 20, 50);
+  ctx.fillText((safe ? 'OUTPOST · SAFE' : bid >= 0 ? w.buildings[bid].name : zn ? zn.name : 'The City') + (s.weather && s.weather.rain > 0.3 ? '  ·  Raining' : ''), 20, 50);
   const ob = OBJECTIVES[s.obj];
   ctx.fillStyle = '#ffd27a'; ctx.font = '600 12px system-ui, sans-serif';
   ctx.fillText(ob ? `▸ ${ob.text}` : '▸ Survive. Haul. Repeat.', 20, 69);
@@ -224,13 +266,14 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   const big = ui.bigMap;
   const drawMap = (x, y, size, full) => {
     ctx.imageSmoothingEnabled = false;
-    if (full) ctx.drawImage(mm.canvas, x, y, size, size);
+    if (full) ctx.drawImage(mm.canvas, 0, 0, w.w, w.cityH, x, y, size, size); // the big map is the city; the outpost is off its edge
     else { const span = 64, sx = p.x / TILE - span / 2, sy = p.y / TILE - span / 2; ctx.drawImage(mm.canvas, sx, sy, span, span, x, y, size, size); }
     ctx.imageSmoothingEnabled = true;
     const scale = full ? size / w.w : size / 64, ox = full ? 0 : p.x / TILE - 32, oy = full ? 0 : p.y / TILE - 32;
     const pt = (wx, wy) => [x + (wx / TILE - ox) * scale, y + (wy / TILE - oy) * scale];
     const inside = ([a, b]) => a >= x && b >= y && a <= x + size && b <= y + size;
-    if (w.safeCenter) { const q = pt(w.safeCenter.x, w.safeCenter.y); if (inside(q)) { ctx.fillStyle = '#7ae07a'; ctx.fillRect(q[0] - 4, q[1] - 4, 8, 8); } }
+    if (s.raid && w.extract) { const q = pt(w.extract.x, w.extract.y); if (inside(q)) { const r = 4 + (performance.now() % 1000) / 250; ctx.fillStyle = '#5aff7a'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(q[0], q[1], r, 0, 7); ctx.fill(); ctx.stroke(); if (full) { ctx.font = '800 11px system-ui'; ctx.textAlign = 'center'; ctx.fillText('EXTRACTION', q[0], q[1] - 10); } } }
+    if (s.raid && w.insert && full) { const q = pt(w.insert.x, w.insert.y); if (inside(q)) { ctx.fillStyle = '#ffd27a'; ctx.fillRect(q[0] - 3, q[1] - 3, 6, 6); ctx.font = '700 10px system-ui'; ctx.textAlign = 'center'; ctx.fillText('BUS STOP', q[0], q[1] - 8); } }
     for (const cid of s.loose) { const c = w.containers[cid]; if (!c || c.type !== 'pile' || !c.items || !c.items.length) continue; const q = pt(c.px, c.py); if (inside(q)) { ctx.fillStyle = '#c89a5a'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.fillRect(q[0] - 3, q[1] - 3, 6, 6); ctx.strokeRect(q[0] - 3, q[1] - 3, 6, 6); } }
     for (const cid of s.loose) { const c = w.containers[cid]; if (!c || c.type !== 'body' || !c.items.length) continue; const q = pt(c.px, c.py); if (inside(q)) { ctx.fillStyle = '#ffd25a'; ctx.font = '700 12px system-ui'; ctx.textAlign = 'center'; ctx.fillText('✕', q[0], q[1] + 4); } }
     const q = pt(p.x, p.y);
