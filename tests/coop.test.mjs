@@ -2,7 +2,7 @@
 import assert from 'node:assert';
 import { createServer } from 'node:http';
 import { WebSocket } from 'ws';
-import { attachRelay } from '../server/relay.mjs';
+import { attachRelay, makeToken, tokenOK } from '../server/relay.mjs';
 import { createState, addPlayer, joinPlayer, parkPlayer, step, command, spawnZombie, predictMove, getCont } from '../src/sim/sim.js';
 import { newTracker, packFrame, packWorld, applyFrame, applyWorld, smooth, compactInput, nextInput, newInputQueue } from '../src/net/sync.js';
 import { rollLoot, makeItem } from '../src/sim/inventory.js';
@@ -30,6 +30,27 @@ import { ITEMS, LOOT, RECIPES, WEAPON_TIERS } from '../src/data/items.js';
   await until(() => relay.rooms.size === 0);
   relay.close(); http.close();
   console.log('relay: rooms, codes, forwarding, full room and leaving all work');
+}
+// ---------- relay password ----------
+{
+  const http = createServer(); const relay = attachRelay(http, { password: 'hunter2' }); await new Promise((r) => http.listen(0, r));
+  const url = `ws://localhost:${http.address().port}/coop`;
+  const first = (q, send) => new Promise((r) => { const ws = new WebSocket(`${url}?${q}`); ws.on('open', () => { if (send) ws.send(JSON.stringify(send)); }); ws.on('message', (m) => { r(JSON.parse(m)); ws.close(); }); });
+  assert.equal((await first('role=check')).relay, 'auth', 'no token, no entry');
+  assert.equal((await first('role=host')).relay, 'auth');
+  assert.equal((await first('role=check&token=9999999999999.forged')).relay, 'auth');
+  assert.equal((await first('role=login', { password: 'nope' })).why, 'Wrong password.');
+  const { token } = await first('role=login', { password: 'hunter2' });
+  assert.ok(token);
+  assert.equal((await first(`role=check&token=${token}`)).relay, 'ok');
+  assert.ok(!tokenOK('hunter2', makeToken('hunter2', Date.now() - 61 * 864e5)), 'old tokens expire');
+  assert.ok(!tokenOK('changed', token), 'a new password logs everyone out');
+  const room = await first(`role=host&code=ABCD&token=${token}`);
+  assert.equal(room.code, 'ABCD', 'a reconnecting host gets its code back');
+  for (let k = 0; k < 4; k++) await first('role=login', { password: 'nope' });
+  assert.match((await first('role=login', { password: 'hunter2' })).why, /Too many/, 'guessing locks the door, even for the right password');
+  relay.close(); http.close();
+  console.log('relay password: tokens, forgery, expiry, lockout and code reclaim all work');
 }
 
 // ---------- two players in one world, through the real messages ----------

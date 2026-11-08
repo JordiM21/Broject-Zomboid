@@ -1,31 +1,32 @@
 // Co-op connections. CoopHost runs on the machine with the simulation, CoopGuest on the partner's.
 import { createState, command, predictMove, spawnZombie, addPlayer, joinPlayer, parkPlayer } from '../sim/sim.js';
-import { PeerHost, PeerGuest } from './peer.js';
+import { connect } from './relay.js';
 import { FRAME_HZ, WORLD_HZ, newTracker, packFrame, packWorld, applyFrame, applyWorld, smooth, compactInput, nextInput, newInputQueue } from './sync.js';
 
 export const GUEST_ID = 'p2';
 const BACKLOG_LIMIT = 256 * 1024; // skip a frame rather than queue up stale ones on a slow connection
-
-// Development and self-hosted builds use the relay; the plain live build connects browsers directly.
-const useRelay = import.meta.env.DEV || !!import.meta.env.VITE_RELAY;
-function relayURL(query) {
-  const base = import.meta.env.VITE_RELAY || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/coop`;
-  return `${base}?${query}`;
-}
+const REJOIN_MS = 60000; // how long a dropped partner keeps trying to get back in
 
 export class CoopHost {
-  // hooks: state(), drain(), onCode(code), onPartner(joined), onError(text)
+  // hooks: state(), drain(), onCode(code), onPartner(joined), onWait(waking), onError(text), onAuth()
+  // A dropped connection reconnects by itself and keeps the same code, so the partner can find the way back.
   constructor(hooks) {
     this.h = hooks; this.connected = false; this.events = []; this.frameT = 0; this.worldT = 0; this.q = newInputQueue();
-    this.ws = useRelay ? new WebSocket(relayURL('role=host')) : new PeerHost();
-    this.ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
-    this.ws.onerror = () => hooks.onError("Couldn't reach the co-op server.");
-    this.ws.onclose = () => { if (this.connected) this.partnerLeft(); hooks.onError('Lost connection to the co-op server. Your world is safe.'); };
+    this.open();
   }
-  send(o) { if (this.ws.readyState === 1) this.ws.send(JSON.stringify(o)); }
+  open() {
+    connect(`role=host${this.code ? `&code=${this.code}` : ''}`, (w) => this.h.onWait(w)).then((ws) => {
+      if (this.closed) { ws.close(); return; }
+      this.ws = ws;
+      ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
+      ws.onclose = () => { if (this.closed) return; if (this.connected) this.partnerLeft(); this.h.onWait(true); this.open(); };
+    }, (e) => { if (!this.closed) { this.closed = true; this.h.onError(e.message); } });
+  }
+  send(o) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(o)); }
   onMessage(m) {
     if (m.relay === 'room') { this.code = m.code; this.h.onCode(m.code); return; }
-    if (m.relay === 'error') { this.h.onError(m.why); return; }
+    if (m.relay === 'auth') { this.close(); this.h.onAuth(); return; }
+    if (m.relay === 'error') { this.close(); this.h.onError(m.why); return; }
     if (m.relay === 'peer-joined') { this.partnerJoined(); return; }
     if (m.relay === 'peer-left') { this.partnerLeft(); return; }
     if (m.k === 'i') { for (const i of m.l) this.q.list.push(i); return; }
@@ -74,24 +75,44 @@ export class CoopHost {
     if (this.worldT <= 0) { this.worldT = 1 / WORLD_HZ; this.sendWorld(); }
     if (this.frameT <= 0) { this.frameT = 1 / FRAME_HZ; this.sendFrame(); }
   }
-  close() { this.connected = false; this.ws.onclose = null; this.ws.close(); }
+  close() {
+    if (this.connected) this.send({ k: 'bye' }); // tells the partner not to wait for us
+    this.closed = true; this.connected = false;
+    if (this.ws) { this.ws.onclose = null; this.ws.close(); }
+  }
 }
 
 export class CoopGuest {
-  // hooks: onReady(state), onEnded(text), onChanged()
+  // hooks: onReady(state), onEnded(text), onChanged(), onWait(waking), onAuth()
   constructor(code, hooks) {
-    this.h = hooks; this.seq = 0; this.history = []; this.outbox = []; this.inbox = []; this.ended = false;
-    this.ws = useRelay ? new WebSocket(relayURL(`room=${encodeURIComponent(code)}`)) : new PeerGuest(code);
-    this.ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
-    this.ws.onerror = () => this.end("Couldn't reach the co-op server.");
-    this.ws.onclose = () => this.end('The connection to the game was lost.');
+    this.h = hooks; this.code = code; this.seq = 0; this.history = []; this.outbox = []; this.inbox = []; this.ended = false;
+    this.open();
   }
-  end(text) { if (this.ended) return; this.ended = true; this.h.onEnded(text); }
+  open() {
+    connect(`room=${encodeURIComponent(this.code)}`, (w) => this.h.onWait(w)).then((ws) => {
+      if (this.ended) { ws.close(); return; }
+      this.ws = ws;
+      ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
+      ws.onclose = () => this.lost();
+    }, (e) => this.end(e.message));
+  }
+  // The connection dropped, or the host's did: keep knocking for a minute before giving up.
+  lost() {
+    if (this.ended) return;
+    if (!this.ready && !this.retryUntil) { this.end('The connection to the game was lost.'); return; }
+    this.retryUntil = this.retryUntil || Date.now() + REJOIN_MS;
+    if (Date.now() > this.retryUntil) { this.end('The connection to the game was lost.'); return; }
+    this.ws = null; this.h.onWait(true); setTimeout(() => { if (!this.ended) this.open(); }, 2000);
+  }
+  end(text) { if (this.ended) return; this.ended = true; if (this.ws) { this.ws.onclose = null; this.ws.close(); } this.h.onEnded(text); }
   onMessage(m) {
-    if (m.relay === 'error') { this.end(m.why); return; }
-    if (m.relay === 'host-left') { this.end('The host left the game.'); return; }
+    if (m.relay === 'auth') { this.end('Please log in again.'); this.h.onAuth(); return; }
+    if (m.relay === 'error') { if (this.retryUntil && Date.now() < this.retryUntil) return; this.end(m.why); return; } // while rejoining, the host may not be back yet
+    if (m.relay === 'host-left') return; // the close that follows decides: rejoin, unless the host said goodbye
+    if (m.relay === 'joined') { if (this.retryUntil) { this.retryUntil = 0; this.h.onWait(false); } return; }
     if (m.relay) return;
-    if (m.k === 'h') { this.s = createState(m.seed, false, { testGear: m.testGear }); this.s.time = m.time; this.s.weather = m.weather; addPlayer(this.s, GUEST_ID); this.ready = false; return; }
+    if (m.k === 'bye') { this.end('The host left the game.'); return; }
+    if (m.k === 'h') { this.s = createState(m.seed, false, { testGear: m.testGear }); this.s.time = m.time; this.s.weather = m.weather; addPlayer(this.s, GUEST_ID); this.ready = false; this.inbox = []; this.history = []; return; }
     this.inbox.push(m);
   }
   // apply everything that arrived, once per rendered frame
@@ -127,16 +148,16 @@ export class CoopGuest {
     if (!p.dead) predictMove(this.s, p, inp, dt);
     if (this.outbox.length >= 2) this.flush();
   }
-  flush() { if (this.ws.readyState === 1 && this.outbox.length) { this.ws.send(JSON.stringify({ k: 'i', l: this.outbox })); this.outbox = []; } }
+  flush() { if (this.ws && this.ws.readyState === 1 && this.outbox.length) { this.ws.send(JSON.stringify({ k: 'i', l: this.outbox })); this.outbox = []; } }
   // Apply a menu action straight away for instant feedback, and ask the host to do it for real.
   command(c) {
     const s = this.s, cont = c.cid !== undefined ? s.world.containers[c.cid] : null;
     const expect = c.t === 'take' && cont && cont.items && cont.items[c.idx] ? cont.items[c.idx].id : undefined;
-    if (this.ws.readyState === 1) this.ws.send(JSON.stringify({ k: 'c', c: { ...c, expect } }));
+    if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify({ k: 'c', c: { ...c, expect } }));
     const pending = s.events.length;
     command(s, GUEST_ID, c);
     s.events.length = pending; // sounds and messages come back from the host, once
   }
   afterFrame(dt) { smooth(this.s, dt, GUEST_ID); this.s.time += dt; }
-  close() { this.ended = true; this.ws.onclose = null; this.ws.close(); }
+  close() { this.ended = true; if (this.ws) { this.ws.onclose = null; this.ws.close(); } }
 }

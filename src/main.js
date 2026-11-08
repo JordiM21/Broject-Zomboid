@@ -15,6 +15,7 @@ import { ITEMS } from './data/items.js';
 import { HotbarUI } from './ui/hotbar.js';
 import { saveGame, loadGame, hasSave } from './save.js';
 import { CoopHost, CoopGuest, GUEST_ID } from './net/coop.js';
+import { check, login, forget, keepWarm } from './net/relay.js';
 
 let LOCAL = 'p1';
 let host = null, guest = null; // co-op: at most one of these is set
@@ -126,20 +127,32 @@ function newGame() {
 }
 function save() { if (s && !guest) saveGame(s, mm && mm.explored); } // the world lives on the host's machine
 function setChip(text) { const c = $('coopChip'); c.textContent = text; c.classList.toggle('hidden', !text); }
-function leaveCoop() { if (host) host.close(); if (guest) guest.close(); host = null; guest = null; LOCAL = 'p1'; setChip(''); $('btnInvite').classList.remove('hidden'); }
+function leaveCoop() { if (host) host.close(); if (guest) guest.close(); host = null; guest = null; LOCAL = 'p1'; setChip(''); $('btnInvite').classList.remove('hidden'); $('btnInvite').textContent = 'Invite a Partner'; }
+// the password changed or the login ran out: back to the password screen
+function relogin() { save(); forget(); location.reload(); }
+const WAKING = 'Waking up the server… this can take up to a minute.';
+const inviteLink = (code) => `${location.origin}${location.pathname}#join=${code}`;
+function copyInvite(code) {
+  if (!navigator.clipboard) return;
+  navigator.clipboard.writeText(inviteLink(code)).then(() => addMsg(`Invite link copied. Send it to your partner (code ${code}).`, '#9fe09f'), () => {});
+}
 function startHosting() {
-  $('btnInvite').classList.add('hidden');
+  $('btnInvite').textContent = 'Copy Invite Link';
   host = new CoopHost({
     state: () => s, drain,
-    onCode: (code) => { setChip(`Co-op code: ${code} · waiting for your partner`); },
+    onCode: (code) => { setChip(host.connected ? `Co-op · partner connected · code ${code}` : `Co-op code: ${code} · waiting for your partner`); if (!host.copied) { host.copied = true; copyInvite(code); } },
     onPartner: (joined) => { setChip(joined ? `Co-op · partner connected · code ${host.code}` : `Co-op code: ${host.code} · waiting for your partner`); addMsg(joined ? 'Your partner joined.' : 'Your partner left. Their character will be here when they return.', '#9fe09f'); },
+    onWait: (w) => { if (w) setChip(host.code ? 'Connection lost · reconnecting…' : WAKING); },
     onError: (why) => { addMsg(why, '#ff8a6a'); leaveCoop(); },
+    onAuth: relogin,
   });
 }
 function joinGame(code) {
   $('coopMsg').textContent = 'Connecting...';
   guest = new CoopGuest(code, {
     onReady: (state) => { LOCAL = GUEST_ID; $('btnInvite').classList.add('hidden'); $('coop').classList.add('hidden'); begin(state, null); setChip('Co-op · connected to host'); addMsg("You joined your partner's world.", '#9fe09f'); },
+    onWait: (w) => { if (guest && guest.ready) setChip(w ? 'Connection lost · reconnecting…' : 'Co-op · connected to host'); else if (w) $('coopMsg').textContent = WAKING; },
+    onAuth: relogin,
     onChanged: () => panels.refresh(),
     onEnded: (why) => { const wasPlaying = running; leaveCoop(); running = false; paused = false; s = null; panels.close(); if (document.pointerLockElement) document.exitPointerLock(); ['pause', 'death'].forEach((id) => $(id).classList.add('hidden')); showMenu(); $('coop').classList.remove('hidden'); $('coopMsg').textContent = why; if (wasPlaying) sfx.setRain(0); },
   });
@@ -270,7 +283,7 @@ $('btnJoin').onclick = async () => {
   await spritesReady; sfx.init(); joinGame(code);
 };
 $('coopCode').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') $('btnJoin').click(); });
-$('btnInvite').onclick = () => { startHosting(); togglePause(); };
+$('btnInvite').onclick = () => { if (host) { if (host.code) copyInvite(host.code); } else startHosting(); togglePause(); };
 $('btnQuit').onclick = () => { save(); leaveCoop(); running = false; paused = false; $('pause').classList.add('hidden'); panels.close(); showMenu(); };
 $('btnRespawn').onclick = () => { doCmd({ t: 'respawn' }); $('death').classList.add('hidden'); const p = s.players[LOCAL]; rend.cam.x = p.x; rend.cam.y = p.y; addMsg('You wake up at the safehouse.', '#ffd27a'); save(); };
 $('vol').oninput = (e) => sfx.setVolume(+e.target.value);
@@ -352,7 +365,38 @@ function frame(now) {
   hotbar.render(p, running && !p.dead && !ui.bigMap && !panels.isOpen); // the inventory shows its own copy of these slots
   drawHUD(rend.ctx, s, p, ui, rend, mm);
 }
+// ---------- password ----------
+// Only the two of us get past this. The server checks the password and every connection; this screen is just the door.
+const gateMsg = (t) => { $('gateMsg').textContent = t; };
+const gateWait = (w) => { if (w) gateMsg(WAKING); };
+async function openGate() {
+  $('gateForm').classList.add('hidden'); $('gateRetry').classList.add('hidden'); gateMsg('Connecting…');
+  try {
+    if (await check(gateWait)) { enter(); return; }
+    gateMsg('Enter the password.'); $('gateForm').classList.remove('hidden'); $('gatePass').focus();
+  } catch (e) { gateMsg(e.message); $('gateRetry').classList.remove('hidden'); }
+}
+function enter() {
+  $('gate').classList.add('hidden'); showMenu();
+  // opened from an invite link: the code is filled in, one click on Join
+  const code = (location.hash.match(/join=([A-Za-z]{4})/) || [])[1];
+  if (!code) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  $('coop').classList.remove('hidden'); $('coopCode').value = code.toUpperCase();
+  $('coopMsg').textContent = 'Press Join to enter your partner\'s game.'; $('btnJoin').focus();
+}
+$('gateForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const pass = $('gatePass').value; if (!pass) return;
+  $('gateForm').classList.add('hidden'); gateMsg('Checking…');
+  try { await login(pass, gateWait); $('gatePass').value = ''; enter(); }
+  catch (err) { gateMsg(err.message); $('gateForm').classList.remove('hidden'); $('gatePass').select(); }
+};
+$('gatePass').addEventListener('keydown', (e) => e.stopPropagation());
+$('gateRetry').onclick = openGate;
+
 rend.resize();
-showMenu();
+keepWarm();
+openGate();
 requestAnimationFrame(frame);
 window.__game = { spawn: (x, y, t) => spawnZombie(s, x, y, t), revealAll: () => { mm.explored.fill(1); for (let i = 0; i < mm.n; i++) mm.paint(i); mm.g.putImageData(mm.img, 0, 0); }, sfx, get state() { return s; }, newGame, command: doCmd, get host() { return host; }, get guest() { return guest; } };

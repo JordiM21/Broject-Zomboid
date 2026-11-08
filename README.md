@@ -55,13 +55,16 @@ Four types only: **Light** (Pistol, SMG), **Medium** (Carbine, Crossbow), **Heav
 
 Two players share one world: same zombies, stash, upgrades, doors and loot, each with their own character and inventory.
 
-1. On the main menu, choose **Play Together**, then **Host your world**. You get a 4-letter code. You can also choose **Invite a Partner** from the pause menu.
-2. Your partner opens the game, chooses **Play Together**, enters the code and joins.
+1. On the main menu, choose **Play Together**, then **Host your world**. You get a 4-letter code, and an invite link is copied for you. **Copy Invite Link** in the pause menu copies it again.
+2. Your partner opens the link (or chooses **Play Together** and types the code) and presses **Join**.
+
+The game asks for a password once per browser. It's checked by the relay, which refuses every connection without a valid login, and locks out guessing after 5 wrong tries.
 
 How you connect depends on the build:
-- **Live site:** nothing to set up. Browsers connect directly over WebRTC (`src/net/peer.js`). The free PeerJS service only introduces them, and falls back to its relay on strict networks.
-- **Development:** `npm run dev -- --host`, then open the Network address it prints. The relay runs inside the dev server.
-- **Your own relay (optional):** host `server/relay.mjs` somewhere that allows WebSockets (`PORT=8787 npm run relay`), and build with `VITE_RELAY=wss://your-relay/coop`.
+- **Live site:** everything goes through the relay on Render (`wss://broject-zomboid.onrender.com/coop`, set in `src/net/relay.js`; `VITE_RELAY` overrides it). Render needs the start command `node server/relay.mjs` and the `RELAY_PASSWORD` environment variable; without it the relay won't start. Changing the password logs everyone out. The free server sleeps when idle: the game wakes it on load and keeps it awake while open, and every connection waits for it.
+- **Development:** `npm run dev -- --host`, then open the Network address it prints. The relay runs inside the dev server, with no password unless you set `RELAY_PASSWORD`.
+
+If a connection drops, both sides reconnect by themselves and keep the same code.
 
 The host's browser runs the simulation and owns the save; it keeps running behind a pause menu or in a background tab. A partner who leaves keeps their character for next time. See `src/net/`: `sync.js` builds and applies the messages, `coop.js` handles connections and prediction, and `server/relay.mjs` only pairs players and passes messages along.
 

@@ -8,7 +8,16 @@
 <body>
 <canvas id="game"></canvas>
 
-<div id="menu" class="overlay">
+<div id="gate" class="overlay">
+  <div class="menuBox">
+    <h1>LAST HAUL</h1>
+    <p id="gateMsg" class="tag">Connecting…</p>
+    <form id="gateForm" class="joinRow hidden"><input id="gatePass" type="password" placeholder="Password" autocomplete="current-password" aria-label="Password"><button type="submit">Enter</button></form>
+    <button id="gateRetry" class="big hidden">Try again</button>
+  </div>
+</div>
+
+<div id="menu" class="overlay hidden">
   <div class="menuBox">
     <h1>LAST HAUL</h1>
     <p class="tag">Scavenge the dead town. Haul it home. Don't die with it on you.</p>
