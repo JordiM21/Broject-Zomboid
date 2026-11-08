@@ -200,7 +200,6 @@ export function generateWorld(seed, { testGear = false, citySeed = seed } = {}) 
     world.extract = { x: ext.x * 32, y: ext.y * 32, r: 2.6 * 32 };
     prop(ext.x - 1.6, ext.y - 1.6, 3.2, 3.2, 'helipad');
     const dx = Math.floor(ins.x) + (ins.i === 0 ? 1 : -2), dy = Math.floor(ins.y) + (ins.j === 0 ? 1 : -2);
-    world.fixtures.drop = addCont(dx, dy, 'dropcrate');
     prop(ins.x - 0.5, ins.y - 0.4, 1, 0.8, 'busstop');
     { // the bus that drops you parks on the road beside the drop point, door side to you, then leaves along the road. Heading: whichever way keeps it clear of the crate
       const axis = ins.i === 0 || ins.i === xs.length - 1 ? [0, 1] : [1, 0], cx = (dx + 0.5) * 32, cy = (dy + 0.5) * 32;

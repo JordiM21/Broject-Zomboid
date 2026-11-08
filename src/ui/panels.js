@@ -327,7 +327,7 @@ export class Panels {
       const st = s.stats, r = s.raid;
       html += `<div class="pad stats">${r ? `<div>Raid in progress <b>${Math.floor(r.t / 60)}:${String(Math.floor(r.t % 60)).padStart(2, '0')} / ${RAID_LEN / 60}:00</b></div>` : '<div>Next raid <b>board the bus</b></div>'}
         <div>Raids <b>${st.raids || 0}</b></div><div>Extractions <b>${st.extracts || 0}</b></div><div>Deaths <b>${st.deaths}</b></div><div>Zombies killed <b>${st.kills}</b></div><div>Items hauled to stash <b>${st.hauled}</b></div><div>Day <b>${dayOf(s)}</b></div></div>
-        <div class="pad dim">Every raid drops you in a new city with ${RAID_LEN / 60} minutes on the clock and a drop crate of weapons by the bus stop. Get to the green smoke to leave. After the clock runs out the dead get faster, hit harder and come in waves. Sealed rooms hold armories: a keycard vault, a twin-lever bunker and a keypad bunker.</div>`;
+        <div class="pad dim">Every raid drops you in a new city with ${RAID_LEN / 60} minutes on the clock with nothing handed out: loot buildings, crack sealed rooms and craft. Get to the green smoke to leave. After the clock runs out the dead get faster, hit harder and come in waves. Sealed rooms hold armories: a keycard vault, a twin-lever bunker and a keypad bunker.</div>`;
     }
     html += `</div>${this.baseTab === 'keypad' ? '' : `<div class="foot"><button data-act="sleep" ${s.upgrades.bed ? '' : 'disabled title="Build the Proper Bed first"'}>Sleep</button></div>`}`;
     if (this._base !== html) {

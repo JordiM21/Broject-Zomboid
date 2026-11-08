@@ -128,16 +128,18 @@ function newGame() {
 }
 // The host keeps a copy in this browser and, when it runs the shared world, on the server: every 20 s or so,
 // and straight away at checkpoints (raid start and end, a partner joining or leaving, quitting, hiding the tab).
-let upT = -1e9, upBusy = false, upStale = false;
+let upT = -1e9, upBusy = false, upAgain = false, upStale = false;
 function save(force = false) {
   if (!s || guest) return Promise.resolve(); // the world lives with whoever hosts it
   const data = saveGame(s, mm && mm.explored);
-  if (!host || !host.world || upStale || upBusy || (!force && performance.now() - upT < 20000)) return Promise.resolve();
-  upBusy = true; upT = performance.now();
+  if (!host || !host.world || upStale) return Promise.resolve();
+  if (upBusy) { upAgain = true; return Promise.resolve(); } // one is on its way: send the newest right after it
+  if (!force && performance.now() - upT < 10000) return Promise.resolve();
+  upBusy = true; upAgain = false; upT = performance.now();
   return saveWorld(data, !!s.fresh).then(() => { s.fresh = false; }, (e) => {
     if (e.message === 'stale') { upStale = true; addMsg('This copy of the world is out of date: your partner played more recently. Quit and press Play to get the newest one.', '#ff8a6a'); }
     else console.warn('cloud save failed', e);
-  }).finally(() => { upBusy = false; });
+  }).finally(() => { upBusy = false; if (upAgain) save(true); });
 }
 function setChip(text) { const c = $('coopChip'); c.textContent = text; c.classList.toggle('hidden', !text); }
 function leaveCoop() { if (host) host.close(); if (guest) guest.close(); host = null; guest = null; setChip(''); $('btnInvite').classList.remove('hidden'); $('btnInvite').textContent = 'Invite a Partner'; }
@@ -247,7 +249,8 @@ $('game').addEventListener('wheel', (e) => {
   hotEquipPending = slots[(cur + (e.deltaY > 0 ? 1 : -1) + slots.length) % slots.length];
 }, { passive: true });
 addEventListener('resize', () => rend.resize());
-addEventListener('beforeunload', save);
+addEventListener('beforeunload', () => save(true));
+addEventListener('pagehide', () => save(true));
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(true); });
 
 function togglePause() { paused = !paused; $('pause').classList.toggle('hidden', !paused); if (paused) save(); }
@@ -443,7 +446,7 @@ function frame(now) {
     if (guest) partnerTick(dt); else simTick();
     for (const m of ui.messages) m.t -= dt;
     ui.messages = ui.messages.filter((m) => m.t > 0);
-    saveT += dt; if (saveT > 30) { saveT = 0; save(); }
+    saveT += dt; if (saveT > 15) { saveT = 0; save(); }
     revealT -= dt;
     const p = s.players[LOCAL];
     if (revealT <= 0 && !p.dead) { revealT = 0.4; for (const id in s.players) if (!s.players[id].dead) mm.reveal(s.players[id].x, s.players[id].y); /* what either of you has seen goes on both maps */ if (panels.isOpen) panels.refresh(); }

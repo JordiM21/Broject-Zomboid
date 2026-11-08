@@ -17,7 +17,11 @@ function packPlayer(p) {
 export function saveGame(s, explored) {
   s.rev = (s.rev || 0) + 1;
   const data = packSave(s, explored);
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (e) { console.warn('save failed', e); }
+  try {
+    const prev = localStorage.getItem(SAVE_KEY);
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    if (prev) { try { localStorage.setItem(SAVE_KEY + '.bak', prev); } catch { /* no room for a backup: the main copy is what matters */ } }
+  } catch (e) { console.warn('save failed', e); }
   return data;
 }
 export function packSave(s, explored) {
@@ -32,7 +36,7 @@ export function packSave(s, explored) {
   const windows = Object.entries(w.windows).filter(([, v]) => v.open || v.broken || v.hp < 20).map(([i, v]) => [+i, v.open ? 1 : 0, v.broken ? 1 : 0, v.hp]);
   const data = {
     v: 1, rev: s.rev || 0, base: s.base || 0, session: s.session || (s.session = Math.random().toString(36).slice(2)), seed: s.seed, citySeed: s.citySeed, raidNo: s.raidNo, raid: s.raid, testGear: s.testGear, time: s.time, dawnIdx: s.dawnIdx, nextId: s.nextId, upgrades: s.upgrades, hordeDay: s.hordeDay, obj: s.obj,
-    stats: s.stats, tradePoints: s.tradePoints, loose: s.loose, cont, doors, windows,
+    stats: s.stats, tradePoints: s.tradePoints, upgrades: s.upgrades, hordeDay: s.hordeDay, obj: s.obj, weather: s.weather, loose: s.loose, cont, doors, windows,
     clutter: w.clutter.flatMap((c, i) => (c.broken ? [i] : [])), tables: w.tables.flatMap((ti) => { const t = w.props[ti]; return t.flip || t.hp < 60 ? [[ti, t.flip, t.hp]] : []; }),
     players: [...Object.values(s.players).map(packPlayer), ...Object.values(s.parked || {}).map((p) => ({ ...packPlayer(p), parked: true }))],
     zombies: s.zombies.map((z) => [z.type, Math.round(z.x), Math.round(z.y), Math.round(z.hp)]),
@@ -40,17 +44,20 @@ export function packSave(s, explored) {
   };
   return data;
 }
-export function readLocal() { try { const d = JSON.parse(localStorage.getItem(SAVE_KEY)); return d && d.v === 1 ? d : null; } catch { return null; } }
+export function readLocal() {
+  for (const k of [SAVE_KEY, SAVE_KEY + '.bak']) { try { const d = JSON.parse(localStorage.getItem(k)); if (d && d.v === 1) return d; } catch { /* unreadable: try the backup */ } }
+  return null;
+}
 
-export function hasSave() { try { return !!localStorage.getItem(SAVE_KEY); } catch { return false; } }
-export function deleteSave() { try { localStorage.removeItem(SAVE_KEY); } catch { /* ignore */ } }
+export function hasSave() { return !!readLocal(); }
+export function deleteSave() { try { localStorage.removeItem(SAVE_KEY); localStorage.removeItem(SAVE_KEY + '.bak'); } catch { /* ignore */ } }
 
 // Everyone but localId waits outside the world, with their gear, until they join.
 export function loadGame(spawnZombie, newPlayer, localId = 'p1', d = readLocal()) {
   if (!d || d.v !== 1) return null;
   const s = createState(d.seed, false, { testGear: d.testGear, citySeed: d.citySeed });
   const w = s.world;
-  Object.assign(s, { rev: d.rev || 0, base: d.rev || 0, raidNo: d.raidNo || 0, raid: d.raid || null, time: d.time, dawnIdx: d.dawnIdx, nextId: d.nextId, upgrades: { ...s.upgrades, ...d.upgrades }, hordeDay: d.hordeDay, obj: d.obj, stats: d.stats, tradePoints: d.tradePoints, loose: d.loose });
+  Object.assign(s, { rev: d.rev || 0, base: d.rev || 0, raidNo: d.raidNo || 0, raid: d.raid || null, time: d.time, dawnIdx: d.dawnIdx, nextId: d.nextId, upgrades: { ...s.upgrades, ...d.upgrades }, hordeDay: d.hordeDay, obj: d.obj, stats: d.stats, tradePoints: d.tradePoints, loose: d.loose, weather: d.weather || s.weather });
   for (const c of d.cont) {
     const [i, items, searched, salt, px, py, type, label] = c;
     if (i >= s.baseConts) {

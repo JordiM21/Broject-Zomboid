@@ -176,7 +176,7 @@ export const TRADE_POOL = [['ammo9', 14], ['ammomed', 10], ['ammo308', 5], ['she
 
 export const OBJECTIVES = [
   { id: 'deploy', text: 'Board the bus to deploy into the city' },
-  { id: 'search', text: 'Open the drop crate by the bus stop [E]' },
+  { id: 'search', text: 'Search a container for loot [E]' },
   { id: 'extract', text: 'Reach the extraction (green smoke) and get out' },
   { id: 'deposit', text: 'Put your haul in the Stash' },
   { id: 'build', text: 'Build any upgrade at the Workbench' },
@@ -318,7 +318,7 @@ LOOT.modcase = { rolls: [1, 1], t: MOD_IDS.map((id) => [id, 1]) };
 LOOT.ammocase = { all: true, t: ['ammo9', 'ammomed', 'shells', 'ammo308'].map((id) => [id, 1]) };
 Object.assign(CONTAINER_LABEL, { weaponcase: 'Weapon Case', modcase: 'Mod Case', ammocase: 'Ammo Case' });
 Object.assign(CONTAINER_LABEL, { bus: 'Bus', gunrack: 'Gun Display', armory: 'Sealed Armory', dropcrate: 'Drop Crate', lever: 'Lever', keypad: 'Keypad', board: 'Raid Board' });
-// Kits: the drop crate every raid starts with, and what a sealed room keeps. Guns come loaded, with spare rounds and a mod.
+// Kits: the one-time starter gear each new character is issued at the outpost, and what a sealed room keeps. Guns come loaded, with spare rounds and a mod.
 export const KITS = {
   dropcrate: { melee: 2, guns: 2, tiers: [0, 1, 1, 0.25], mags: 2, extra: [['bandage', 2], ['water', 1]] },
   armory: { melee: 0, guns: 2, tiers: [0, 0.4, 1, 0.8], mags: 3, mods: 2, extra: [['medkit', 1], ['pipebomb', 1]] },

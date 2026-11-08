@@ -78,7 +78,7 @@ export function startRaid(s) {
   ev(s, { type: 'newCity' });
   for (const p of Object.values(s.players)) if (p.boarded) { p.boarded = false; p.bus = { dir: 'out', t: 0, go: true }; if (p.bx === undefined) boardAt(p); } // the bus pulls away; everyone is dropped when it arrives
   populateCity(s);
-  msg(s, `Raid ${s.raidNo}: ${Math.round(RAID_LEN / 60)} minutes before the city turns. The drop crate is by the bus stop. Green smoke marks the way out.`, '#ffd27a');
+  msg(s, `Raid ${s.raidNo}: ${Math.round(RAID_LEN / 60)} minutes before the city turns. Everything out there is yours to find. Green smoke marks the way out.`, '#ffd27a');
   msg(s, `Radio chatter: this part of town is stocked with ${sur[1]}${density > 1.12 ? ', and crawling with the dead' : density < 0.92 ? '. The streets are quieter than usual' : ''}.`, '#9ab0ff');
   completeObjective(s, 'deploy');
 }
@@ -156,6 +156,7 @@ export function newPlayer(s, id, kit = 'start') {
   if (kit === 'start') {
     addItem(p.inv, makeItem('knife')); addItem(p.inv, makeItem('bandage', 2)); addItem(p.inv, makeItem('water')); addItem(p.inv, makeItem('beans'));
     p.wpn = p.inv[0];
+    for (const it of rollLoot('dropcrate', s.seed, 0)) addItem(p.inv, it); // the one and only free kit, issued once when a character is first created; raids give nothing
   } else if (kit === 'locker') {
     addItem(p.inv, makeItem('knife')); addItem(p.inv, makeItem('bandage', 2)); addItem(p.inv, makeItem('water'));
     p.wpn = p.inv[0];
@@ -170,7 +171,12 @@ export function joinPlayer(s, id) {
   if (s.parked && s.parked[id]) { s.players[id] = s.parked[id]; delete s.parked[id]; }
   if (s.players[id]) {
     const b = s.players[id]; Object.assign(b, { openCid: -1, search: null, channel: null, peek: null, climb: null, pry: null, reload: 0, roll: null, reviving: null, boarded: false, bus: null }); // nothing left half-done from last time
-    if (!s.raid || b.inRaid !== s.raid.id) { // the raid they left is gone: they made it home
+    if (!s.raid || b.inRaid !== s.raid.id) { // the raid they left is over
+      if (b.inRaid && !b.dead) { // they left mid-raid and never extracted: what they carried is lost, as if they had died out there
+        const np = newPlayer(s, id, s.upgrades.locker ? 'locker' : 'none'); np.x += 40; s.players[id] = np; s.stats.deaths++;
+        msg(s, 'You left the raid before extracting and lost what you carried.', '#ff8a6a', id);
+        return np;
+      }
       if (inCity(b) && !b.dead) { b.x = s.world.spawn.x + 40; b.y = s.world.spawn.y; }
       b.inRaid = 0; if (b.downed) { b.downed = null; b.hp = 25; }
     }
