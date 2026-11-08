@@ -1074,6 +1074,7 @@ function spawnHorde(s) {
 function updateZombies(s, dt) {
   const w = s.world;
   const players = Object.values(s.players).filter((p) => !p.dead);
+  const targets = players.filter((p) => !p.downed); // zombies leave the downed alone: they only bleed out, or wait for a revive
   const block = zombiePass(w);
   const dark = daylight(s) < 0.35, rage = Math.min(2.1, 1 + 0.2 * Math.min(1, raidHeat(s)) + overtime(s) * 4);
   // flow fields per player
@@ -1097,7 +1098,7 @@ function updateZombies(s, dt) {
     z.hitAge = (z.hitAge ?? 99) + dt;
     const zt = ZT[z.type];
     let p = null, d = 1e9, seek = null, seekD = 1e9; // nearest player, and nearest one outside the safehouse
-    for (const q of players) { const dq = dist(z, q); if (dq < d) { d = dq; p = q; } if (dq < seekD && !isSafe(w, q.x, q.y)) { seekD = dq; seek = q; } }
+    for (const q of targets) { const dq = dist(z, q); if (dq < d) { d = dq; p = q; } if (dq < seekD && !isSafe(w, q.x, q.y)) { seekD = dq; seek = q; } }
     if (d > 55 * TILE) { // far: cheap wander
       z.wanderT -= dt;
       if (z.wanderT <= 0) { z.wanderT = 3 + rnd() * 5; const a = rnd() * 6.28; z.wx = Math.cos(a); z.wy = Math.sin(a); if (rnd() < 0.5) z.wx = z.wy = 0; }
@@ -1119,7 +1120,7 @@ function updateZombies(s, dt) {
       z.think = 0.2;
       // watch whoever it's chasing; otherwise the nearest player it could actually reach
       const chased = z.state === 'chase' ? s.players[z.pid] : null;
-      const o = chased && !chased.dead ? chased : seek || p, od = dist(z, o);
+      const o = chased && !chased.dead && !chased.downed ? chased : seek || p, od = dist(z, o);
       const pSafe = isSafe(w, o.x, o.y);
       let sight = zt.sight * TILE * (o.vis ?? 1);
       // peripheral vision: unaware zombies barely see behind them
@@ -1140,7 +1141,7 @@ function updateZombies(s, dt) {
       }
       if (z.state === 'chase') {
         const tp = s.players[z.pid];
-        if (!tp || tp.dead || isSafe(w, tp.x, tp.y)) { z.state = 'investigate'; z.tx = z.lx; z.ty = z.ly; }
+        if (!tp || tp.dead || tp.downed || isSafe(w, tp.x, tp.y)) { z.state = 'investigate'; z.tx = z.lx; z.ty = z.ly; }
         else {
           if (tp === o && z.seen) { z.lx = o.x; z.ly = o.y; z.lost = 0; }
           // someone much closer and in plain sight takes over as the target
@@ -1158,7 +1159,7 @@ function updateZombies(s, dt) {
     let gx = z.x, gy = z.y, spd = zt.spd * (dark ? 1.2 : 1) * rage;
     z.seenT = z.seen ? 0.5 : Math.max(0, (z.seenT || 0) - dt); // a flickering line of sight must not flip between 'straight at them' and 'follow the path'
     if (z.state === 'chase') {
-      const tp = s.players[z.pid] || p;
+      const tp = (s.players[z.pid] && !s.players[z.pid].downed ? s.players[z.pid] : null) || p;
       z.lost += z.seen ? 0 : dt * (tp.hid ? 2.5 : 1); // lose track of someone in a bush much faster
       if (z.lost > 7) { z.state = 'investigate'; z.tx = z.lx; z.ty = z.ly; z.sus = 0.5; }
       const dd = dist(z, tp);
@@ -1187,7 +1188,7 @@ function updateZombies(s, dt) {
       z.atk -= dt; spd = 0;
       if (z.atk <= 0) {
         const tp = s.players[z.pid];
-        if (tp && !tp.dead && dist(z, tp) < zt.r + PLAYER_R + 18) hurtPlayer(s, tp, z);
+        if (tp && !tp.dead && !tp.downed && dist(z, tp) < zt.r + PLAYER_R + 18) hurtPlayer(s, tp, z);
         ev(s, { type: 'zattack', x: z.x, y: z.y, zid: z.id, ztype: z.type });
       }
     }
