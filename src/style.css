@@ -183,3 +183,15 @@ body.dropping #game { outline: 3px dashed rgba(255,150,90,0.6); outline-offset: 
 .sgrid { grid-template-columns: repeat(9, minmax(0, 54px)); justify-content: center; }
 @media (max-height: 760px) { .sgrid { grid-template-columns: repeat(9, minmax(0, 40px)); } #inv { height: calc(100vh - 16px); } .sect.char .doll img { width: 90px; height: 90px; } .sect.char .gearcol { grid-auto-rows: 34px; } }
 .joinRow input.name { letter-spacing: 0.05em; text-transform: none; font-size: 16px; }
+
+/* drag and drop */
+.slot { transition: transform 0.08s, border-color 0.08s, background-color 0.08s, box-shadow 0.08s; }
+.slot.over, .eslot.over { border-color: #9fe09f; background-color: rgba(120,220,120,0.16); box-shadow: 0 0 0 1px rgba(159,224,159,0.6), 0 0 12px rgba(120,220,120,0.25); transform: scale(1.06); }
+.slot:active { transform: scale(0.95); }
+.heldIcon { transition: transform 0.08s; }
+.heldIcon.drag { transform: translate(-50%, -50%) scale(1.15) rotate(-6deg); }
+body:has(.heldIcon:not(.hidden)) #inv .slot { cursor: copy; }
+body:has(.heldIcon:not(.hidden)) #game { cursor: grabbing; }
+#hotbar.dragging, #hotbar.dragging .hs { cursor: grabbing; }
+#hotbar .hs.lift { opacity: 0.4; transform: translateY(-2px); }
+#hotbar .hs { cursor: grab; }

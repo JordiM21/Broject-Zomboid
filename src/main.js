@@ -44,6 +44,7 @@ const panels = new Panels({
 const hotbar = new HotbarUI($('hotbar'), {
   use: (k) => { selPending = k; },
   holster: () => { if (s) doCmd({ t: 'unequip', slot: 'wpn' }); },
+  cmd: doCmd,
 });
 
 // ---------- rotating view (optional): the world turns so the character always faces up the screen ----------

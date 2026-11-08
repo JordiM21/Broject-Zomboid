@@ -1,4 +1,5 @@
 // DOM hotbar: the first row of the inventory (slots 0..8). Click or press 1-9 to use; the wheel cycles weapons.
+// Drag a slot onto another to swap them.
 import { ITEMS } from '../data/items.js';
 import { HOT_SLOTS } from '../config.js';
 import { slotOf } from '../sim/inventory.js';
@@ -20,8 +21,25 @@ function hotSlot(p, k) {
 export class HotbarUI {
   constructor(el, h) {
     this.el = el; this.h = h; this.last = '';
-    el.addEventListener('mousedown', (e) => e.stopPropagation());
-    el.addEventListener('click', (e) => { const sl = e.target.closest('.hs'); if (sl) h.use(+sl.dataset.k); else if (e.target.closest('.fist')) h.holster(); });
+    el.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      const sl = e.target.closest('.hs'); if (e.button === 0 && sl && sl.querySelector('img')) this.press = { k: +sl.dataset.k, x: e.clientX, y: e.clientY };
+    });
+    addEventListener('mousemove', (e) => {
+      const P = this.press; if (!P) return;
+      if (!this.dragging && Math.hypot(e.clientX - P.x, e.clientY - P.y) > 6) { this.dragging = true; el.classList.add('dragging'); el.querySelector(`.hs[data-k="${P.k}"]`)?.classList.add('lift'); }
+      if (!this.dragging) return;
+      const over = document.elementFromPoint(e.clientX, e.clientY)?.closest('#hotbar .hs');
+      el.querySelectorAll('.over').forEach((n) => n !== over && n.classList.remove('over')); if (over) over.classList.add('over');
+    });
+    addEventListener('mouseup', (e) => {
+      const P = this.press; this.press = null; if (!this.dragging) return;
+      this.dragging = false; this.skip = true; setTimeout(() => { this.skip = false; }, 0);
+      el.classList.remove('dragging'); el.querySelectorAll('.over,.lift').forEach((n) => n.classList.remove('over', 'lift'));
+      const to = document.elementFromPoint(e.clientX, e.clientY)?.closest('#hotbar .hs');
+      if (to && +to.dataset.k !== P.k) { h.cmd({ t: 'mv', a: { side: 'inv', i: P.k }, b: { side: 'inv', i: +to.dataset.k } }); this.last = ''; }
+    });
+    el.addEventListener('click', (e) => { if (this.skip) return; const sl = e.target.closest('.hs'); if (sl) h.use(+sl.dataset.k); else if (e.target.closest('.fist')) h.holster(); });
     el.addEventListener('contextmenu', (e) => e.preventDefault());
   }
   render(p, visible) {

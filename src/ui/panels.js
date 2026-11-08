@@ -1,5 +1,6 @@
 // DOM panels. The inventory works like Minecraft: click a slot to pick its stack up, click another slot to put it down
 // (swap, merge, or attach a mod to a gun). Right-click picks up half, or puts down one. Shift-click sends a stack across.
+// Dragging does the same in one motion: let go on a slot, a gear slot, or outside the panel to drop it on the ground.
 // Base panel: upgrades, crafting, repairs, radio, the raid board and the bunker keypad.
 import { PERK_NAME, ITEMS, MODS, modFits, gunStats, CAT_COLOR, UPGRADES, RECIPES, STASH_CAP, STASH_TABS, stashTab, repairCost, TRADE_COST, DESC, itemStats } from '../data/items.js';
 import { getCont, contCap, contLabel, capacity, carried, costStatus, dayOf, gearStats } from '../sim/sim.js';
@@ -43,12 +44,46 @@ export class Panels {
     }
     const inv = $('inv');
     this.float = document.createElement('div'); this.float.className = 'heldIcon hidden'; document.body.appendChild(this.float);
-    addEventListener('mousemove', (e) => { this.float.style.left = e.clientX + 'px'; this.float.style.top = e.clientY + 'px'; });
+    addEventListener('mousemove', (e) => { this.float.style.left = e.clientX + 'px'; this.float.style.top = e.clientY + 'px'; this.dragMove(e); });
+    inv.addEventListener('mousedown', (e) => { // a press on a stack might become a drag
+      const t = e.target.closest('.slot');
+      if (e.button === 0 && !e.shiftKey && t && !t.classList.contains('empty') && !this.held) this.press = { side: t.dataset.side, i: +t.dataset.i, x: e.clientX, y: e.clientY };
+    });
+    addEventListener('mouseup', (e) => this.dragEnd(e));
     inv.addEventListener('contextmenu', (e) => { e.preventDefault(); const t = e.target.closest('.slot'); if (t) this.slotClick(t.dataset.side, +t.dataset.i, 'right', e.shiftKey); });
     inv.addEventListener('mouseover', (e) => { const t = e.target.closest('.slot'); if (t && !t.classList.contains('empty')) { this.hover = { side: t.dataset.side, i: +t.dataset.i }; this.showDetails(); } });
     inv.addEventListener('mouseleave', () => { this.hover = null; this.showDetails(); });
   }
   get isOpen() { return !!this.open; }
+  dragMove(e) {
+    const P = this.press; if (!P) return;
+    if (!this.dragging) {
+      if (Math.hypot(e.clientX - P.x, e.clientY - P.y) < 6) return;
+      this.dragging = true; this.pick(P.side, P.i, false); this.float.classList.add('drag'); this.refresh();
+    }
+    const el = document.elementFromPoint(e.clientX, e.clientY), over = el && el.closest('#inv .slot, #inv .eslot');
+    if (over !== this.overEl) { if (this.overEl) this.overEl.classList.remove('over'); this.overEl = over; if (over) over.classList.add('over'); }
+    document.body.classList.toggle('dropping', !!el && !el.closest('#inv') && P.side === 'inv'); // let go here and it falls on the ground
+  }
+  dragEnd(e) {
+    const P = this.press; this.press = null;
+    if (!this.dragging) return;
+    this.dragging = false; this.float.classList.remove('drag'); document.body.classList.remove('dropping');
+    if (this.overEl) { this.overEl.classList.remove('over'); this.overEl = null; }
+    this.skipClick = true; setTimeout(() => { this.skipClick = false; }, 0); // the click that follows a drag is not a click
+    const el = document.elementFromPoint(e.clientX, e.clientY), slot = el && el.closest('#inv .slot'), eq = el && el.closest('#inv .eslot');
+    if (slot) { if (!(slot.dataset.side === P.side && +slot.dataset.i === P.i)) this.slotClick(slot.dataset.side, +slot.dataset.i, 'left'); else this.drop(); }
+    else if (eq) this.equipHeld(eq.dataset.slot);
+    else if (!(el && el.closest('#inv')) && P.side === 'inv' && this.item('inv', P.i)) { this.h.cmd({ t: 'drop', idx: this.idx(P.i) }); this.drop(); }
+    else this.drop();
+    this.refresh();
+  }
+  // a gear slot: wear what you hold, or take off what's there
+  equipHeld(key) {
+    const H = this.held, src = H && this.item(H.side, H.i);
+    if (src) { if (H.side === 'cont') this.act('use', 'cont', H.i); else this.h.cmd({ t: 'use', idx: this.idx(H.i) }); this.drop(); }
+    else this.h.cmd({ t: 'unequip', slot: key });
+  }
   show(name, tab, extra) {
     if (this.open !== name) { this.close(); this.open = name; this._inv = this._base = null; $(name).classList.remove('hidden'); }
     if (tab) this.baseTab = tab;
@@ -137,6 +172,7 @@ export class Panels {
     this.refresh();
   }
   click(e) {
+    if (this.skipClick) return;
     const t = e.target.closest('.slot');
     if (t) { this.slotClick(t.dataset.side, +t.dataset.i, 'left', e.shiftKey); return; }
     const b = e.target.closest('[data-act]'); if (!b) return;
@@ -149,12 +185,7 @@ export class Panels {
       case 'sortInv': this.h.cmd({ t: 'sort', which: 'inv' }); break;
       case 'sortCont': this.h.cmd({ t: 'sort', which: 'cont', cid }); break;
       case 'stab': this.stashTab = b.dataset.tab; break;
-      case 'eq': { // an equipment slot: wear what you hold, or take it off
-        const H = this.held, src = H && this.item(H.side, H.i);
-        if (src) { if (H.side === 'cont') this.act('use', 'cont', H.i); else this.h.cmd({ t: 'use', idx: this.idx(H.i) }); this.drop(); }
-        else this.h.cmd({ t: 'unequip', slot: b.dataset.slot });
-        break;
-      }
+      case 'eq': this.equipHeld(b.dataset.slot); break;
       case 'it': this.act(b.dataset.m, b.dataset.side, i); return;
       case 'tab': this.baseTab = b.dataset.tab; break;
       case 'upgrade': this.h.cmd({ t: 'upgrade', id: b.dataset.id }); break;
@@ -170,7 +201,7 @@ export class Panels {
   showDetails() {
     const el = $('invDetails'); if (!el) return;
     const p = this.h.player(), d0 = this.held || this.hover, it = d0 && this.item(d0.side, d0.i);
-    if (!it) { el.innerHTML = `<div class="dim">Click a slot to pick up its stack, click another to put it down. Right-click: half / one. Shift-click: send across. Hover + ${kbd('1')}–${kbd('9')}: swap with the hotbar. Click the game to drop what you hold.</div>`; return; }
+    if (!it) { el.innerHTML = `<div class="dim">Drag a stack anywhere, or click to pick it up and click again to put it down. Right-click: half / one. Shift-click: send across. Hover + ${kbd('1')}–${kbd('9')}: swap with the hotbar. Drop outside the panel to leave it on the ground.</div>`; return; }
     const d = ITEMS[it.id], side = d0.side, i = d0.i;
     const stats = itemStats(it).map(([k, v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join('');
     const btn = (m, label, k, ghost) => `<button class="${ghost ? 'ghost' : ''}" data-act="it" data-m="${m}" data-side="${side}" data-i="${i}">${label}${k ? ' ' + kbd(k) : ''}</button>`;
