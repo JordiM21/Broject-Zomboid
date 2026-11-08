@@ -2,6 +2,7 @@ import { TILE } from '../config.js';
 import { T } from '../world/worldgen.js';
 import { ITEMS, OBJECTIVES, CAT_COLOR } from '../data/items.js';
 import { iconCanvas } from './icons.js';
+import { TRIP, busPose } from '../sim/bus.js';
 import { hourOf, dayOf, daylight, weaponList, capacity, carried, gunSpread } from '../sim/sim.js';
 
 const MM_COL = {
@@ -183,7 +184,9 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   // raid clock, top centre
   {
     let t, col;
-    if (s.raid && p.inRaid) { const left = s.raid.len - s.raid.t, a = Math.abs(left); t = `${left < 0 ? 'OVERTIME +' : 'RAID '}${Math.floor(a / 60)}:${String(Math.floor(a % 60)).padStart(2, '0')}`; col = left < 0 ? (performance.now() % 600 < 300 ? '#ff3a2a' : '#ff8a6a') : left < 120 ? '#ffb070' : '#f2ece0'; }
+    if (p.bus) { const b = p.bus, ps = busPose(b), on = Object.values(s.players).filter((q) => q.boarded).length, all = Object.keys(s.players).length; col = '#ffd27a'; t = !b.go ? `Waiting for everyone · ${on}/${all} aboard` : ps.arrived ? (b.dir === 'out' ? 'We have arrived · walk to the door and step off' : 'Home safe · walk to the door and step off') : `${b.dir === 'out' ? 'Riding into the city' : 'Riding home'} · ${Math.ceil(TRIP[b.dir] - b.t)}s`; }
+    else if (p.cine) { t = 'The bus pulls away…'; col = '#ffd27a'; }
+    else if (s.raid && p.inRaid) { const left = s.raid.len - s.raid.t, a = Math.abs(left); t = `${left < 0 ? 'OVERTIME +' : 'RAID '}${Math.floor(a / 60)}:${String(Math.floor(a % 60)).padStart(2, '0')}`; col = left < 0 ? (performance.now() % 600 < 300 ? '#ff3a2a' : '#ff8a6a') : left < 120 ? '#ffb070' : '#f2ece0'; }
     else if (s.raid) { t = 'Your partner is still out there · ride the bus to join them'; col = '#ffd27a'; }
     else { const on = Object.values(s.players).filter((q) => q.boarded).length, all = Object.keys(s.players).length; t = on ? `On the bus ${on}/${all} · waiting for everyone` : 'OUTPOST · board the bus to raid'; col = '#9fe09f'; }
     ctx.font = `800 ${s.raid && p.inRaid ? 20 : 14}px system-ui, sans-serif`; ctx.textAlign = 'center';
@@ -256,7 +259,7 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   const bid = w.bld[ti]; const safe = w.safe[ti];
   ctx.font = '600 12px system-ui, sans-serif'; ctx.fillStyle = safe ? '#9fe09f' : '#bbb';
   const zn = w.zones.find((z) => Math.hypot(z.x - p.x, z.y - p.y) < z.r);
-  ctx.fillText((safe ? 'OUTPOST · SAFE' : bid >= 0 ? w.buildings[bid].name : zn ? zn.name : 'The City') + (s.weather && s.weather.rain > 0.3 ? '  ·  Raining' : ''), 20, 50);
+  ctx.fillText((p.bus ? (p.bus.dir === 'out' ? 'ON THE BUS · TO THE CITY' : 'ON THE BUS · HEADING HOME') : safe ? 'OUTPOST · SAFE' : bid >= 0 ? w.buildings[bid].name : zn ? zn.name : 'The City') + (s.weather && s.weather.rain > 0.3 ? '  ·  Raining' : ''), 20, 50);
   const ob = OBJECTIVES[s.obj];
   ctx.fillStyle = '#ffd27a'; ctx.font = '600 12px system-ui, sans-serif';
   ctx.fillText(ob ? `▸ ${ob.text}` : '▸ Survive. Haul. Repeat.', 20, 69);

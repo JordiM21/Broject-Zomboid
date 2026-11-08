@@ -2,7 +2,7 @@
 import { createState, addPlayer, step, command, getInteract } from '../src/sim/sim.js';
 const t0 = Date.now();
 const s = createState(12345);
-const p = addPlayer(s, 'p1'); p.boarded = true; step(s, { p1: {} }, 1 / 60);
+const p = addPlayer(s, 'p1'); p.boarded = true; step(s, { p1: {} }, 1 / 60); p.bus.t = 99; step(s, { p1: {} }, 1 / 60); // ride the bus to the city
 console.log('gen ms', Date.now() - t0, 'buildings', s.world.buildings.length, 'containers', s.world.containers.length, 'zombies', s.zombies.length, 'cars', s.world.cars.length);
 const counts = {}; for (const b of s.world.buildings) counts[b.type] = (counts[b.type] || 0) + 1; console.log(counts);
 let t1 = Date.now();

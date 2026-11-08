@@ -1,10 +1,12 @@
 // Headless check of the 2.0 loop: board the bus, raid, get downed, get revived, extract, stash. Run: node tests/raid.test.mjs
 import assert from 'node:assert';
-import { createState, addPlayer, step, command, getInteract, startRaid } from '../src/sim/sim.js';
+import { createState, addPlayer, step, command, getInteract, startRaid, spawnZombie as spawnZombieT } from '../src/sim/sim.js';
 import { slotOf } from '../src/sim/inventory.js';
 import { ITEMS } from '../src/data/items.js';
 import { CITY_H, TILE } from '../src/config.js';
 const tick = (s, inp = {}, n = 1) => { for (let i = 0; i < n; i++) { step(s, inp, 1 / 60); s.events.length = 0; } };
+// the bus ride: fast-forward to the stop; the driver ushers everyone off
+const ride = (s) => { for (const p of Object.values(s.players)) if (p.bus) p.bus.t = 99; tick(s); };
 
 const s = createState(4242, false);
 const a = addPlayer(s, 'p1'), b = addPlayer(s, 'p2');
@@ -16,7 +18,12 @@ assert(slotOf(a.inv, 0) && ITEMS[slotOf(a.inv, 0).id].cat === 'melee', 'the knif
 a.boarded = true; tick(s);
 assert(!s.raid, 'waits for the partner');
 b.boarded = true; tick(s);
-assert(s.raid && a.inRaid && b.inRaid, 'raid started');
+assert(s.raid && a.bus && b.bus && !a.inRaid, 'the bus pulls away with both on it');
+tick(s, {}, 60); assert(a.bus.t > 0.9 && s.raid.t === 0, 'riding; the raid clock has not started');
+ride(s);
+assert(s.raid && a.inRaid && b.inRaid && !a.bus, 'raid started');
+assert(s.cityBus && !s.cityBus.gone && a.cine && b.cine, 'the bus waits beside the drop point and you watch it leave');
+{ const x0 = a.x, y0 = a.y; tick(s, { p1: { right: true, up: true, left: true } }, 60); assert(a.x === x0 && a.y === y0, 'no walking until the bus is gone'); const bx = s.cityBus.x, by = s.cityBus.y; tick(s, {}, 60 * 3); assert(Math.hypot(s.cityBus.x - bx, s.cityBus.y - by) > 100, 'the bus drives off'); tick(s, {}, 60 * 6); assert(!a.cine && s.cityBus.gone, 'then play begins'); }
 assert(a.y < CITY_H * TILE && s.zombies.length > 300, 'dropped in a populated city');
 const drop = s.world.containers[s.world.fixtures.drop];
 a.x = (drop.x + 0.5) * TILE; a.y = (drop.y + 1.5) * TILE; a.ang = -Math.PI / 2;
@@ -61,6 +68,7 @@ for (const p of [a, b]) { p.x = e.x; p.y = e.y; }
 s.zombies.length = 0; tick(s, {}, 60 * 5);
 assert(!a.inRaid && !b.inRaid && !s.raid, 'both extracted, raid over');
 assert(a.y > CITY_H * TILE, 'back in the outpost');
+assert(a.bus && a.bus.dir === 'back', 'the bus carries the extracted survivors home'); ride(s); assert(!a.bus && !b.bus, 'stepped off at the yard');
 
 // stash it all, sorted by tab
 const st = s.world.containers[s.world.fixtures.stash];
@@ -69,14 +77,14 @@ command(s, 'p1', { t: 'putAll', cid: st.id });
 assert(st.items.length > 4, 'stashed');
 
 // both downed with nobody to help: the bleed-out clock ends the raid
-a.boarded = b.boarded = true; tick(s);
+a.boarded = b.boarded = true; tick(s); ride(s); tick(s, {}, 60 * 9);
 a.hp = -1; b.hp = -1; tick(s);
 assert(a.downed && b.downed);
 tick(s, {}, 60 * 80);
 assert(a.dead && b.dead && !s.raid, 'bled out');
 // sealed rooms: keycard, twin levers, keypad. Each opens a door onto an armory with two loaded guns
 {
-  const t = createState(99, false), q = addPlayer(t, 'p1'); q.boarded = true; tick(t);
+  const t = createState(99, false), q = addPlayer(t, 'p1'); q.boarded = true; tick(t); ride(t); tick(t, {}, 60 * 9);
   const w = t.world, doors = Object.entries(w.doors).filter(([, d]) => d.vault).map(([i, d]) => [+i, d]);
   assert.equal(doors.length, 3, 'three sealed rooms');
   const at = (i) => { q.x = ((i % w.w) + 0.5) * TILE; q.y = (Math.floor(i / w.w) + 1.5) * TILE; q.ang = -Math.PI / 2; t.zombies.length = 0; };
@@ -107,10 +115,34 @@ assert(a.dead && b.dead && !s.raid, 'bled out');
   const t = createState(5, false), q = addPlayer(t, 'p1'), sig = () => JSON.stringify([t.world.buildings.map((b) => [b.type, b.x, b.y]), t.world.extract, t.world.insert]);
   const seen = new Set(), surplus = new Set();
   for (let k = 0; k < 4; k++) {
-    q.boarded = true; tick(t); assert(t.raid, 'raid ' + k);
+    q.boarded = true; tick(t); ride(t); tick(t, {}, 60 * 9); assert(t.raid, 'raid ' + k);
     seen.add(sig()); surplus.add(t.raid.surplus);
     q.x = t.world.extract.x; q.y = t.world.extract.y; t.zombies.length = 0; tick(t, {}, 60 * 5); assert(!t.raid);
   }
   assert.equal(seen.size, 4, 'four raids, four different cities'); assert(surplus.size >= 2, 'the loot surplus changes');
+}
+// boarding, walking around inside, changing your mind
+{
+  const t = createState(8, false), q = addPlayer(t, 'p1'), r = addPlayer(t, 'p2'), bus = t.world.containers[t.world.fixtures.bus];
+  q.x = (bus.x + 0.5) * TILE; q.y = (bus.y + 3) * TILE; q.ang = 0; t.zombies.length = 0;
+  const it = getInteract(t, q); assert(it && it.cid === bus.id, 'the bus is in reach'); tick(t, { p1: { interact: true } });
+  assert(q.bus && !q.bus.go && q.boarded, 'on the bus, waiting'); assert(!t.raid, 'waits for the partner');
+  const door = getInteract(t, q); assert(door && door.kind === 'busdoor', 'the door is right there'); const x0 = q.bx;
+  tick(t, { p1: { left: true } }, 30); assert(q.bx < x0 - 10, 'walks the aisle');
+  tick(t, { p1: { left: true } }, 300); assert(q.bx > 16.9, 'the wall holds you in');
+  q.bx = 104; q.by = 76; tick(t, { p1: { interact: true } }); assert(!q.bus && !q.boarded && q.y > CITY_H * TILE, 'changed your mind: back in the yard');
+}
+// bushes: walk straight in (no collision), hide, and the dead lose you
+{
+  const t = createState(21, false), q = addPlayer(t, 'p1'); q.boarded = true; tick(t); ride(t); tick(t, {}, 60 * 9); tick(t, {}, 60 * 9);
+  const w = t.world; let bi = -1; for (let i = 0; i < w.w * CITY_H; i++) if (w.tiles[i] === 15 && w.tiles[i + 1] < 3 && [-5, -4, -3, -2, -1].every((k) => w.tiles[i + k] < 3)) { bi = i; break; }
+  assert(bi >= 0, 'a bush to test with');
+  const bx = ((bi % w.w) + 0.5) * TILE, by = (Math.floor(bi / w.w) + 0.5) * TILE;
+  t.zombies.length = 0; q.x = bx - 40; q.y = by; q.ang = 0;
+  const evs = []; for (let i = 0; i < 90; i++) { step(t, { p1: { right: true } }, 1 / 60); evs.push(...t.events.map((e) => e.type)); t.events.length = 0; if (q.x > bx + 24) break; }
+  assert(evs.includes('bushIn') && evs.includes('bushOut'), 'walked through a bush: rustle in and out'); assert(q.x > bx, 'bushes do not block');
+  q.x = bx; q.y = by; tick(t, {}, 3); assert(q.hid, 'standing in a bush hides you');
+  const z = spawnZombieT(t, bx - 5 * TILE, by, 'walker'); z.ang = 0; tick(t, {}, 60 * 4); assert(z.state !== 'chase', 'a zombie 5 tiles away does not see you in the bush: ' + z.state);
+  q.x = bx - 2 * TILE; z.x = bx - 5 * TILE; z.y = by; z.ang = 0; z.state = "idle"; z.sus = 0; tick(t, {}, 60 * 4); assert(q.hid === false); assert(z.state !== 'idle', 'step out and it notices you: ' + z.state + ' sus ' + z.sus);
 }
 console.log('raid test ok');

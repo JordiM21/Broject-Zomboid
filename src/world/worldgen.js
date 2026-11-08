@@ -202,6 +202,12 @@ export function generateWorld(seed, { testGear = false, citySeed = seed } = {}) 
     const dx = Math.floor(ins.x) + (ins.i === 0 ? 1 : -2), dy = Math.floor(ins.y) + (ins.j === 0 ? 1 : -2);
     world.fixtures.drop = addCont(dx, dy, 'dropcrate');
     prop(ins.x - 0.5, ins.y - 0.4, 1, 0.8, 'busstop');
+    { // the bus that drops you parks on the road beside the drop point, door side to you, then leaves along the road. Heading: whichever way keeps it clear of the crate
+      const axis = ins.i === 0 || ins.i === xs.length - 1 ? [0, 1] : [1, 0], cx = (dx + 0.5) * 32, cy = (dy + 0.5) * 32;
+      const spot = (sg) => { const ax = axis[0] * sg, ay = axis[1] * sg; return { ax, ay, x: world.insert.x - ax * 40 + ay * 60, y: world.insert.y - ay * 40 - ax * 60 }; };
+      const p1 = spot(1), p2 = spot(-1), pick = Math.hypot(p1.x - cx, p1.y - cy) > Math.hypot(p2.x - cx, p2.y - cy) ? p1 : p2;
+      world.insert.dx = pick.ax; world.insert.dy = pick.ay;
+    }
   }
   world.props.forEach((p, i) => { if (p.kind === 'table') { p.flip = 0; p.hp = 60; world.tables.push(i); } });
   return world;

@@ -8,7 +8,7 @@ const SEE_RADIUS = 36 * 32, FORGET_RADIUS = 42 * 32, EVENT_RADIUS = 1500;
 
 // ---------- players ----------
 // sent every frame, as an array in this order, to keep messages small
-const FAST = ['x', 'y', 'ang', 'hp', 'hunger', 'thirst', 'stamina', 'reload', 'swing', 'swingDur', 'muzzle', 'hurt', 'bloom', 'vis', 'infection', 'openCid', 'moving', 'sprinting', 'sneak', 'ads', 'flashlight', 'dead', 'bleeding', 'act', 'channel', 'search', 'peek', 'climb', 'pry', 'roll', 'bleedLv', 'downed', 'reviving', 'extractT', 'inRaid', 'boarded'];
+const FAST = ['x', 'y', 'ang', 'hp', 'hunger', 'thirst', 'stamina', 'reload', 'swing', 'swingDur', 'muzzle', 'hurt', 'bloom', 'vis', 'infection', 'openCid', 'moving', 'sprinting', 'sneak', 'ads', 'flashlight', 'dead', 'bleeding', 'act', 'channel', 'search', 'peek', 'climb', 'pry', 'roll', 'bleedLv', 'downed', 'reviving', 'extractT', 'inRaid', 'boarded', 'bus', 'bx', 'by', 'cine'];
 const ROLL_I = FAST.indexOf('roll');
 const fastRow = (p) => FAST.map((k) => { const v = p[k]; return typeof v === 'number' ? (k === 'x' || k === 'y' ? r1(v) : r2(v)) : v ?? null; });
 const SKIP_FOR_SELF = new Set(['x', 'y', 'ang', 'roll']); // the partner predicts their own position, aim and dodge roll
@@ -84,7 +84,7 @@ export function packWorld(s, t) {
   if (tbs !== t.tables) { t.tables = tbs; o.tb = tb; any = true; }
   if (c.length) { o.c = c; any = true; }
   const loose = JSON.stringify(s.loose); if (loose !== t.loose) { t.loose = loose; o.loose = s.loose; any = true; }
-  const meta = JSON.stringify({ upgrades: s.upgrades, obj: s.obj, stats: s.stats, tradePoints: s.tradePoints, hordeDay: s.hordeDay, dawnIdx: s.dawnIdx, raidNo: s.raidNo, citySeed: s.citySeed, raid: s.raid && { ...s.raid, t: Math.floor(s.raid.t) } });
+  const meta = JSON.stringify({ cityBus: s.cityBus || null, upgrades: s.upgrades, obj: s.obj, stats: s.stats, tradePoints: s.tradePoints, hordeDay: s.hordeDay, dawnIdx: s.dawnIdx, raidNo: s.raidNo, citySeed: s.citySeed, raid: s.raid && { ...s.raid, t: Math.floor(s.raid.t) } });
   if (meta !== t.meta) { t.meta = meta; o.meta = JSON.parse(meta); any = true; }
   return any ? o : null;
 }
@@ -139,6 +139,7 @@ export function smooth(s, dt, localId) {
     const p = s.players[id]; if (p.nx === undefined) continue;
     p.x += (p.nx - p.x) * k; p.y += (p.ny - p.y) * k; p.ang = glideAng(p.ang, p.na); p.drawX = p.x; p.drawY = p.y; p.drawA = p.ang;
   }
+  { const cb = s.cityBus; if (cb && cb.v > 0 && !cb.gone) { cb.x += cb.dx * cb.v * dt; cb.y += cb.dy * cb.v * dt; } } // the host sends the bus 10 times a second: coast in between
   for (const b of s.bullets) { b.px = b.x; b.x += b.vx * dt; b.y += b.vy * dt; b.left -= Math.hypot(b.vx, b.vy) * dt; }
   s.bullets = s.bullets.filter((b) => b.left > 0);
 }

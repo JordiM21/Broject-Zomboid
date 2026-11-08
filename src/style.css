@@ -10,6 +10,13 @@ button:disabled { opacity: 0.4; cursor: default; }
 button.ghost { background: transparent; }
 button.big { display: block; width: 100%; max-width: 380px; padding: 12px; margin: 8px auto; font-size: 16px; font-weight: 600; }
 .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(10,12,16,0.75), rgba(0,0,0,0.95)); z-index: 20; padding: 16px; }
+#gate, #menu { background: radial-gradient(ellipse at 50% 45%, rgba(6,8,12,0.12), rgba(3,4,7,0.55) 70%, rgba(0,0,0,0.88)); padding: 9vh 16px; }
+#menu { justify-content: flex-start; padding-left: max(16px, 7vw); } /* the title sits on the left so the city shows on the right */
+#menu .menuBox { width: min(430px, 100%); }
+#menu h1 { font-size: clamp(26px, 5vw, 50px); letter-spacing: 0.08em; }
+#gate::before, #gate::after, #menu::before, #menu::after { content: ''; position: absolute; left: 0; right: 0; height: 8vh; background: #000; pointer-events: none; } /* cinema bars */
+#gate::before, #menu::before { top: 0; } #gate::after, #menu::after { bottom: 0; }
+#gate .menuBox, #menu .menuBox { position: relative; padding: 20px 26px; background: rgba(8,10,14,0.62); backdrop-filter: blur(7px); border: 1px solid rgba(255,255,255,0.07); border-radius: 14px; max-height: 100%; overflow: auto; box-shadow: 0 20px 80px rgba(0,0,0,0.55); }
 #help { z-index: 21; background: rgba(0,0,0,0.92); } /* opens on top of the pause menu */
 .menuBox { width: min(560px, 100%); text-align: center; }
 .menuBox.wide { width: min(640px, 100%); text-align: left; max-height: 90vh; overflow: auto; }

@@ -97,6 +97,18 @@ export class Sfx {
     return true;
   }
   setVolume(v) { this.volume = v; if (this.master) this.master.gain.value = v; }
+  // the bus engine: a low grumble that rises with speed, under a rattle of road noise (level 0 = off)
+  drive(level, dt) {
+    if (!this.ctx) return;
+    if (!this.eng) {
+      const c = this.ctx, o = c.createOscillator(), f = c.createBiquadFilter(), g = c.createGain(), n = c.createBufferSource(), nf = c.createBiquadFilter(), ng = c.createGain();
+      o.type = 'sawtooth'; o.frequency.value = 42; f.type = 'lowpass'; f.frequency.value = 160; g.gain.value = 0; o.connect(f); f.connect(g); g.connect(this.master); o.start();
+      n.buffer = this.nbuf; n.loop = true; nf.type = 'lowpass'; nf.frequency.value = 500; ng.gain.value = 0; n.connect(nf); nf.connect(ng); ng.connect(this.master); n.start();
+      this.eng = { o, g, ng };
+    }
+    const t = this.ctx.currentTime, e = this.eng;
+    e.g.gain.setTargetAtTime(level * 0.16, t, 0.25); e.ng.gain.setTargetAtTime(level > 0.3 ? (level - 0.2) * 0.1 : 0, t, 0.3); e.o.frequency.setTargetAtTime(38 + level * 38, t, 0.4);
+  }
   setRain(r) { if (this.rain) this.rain.g.gain.value = r * (this.indoor ? 0.03 : 0.07); }
   // per-frame listener update
   update(dt, { indoor, hp, dead, day = 1 }) {
@@ -237,6 +249,9 @@ export class Sfx {
         if (me) this.tone(2600 + Math.random() * 400, 2300, 0.03, 'triangle', 0.04, 0.12 + Math.random() * 0.05, this.bus(e.x, e.y + 8)); // brass hitting the ground
         break;
       }
+      case 'bushIn': case 'bushOut': o = L(380, 0.05); this.noise(0.28, e.type === 'bushIn' ? 2600 : 2000, 'bandpass', 0.07, 0, o, 0.8); this.noise(0.14, 4200, 'highpass', 0.025, 0.05, o); break; // a soft rustle of leaves
+      case 'busthump': this.tone(80, 40, 0.18, 'sine', 0.7, 0, this.master); this.noise(0.12, 600, 'lowpass', 0.6, 0, this.master); this.noise(0.08, 2000, 'bandpass', 0.2, 0.02, this.master, 2); break;
+      case 'busdoor': if (!this.snd('door', this.master, { rate: 0.8, gain: 0.6 })) { this.sweep(0.4, 500, 900, 'bandpass', 0.06, 0, this.master, 8); } this.noise(0.45, 3000, 'highpass', 0.06, 0.05, this.master); break; // pneumatic hiss
       case 'swing': o = L(500, 0.05); this.sweep(0.16, 600, 2400, 'bandpass', 0.12, 0, o, 2); break;
       case 'zhit': {
         if (e.silent) return;

@@ -8,6 +8,7 @@ import { ZT, daylight, hourOf, ROLL_DUR, BLOOD_LIFE } from '../sim/sim.js';
 import { tableRect } from '../sim/props.js';
 import { playerFrame, legsFrame, zombieFrame, muzzleTip, FRAME_SIZE, P_FRAME } from './sprites.js';
 import { IMG } from './assets.js';
+import { drawBusScene } from './busScene.js';
 
 const CH = 16, CPX = CH * TILE;
 const GRASS_C = ['#3a5530', '#3d5932', '#38522e', '#405c34'];
@@ -36,7 +37,7 @@ export class Renderer {
     const dpr = Math.min(2, window.devicePixelRatio || 1); this.dpr = dpr;
     const W = Math.floor(window.innerWidth * dpr), H = Math.floor(window.innerHeight * dpr);
     for (const c of [this.canvas, this.fog, this.night]) { c.width = W; c.height = H; }
-    this.cam.zoom = Math.max(1, Math.min(2.4, Math.min(window.innerWidth, window.innerHeight) / (17 * TILE)));
+    this.cam.zoom = this.baseZoom = Math.max(1, Math.min(2.4, Math.min(window.innerWidth, window.innerHeight) / (17 * TILE)));
   }
   worldToScreen(x, y) { const z = this.cam.zoom, c = Math.cos(this.rot), n = Math.sin(this.rot), dx = x - this.cam.x, dy = y - this.cam.y; return { x: (c * dx - n * dy) * z + window.innerWidth / 2, y: (n * dx + c * dy) * z + window.innerHeight / 2 }; }
   screenToWorld(x, y) { const z = this.cam.zoom, c = Math.cos(this.rot), n = Math.sin(this.rot), rx = (x - window.innerWidth / 2) / z, ry = (y - window.innerHeight / 2) / z; return { x: c * rx + n * ry + this.cam.x, y: -n * rx + c * ry + this.cam.y }; }
@@ -252,6 +253,10 @@ export class Renderer {
   onEvent(e, localId) {
     const P = this.parts;
     switch (e.type) {
+      case 'bushIn': case 'bushOut': // leaves shake loose and flutter down like torn pages
+        for (let k = 0; k < 14; k++) this.leaf(e.x, e.y);
+        for (let k = 0; k < 4; k++) P.push({ x: e.x, y: e.y, vx: (Math.random() - 0.5) * 50, vy: (Math.random() - 0.5) * 50, life: 0.5, max: 0.5, c: 'rgba(80,130,60,0.3)', s: 5, smoke: true });
+        break;
       case 'zhit': {
         for (let k = 0; k < 8; k++) P.push({ x: e.x, y: e.y, vx: e.kx * 120 + (Math.random() - 0.5) * 140, vy: e.ky * 120 + (Math.random() - 0.5) * 140, life: 0.4, max: 0.4, c: '#8a1010', s: 2 + Math.random() * 2, blood: true });
         this.blood(e.x + e.kx * 10, e.y + e.ky * 10, 2, 5);
@@ -332,6 +337,8 @@ export class Renderer {
   // ---------- frame ----------
   render(s, localId, ui) {
     const ctx = this.ctx, w = s.world, p = s.players[localId], dpr = this.dpr;
+    if (p && p.bus) { this.inBus = true; this.peekI = -1; return drawBusScene(this, s, localId, ui); } // riding the bus: its own scene
+    if (this.inBus) { this.inBus = false; this.cam.zoom = this.baseZoom; if (p) { this.cam.x = p.x; this.cam.y = p.y; } } // stepped off: straight to where you stand
     const dt = ui.dt; this.time += dt; this.dt = dt; this.simTime = s.time;
     this.hlCol = `rgba(255,230,140,${0.55 + 0.45 * Math.sin(this.time * 6)})`;
     const SW = window.innerWidth, SH = window.innerHeight;
@@ -396,6 +403,14 @@ export class Renderer {
       }
     }
     for (const car of w.cars) if (car.x * TILE < vx1 && (car.x + car.w) * TILE > vx0 && car.y * TILE < vy1 && (car.y + car.h) * TILE > vy0) this.car(ctx, car, car.cid === near, car.cid >= 0 ? w.containers[car.cid] : null);
+    { const cb = s.cityBus; // the bus that dropped you, pulling away
+      if (cb && !cb.gone && cb.x > vx0 - 200 && cb.x < vx1 + 200 && cb.y > vy0 - 200 && cb.y < vy1 + 200) {
+        ctx.save(); ctx.translate(cb.x, cb.y); ctx.rotate(Math.atan2(-cb.dx, cb.dy)); this.prop(ctx, { kind: 'bus', x: -1.1, y: -3.1, w: 2.2, h: 6.2, v: 0 });
+        if (cb.v > 5) { ctx.fillStyle = '#ff3a2a'; ctx.fillRect(-26, -96, 10, 3); ctx.fillRect(16, -96, 10, 3); } // the nose points along +y here, so the tail is at -y
+        ctx.restore();
+        if (cb.v > 5 && Math.random() < dt * 25) this.parts.push({ x: cb.x - cb.dx * 100 + (Math.random() - 0.5) * 8, y: cb.y - cb.dy * 100 + (Math.random() - 0.5) * 8, vx: -cb.dx * 20 + (Math.random() - 0.5) * 20, vy: -cb.dy * 20 + (Math.random() - 0.5) * 20, life: 1.2, max: 1.2, c: 'rgba(90,88,84,0.4)', s: 8, smoke: true });
+      }
+    }
     for (const cid of s.loose) {
       const c = w.containers[cid]; if (!c || c.px < vx0 - 40 || c.px > vx1 + 40 || c.py < vy0 - 40 || c.py > vy1 + 40) continue;
       if (c.searched && (!c.items || !c.items.length) && c.type !== 'zombie' && c.type !== 'zsoldier') continue;
@@ -476,7 +491,14 @@ export class Renderer {
     for (const g of this.rings) { g.t -= dt; const k = 1 - g.t / 0.7; ctx.strokeStyle = `rgba(200,220,255,${0.22 * (1 - k)})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(g.x, g.y, g.r * (0.3 + 0.7 * k), 0, 7); ctx.stroke(); }
     this.rings = this.rings.filter((g) => g.t > 0);
     this.drawBits(ctx, dt);
-    for (const id in s.players) { const q = s.players[id]; if (!q.dead) this.player(ctx, q); }
+    for (const id in s.players) { const q = s.players[id]; if (!q.dead && !q.bus) this.player(ctx, q); }
+    // anyone standing in a bush is under its leaves: you can still make them out, and they sway as they move
+    for (const id in s.players) {
+      const q = s.players[id]; if (q.dead || q.bus) continue;
+      const tx = Math.floor(q.x / TILE), ty = Math.floor(q.y / TILE); if (w.tiles[ty * w.w + tx] !== T.BUSH) continue;
+      const sw = q.moving ? Math.sin(this.time * 14) * 1.2 : Math.sin(this.time * 2 + tx) * 0.4;
+      ctx.save(); ctx.globalAlpha = 0.6; ctx.translate(sw, 0); this.bush(ctx, tx, ty); ctx.translate(-sw * 2 + 2, 2); this.bush(ctx, tx, ty); ctx.restore();
+    }
     // tracers & particles
     ctx.lineCap = 'round';
     for (const t of this.tracers) { ctx.strokeStyle = `rgba(255,230,150,${t.t / 0.07})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(t.x0, t.y0); ctx.lineTo(t.x1, t.y1); ctx.stroke(); t.t -= dt; }
@@ -871,6 +893,7 @@ export class Renderer {
     const a = ang + (Math.random() - 0.5) * 2.6, sp = v * (0.3 + Math.random());
     this.bits.push({ kind: 'page', x, y, z: 4, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 70 + Math.random() * 120, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 12, ph: Math.random() * 6.28, c });
   }
+  leaf(x, y) { this.bits.push({ kind: 'leaf', x, y, z: 6 + Math.random() * 8, vx: (Math.random() - 0.5) * 110, vy: (Math.random() - 0.5) * 110, vz: 60 + Math.random() * 100, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 14, ph: Math.random() * 6.28, c: ['#4f7a34', '#3f6a2a', '#628a3c', '#5a7d2e'][(Math.random() * 4) | 0] }); }
   burst(e) {
     const ang = e.ang || 0, P = this.parts;
     if (e.kind === 'books' || e.kind === 'papers' || e.kind === 'box') {
@@ -888,6 +911,7 @@ export class Renderer {
   bitShape(g, b, landed) {
     switch (b.kind) {
       case 'page': { const fw = landed ? 5 : 1 + 4.5 * Math.abs(Math.cos(b.ph)); g.fillStyle = b.c; g.fillRect(-fw / 2, -3.5, fw, 7); g.fillStyle = 'rgba(60,60,70,0.35)'; g.fillRect(-fw / 2 + 0.8, -1.5, fw * 0.7, 0.6); g.fillRect(-fw / 2 + 0.8, 0.5, fw * 0.6, 0.6); break; }
+      case 'leaf': g.fillStyle = b.c; g.beginPath(); g.ellipse(0, 0, 3.6, 1.8 + (landed ? 0 : Math.abs(Math.cos(b.ph)) * 1.2), 0, 0, 7); g.fill(); break;
       case 'casing': g.fillStyle = '#d9b35a'; g.fillRect(-0.8, -1.9, 1.6, 3.8); break;
       case 'shell': g.fillStyle = '#b8382e'; g.fillRect(-1.1, -2.4, 2.2, 3.6); g.fillStyle = '#d9b35a'; g.fillRect(-1.1, 1.2, 2.2, 1.3); break;
       case 'mag': g.fillStyle = '#2a2c30'; g.fillRect(-1.7, -4, 3.4, 8); g.fillStyle = 'rgba(255,255,255,0.15)'; g.fillRect(-1.7, -4, 3.4, 1); break;
@@ -903,7 +927,7 @@ export class Renderer {
     const stamp = (b) => { const { x, y, rot } = b; this.decal(x, y, (g) => { g.save(); g.translate(x, y); g.rotate(rot); g.globalAlpha = 0.9; this.bitShape(g, b, true); g.restore(); }); };
     for (const b of this.bits) {
       const ox = b.x, oy = b.y;
-      if (b.kind === 'page') {
+      if (b.kind === 'page' || b.kind === 'leaf') {
         b.ph += dt * 7; b.vz = Math.max(b.vz - 300 * dt, -32); b.z += b.vz * dt;
         const drag = Math.max(0, 1 - dt * 2.2); b.vx *= drag; b.vy *= drag;
         b.x += (b.vx + Math.cos(b.ph) * 24) * dt; b.y += (b.vy + Math.sin(b.ph * 0.7) * 9) * dt; b.rot += b.vr * dt;

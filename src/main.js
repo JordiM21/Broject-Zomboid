@@ -11,6 +11,7 @@ import { TILE } from './config.js';
 import { Sfx } from './audio.js';
 import { Music } from './music.js';
 import { drawHUD, Minimap } from './ui/hud.js';
+import { busPose } from './sim/bus.js';
 import { Panels } from './ui/panels.js';
 import { ITEMS } from './data/items.js';
 import { HotbarUI } from './ui/hotbar.js';
@@ -55,7 +56,7 @@ const TURN_SPEED = 0.0035; // radians per pixel of mouse movement
 const AIM_DIST = 240; // how far ahead the aim point sits, in world px
 const settings = (() => { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch { return {}; } })();
 let aimAng = -Math.PI / 2;
-const rotating = () => !!settings.rotate && !ui.touch;
+const rotating = () => !!settings.rotate && !ui.touch && !(s && s.players[LOCAL] && s.players[LOCAL].bus); // the bus has a fixed view
 const inPlay = () => running && !paused && !panels.isOpen && !ui.bigMap && !!s && !s.players[LOCAL].dead;
 const wantLock = () => rotating() && inPlay();
 function syncLock() {
@@ -86,7 +87,7 @@ function drain() {
       case 'close': if (panels.open === 'inv') panels.refresh(); break;
       case 'ui': panels.show('base', e.panel === 'keypad' ? 'keypad' : e.tab, e); break;
       case 'newCity': rend.setWorld(s.world); mm = new Minimap(s.world, null); if (host && host.connected) host.resync(); save(true); break;
-      case 'deploy': case 'extracted': if (e.type === 'extracted') save(true); if (e.pid === LOCAL) { const p = s.players[LOCAL]; rend.cam.x = p.x; rend.cam.y = p.y; panels.close(); } break;
+      case 'deploy': case 'extracted': case 'alight': if (e.type === 'extracted') save(true); if (e.pid === LOCAL) { const p = s.players[LOCAL]; rend.cam.x = p.x; rend.cam.y = p.y; panels.close(); } break;
       case 'objective': addMsg(`✔ Objective complete: ${e.text}`, '#ffd27a'); sfx.play({ type: 'objective' }); break;
       case 'slept': addMsg('You slept until morning.', '#9ab0ff'); break;
       case 'pdie': showDeath(); break;
@@ -266,7 +267,7 @@ function buildInput(first) {
     const p = s.players[LOCAL]; inp.relative = true;
     if (inp.mx !== undefined) { inp.mx = p.x + Math.cos(aimAng) * AIM_DIST; inp.my = p.y + Math.sin(aimAng) * AIM_DIST; }
   }
-  if (guest && inp.mx !== undefined) { const p = s.players[LOCAL]; inp.ang = Math.atan2(inp.my - p.y, inp.mx - p.x); } // the host's copy of us lags, so send the angle itself
+  if (guest && inp.mx !== undefined) { const p = s.players[LOCAL], bx = p.bus ? p.bx : p.x, by = p.bus ? p.by : p.y; inp.ang = Math.atan2(inp.my - by, inp.mx - bx); } // the host's copy of us lags, so send the angle itself
   if (touch.move) {
     const dx = (touch.move.x - touch.move.ox) / 45, dy = (touch.move.y - touch.move.oy) / 45;
     inp.left = dx < -0.35; inp.right = dx > 0.35; inp.up = dy < -0.35; inp.down = dy > 0.35;
@@ -363,6 +364,39 @@ function wantMood(dt) {
 }
 function showMenu() { $('who').value = LOCAL === 'p1' ? '' : LOCAL; $('menu').classList.remove('hidden'); showViewSetting(); }
 
+// ---------- cinematic menu backdrop ----------
+// Behind the password screen and main menu: a live, empty-handed city in the rain. The camera drifts from crowd to crowd.
+let ms = null, mTarget = null, mHold = 0, mAcc = 0, mT = 0;
+const mCam = { vx: 0, vy: 0 }, mUi = { dt: 0, interact: null, mouseWorld: { x: 0, y: 0 }, panelOpen: false, bigMap: false, rotate: false };
+spritesReady.then(() => setTimeout(() => {
+  ms = createState((Math.random() * 2 ** 31) | 0, true);
+  Object.assign(ms.weather, { rain: 0.45, target: 0.45, t: 1e9 });
+  const z = ms.zombies[(Math.random() * ms.zombies.length) | 0]; rend.cam.x = z.x; rend.cam.y = z.y;
+}, 30));
+// aim for a zombie with plenty of company 500..1500 px away
+function pickShot() {
+  const zs = ms.zombies; let best = null, bs = -1;
+  for (let k = 0; k < 24; k++) {
+    const z = zs[(Math.random() * zs.length) | 0], d = Math.hypot(z.x - rend.cam.x, z.y - rend.cam.y);
+    if (z.hp <= 0 || z.y > 238 * TILE || d < 400 || d > 1600) continue;
+    let n = 0; for (let j = 0; j < zs.length; j += 3) if (Math.abs(zs[j].x - z.x) < 260 && Math.abs(zs[j].y - z.y) < 260) n++;
+    if (n > bs) { bs = n; best = z; }
+  }
+  mTarget = best || zs[(Math.random() * zs.length) | 0]; mHold = 15 + Math.random() * 8;
+}
+function menuFrame(dt) {
+  if (!ms) return;
+  if (rend.world !== ms.world) { rend.setWorld(ms.world); rend.resize(); }
+  mAcc += dt; for (let n = 0; mAcc >= SIM_DT && n < 4; n++) { step(ms, {}, SIM_DT); ms.events.length = 0; mAcc -= SIM_DT; } mAcc %= SIM_DT;
+  mT += dt; mHold -= dt;
+  if (!mTarget || mTarget.hp <= 0 || mHold <= 0) pickShot();
+  const c = rend.cam, dx = mTarget.x - c.x, dy = mTarget.y - c.y, d = Math.hypot(dx, dy) || 1, want = Math.min(120, d * 0.5); // slows to a glide as it arrives
+  mCam.vx += (dx / d * want - mCam.vx) * Math.min(1, dt * 1.2); mCam.vy += (dy / d * want - mCam.vy) * Math.min(1, dt * 1.2);
+  c.x += mCam.vx * dt + Math.sin(mT * 0.31) * dt * 6; c.y += mCam.vy * dt + Math.cos(mT * 0.23) * dt * 6;
+  c.zoom = rend.baseZoom * (0.92 + 0.14 * Math.sin(mT * 0.11));
+  mUi.dt = dt; rend.render(ms, null, mUi);
+}
+
 // ---------- loop ----------
 let last = performance.now(), acc = 0, saveT = 0, revealT = 0, lastSim = performance.now();
 // advance the simulation by the real time since the last call
@@ -393,7 +427,7 @@ heartbeat.onmessage = () => {
   // a hidden partner tab keeps up with the world, but skips the sounds rather than playing them all on return
   if (guest && guest.s && t - lastFrame > 100) { guest.receive(); guest.s.events = guest.s.events.filter((e) => MUST_HANDLE.has(e.type)); }
 };
-const MUST_HANDLE = new Set(['msg', 'open', 'close', 'ui', 'objective', 'slept', 'pdie', 'newCity', 'deploy', 'extracted']); // these change what's on screen, so they wait for the player's return
+const MUST_HANDLE = new Set(['msg', 'open', 'close', 'ui', 'objective', 'slept', 'pdie', 'newCity', 'deploy', 'extracted', 'alight']); // these change what's on screen, so they wait for the player's return
 let lastFrame = performance.now();
 function frame(now) {
   lastFrame = performance.now();
@@ -401,7 +435,7 @@ function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
   if (guest && guest.inbox.length && guest.s) guest.receive(); // includes the partner's first world, before they've started playing
   music.set(wantMood(dt), dt);
-  if (!running) return;
+  if (!running) { menuFrame(dt); return; }
   const live = !paused || inCoop(); // a shared world keeps running behind a pause menu
   ui.dt = live ? dt : 0;
   ui.mouseWorld = rend.screenToWorld(mouse.x, mouse.y);
@@ -436,6 +470,7 @@ function frame(now) {
     }
   }
   rend.render(s, LOCAL, ui);
+  { const bp = p.bus ? busPose(p.bus) : null; const cb = s.cityBus, away = cb && !cb.gone && cb.t > 1.8 ? Math.max(0, 1 - Math.hypot(cb.x - p.x, cb.y - p.y) / 900) * 0.7 : 0; sfx.drive(bp ? (bp.moving ? 0.35 + bp.v / 300 * 0.65 : 0.25) : away, dt); if (ui.busThump) { ui.busThump = false; sfx.play({ type: 'busthump' }, LOCAL); } }
   ui.aim = ui.rotate ? rend.worldToScreen(p.x + Math.cos(p.ang) * AIM_DIST, p.y + Math.sin(p.ang) * AIM_DIST) : null;
   hotbar.render(p, running && !p.dead && !ui.bigMap && !panels.isOpen); // the inventory shows its own copy of these slots
   drawHUD(rend.ctx, s, p, ui, rend, mm);

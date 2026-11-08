@@ -5,6 +5,7 @@ import { RACK_ITEMS, MOD_STASH_ITEMS, MODS, modFits, gunStats, CAT_ORDER, ITEMS,
 import { generateWorld, T, SOLID } from '../world/worldgen.js';
 import { solidAt, collide, los, castRay, bulletBlock, isSafe, FlowField } from '../world/world.js';
 import { makeItem, addItem, countItem, removeItem, invWeight, rollLoot, fixSlots, slotOf, freeSlot, stackOf } from './inventory.js';
+import { BW, TRIP, AUTO_EXIT, busPose, nearDoor, boardAt, busMove } from './bus.js';
 import { trample, smashClutter, collideTables, tableInReach, flipTable, damageTable } from './props.js';
 
 export const ZT = {
@@ -70,22 +71,26 @@ export function startRaid(s) {
   for (let i = 0; i < w.hubConts; i++) w.containers[i] = old.containers[i]; // the outpost keeps everything in it
   s.world = w; s.baseConts = w.containers.length;
   s.loose = s.loose.flatMap((cid) => { const c = old.containers[cid]; if (!c || c.py < CITY_H * TILE) return []; c.id = w.containers.length; w.containers.push(c); return [c.id]; }); // piles dropped in the outpost stay
-  s.zombies = []; s.blood = []; s.bullets = []; s.thrown = []; s.flows = {};
+  s.zombies = []; s.blood = []; s.bullets = []; s.thrown = []; s.flows = {}; s.cityBus = null;
   const sur = SURPLUS[s.citySeed % SURPLUS.length], density = 0.8 + ((s.citySeed >>> 8) % 50) / 100; // 0.8 .. 1.29
   s.raid = { id: s.raidNo, t: 0, len: RAID_LEN, warn: 0, waveT: 0, surplus: sur[0], density };
   s.stats.raids = (s.stats.raids || 0) + 1;
   ev(s, { type: 'newCity' });
-  for (const p of Object.values(s.players)) if (p.boarded) deploy(s, p);
-  populateCity(s); // after the drop, so nothing spawns on top of the team
+  for (const p of Object.values(s.players)) if (p.boarded) { p.boarded = false; p.bus = { dir: 'out', t: 0, go: true }; if (p.bx === undefined) boardAt(p); } // the bus pulls away; everyone is dropped when it arrives
+  populateCity(s);
   msg(s, `Raid ${s.raidNo}: ${Math.round(RAID_LEN / 60)} minutes before the city turns. The drop crate is by the bus stop. Green smoke marks the way out.`, '#ffd27a');
   msg(s, `Radio chatter: this part of town is stocked with ${sur[1]}${density > 1.12 ? ', and crawling with the dead' : density < 0.92 ? '. The streets are quieter than usual' : ''}.`, '#9ab0ff');
   completeObjective(s, 'deploy');
 }
+// the bus has stopped at the bus stop: step off into the city
 function deploy(s, p) {
+  s.zombies = s.zombies.filter((z) => Math.hypot(z.x - s.world.insert.x, z.y - s.world.insert.y) > 24 * TILE); // nothing waits on the drop point (a new raid never spawns the dead within 22 tiles of the team)
   const n = Object.values(s.players).filter((q) => q.inRaid === s.raid.id).length, a = n * 2.1;
-  p.x = s.world.insert.x + Math.cos(a) * 26; p.y = s.world.insert.y + Math.sin(a) * 26;
+  const ins = s.world.insert;
+  if (!s.cityBus || s.cityBus.gone) s.cityBus = { x: ins.x - ins.dx * 40 + ins.dy * 60, y: ins.y - ins.dy * 40 - ins.dx * 60, dx: ins.dx, dy: ins.dy, t: 0, v: 0, gone: false }; // the bus that brought you, beside the drop point
+  p.x = ins.x + Math.cos(a) * 20; p.y = ins.y + Math.sin(a) * 20; p.cine = true; p.ang = Math.atan2(-ins.dx, ins.dy); // turned toward the bus, to watch it go
   collide(p, PLAYER_R, (tx, ty) => solidAt(s.world, tx, ty));
-  Object.assign(p, { inRaid: s.raid.id, boarded: false, extractT: 0, openCid: -1, search: null, channel: null, downed: null, reviving: null });
+  Object.assign(p, { bus: null, inRaid: s.raid.id, boarded: false, extractT: 0, openCid: -1, search: null, channel: null, downed: null, reviving: null });
   ev(s, { type: 'deploy', pid: p.id, x: p.x, y: p.y });
 }
 function extractPlayer(s, p) {
@@ -93,6 +98,7 @@ function extractPlayer(s, p) {
   if (p.downed) { p.downed = null; p.hp = Math.max(p.hp, 25); }
   const b = s.world.busAt, k = Object.values(s.players).filter((q) => !q.inRaid).length;
   p.x = b.x - 70 - k * 26; p.y = b.y; p.inRaid = 0; p.extractT = 0; p.openCid = -1;
+  p.bus = { dir: 'back', t: 0, go: true }; boardAt(p); // the bus carries you home before you step off
   s.stats.extracts = (s.stats.extracts || 0) + 1;
   msg(s, `Extracted with ${n} item stack${n === 1 ? '' : 's'}. Put your haul in the Stash.`, '#9fe09f', p.id);
   ev(s, { type: 'extracted', pid: p.id, x: p.x, y: p.y });
@@ -100,14 +106,14 @@ function extractPlayer(s, p) {
   checkRaidOver(s);
 }
 function checkRaidOver(s) {
-  if (!s.raid || Object.values(s.players).some((q) => q.inRaid === s.raid.id && !q.dead)) return;
+  if (!s.raid || Object.values(s.players).some((q) => (q.inRaid === s.raid.id || (q.bus && q.bus.dir === 'out')) && !q.dead)) return;
   msg(s, `Raid ${s.raid.id} is over. The bus is back at the outpost.`, '#ffd27a');
-  s.raid = null; s.zombies = []; s.bullets = []; s.thrown = [];
+  s.raid = null; s.zombies = []; s.bullets = []; s.thrown = []; s.cityBus = null;
 }
 function updateRaid(s, dt) {
   const ps = Object.values(s.players);
   if (!s.raid) { if (ps.length && ps.every((p) => p.boarded && !p.dead)) startRaid(s); return; }
-  const r = s.raid; r.t += dt;
+  const r = s.raid; if (ps.some((p) => p.inRaid === r.id)) r.t += dt; // the clock starts when the bus arrives
   const left = r.len - r.t;
   for (const [at, text] of [[300, '5 minutes left. Start heading for the green smoke.'], [120, '2 minutes. The dead are getting restless.'], [60, 'One minute! Get to the extraction!'], [0, 'OVERTIME. The city has turned. Every second makes them worse.']]) {
     if (left <= at && r.warn < r.len - at + 1) { r.warn = r.len - at + 1; msg(s, text, at ? '#ffb070' : '#ff5a4a'); ev(s, { type: 'raidWarn', left: at }); }
@@ -163,7 +169,7 @@ export function parkPlayer(s, id) { const p = s.players[id]; if (!p) return; (s.
 export function joinPlayer(s, id) {
   if (s.parked && s.parked[id]) { s.players[id] = s.parked[id]; delete s.parked[id]; }
   if (s.players[id]) {
-    const b = s.players[id]; Object.assign(b, { openCid: -1, search: null, channel: null, peek: null, climb: null, pry: null, reload: 0, roll: null, reviving: null, boarded: false }); // nothing left half-done from last time
+    const b = s.players[id]; Object.assign(b, { openCid: -1, search: null, channel: null, peek: null, climb: null, pry: null, reload: 0, roll: null, reviving: null, boarded: false, bus: null }); // nothing left half-done from last time
     if (!s.raid || b.inRaid !== s.raid.id) { // the raid they left is gone: they made it home
       if (inCity(b) && !b.dead) { b.x = s.world.spawn.x + 40; b.y = s.world.spawn.y; }
       b.inRaid = 0; if (b.downed) { b.downed = null; b.hp = 25; }
@@ -267,6 +273,7 @@ export function step(s, inputs, dt) {
   const h = hourOf(s);
   if (h >= 22 && s.raid && s.hordeDay < day) { s.hordeDay = day; spawnHorde(s); }
   updateRaid(s, dt);
+  { const cb = s.cityBus; if (cb && !cb.gone) { cb.t += dt; if (cb.t > 1.8) { cb.v = Math.min(360, cb.v + 150 * dt); cb.x += cb.dx * cb.v * dt; cb.y += cb.dy * cb.v * dt; } if (cb.t > 8) cb.gone = true; } } // the bus pulls away from the drop point
   for (const id in s.players) { const p = s.players[id], n = s.events.length; updatePlayer(s, p, inputs[id] || {}, dt); tidyInv(s, p); stampEvents(s, n, id); }
   updateBullets(s, dt);
   updateThrown(s, dt);
@@ -298,9 +305,34 @@ function onDawn(s) {
   if (s.upgrades.rain || s.upgrades.garden) msg(s, 'The outpost produced supplies overnight.', '#9fe09f');
 }
 
+// ---------- the bus ride ----------
+// Riding the bus: you walk around inside it. It leaves when everyone is aboard, drives for ~15 s, then the doors open and you step off.
+const busDoorOpen = (p) => !p.bus.go || busPose(p.bus).arrived;
+function updateBus(s, p, inp, dt) {
+  const b = p.bus;
+  if (b.go) b.t += dt;
+  if (inp.mx !== undefined) p.ang = Math.atan2(inp.my - p.by, inp.mx - p.bx); else if (inp.ang !== undefined) p.ang = inp.ang;
+  const [mx, my] = moveIntent(p, { ...inp, relative: false });
+  busMove(p, mx, my, inp.sprint ? 150 : 100, dt);
+  p.sprinting = false; p.hurt -= dt; p.invuln = 1; p.vis = 0;
+  const pose = busPose(b);
+  if (b.go && !b.parked && pose.arrived) { b.parked = true; b.arrivedAt = b.t; ev(s, { type: 'busdoor', x: p.x, y: p.y, pid: p.id }); msg(s, b.dir === 'out' ? 'The bus has stopped. Walk to the door and step off.' : 'Home. Walk to the door and step off.', '#ffd27a', p.id); }
+  if (b.go && pose.arrived && b.t - TRIP[b.dir] > AUTO_EXIT && !nearDoor(p)) { p.bx += (BW - 16 - p.bx) * Math.min(1, dt * 2); p.by += (76 - p.by) * Math.min(1, dt * 2); } // the driver ushers you out
+  if (inp.interact && busDoorOpen(p) && nearDoor(p) || b.go && pose.arrived && b.t - TRIP[b.dir] > AUTO_EXIT + 3) alight(s, p);
+  else if (inp.interact && !b.go && !nearDoor(p)) msg(s, 'The door is at the front on the right.', '#aaa', p.id);
+}
+function alight(s, p) {
+  if (p.bus.dir === 'out' && p.bus.go) { deploy(s, p); ev(s, { type: 'busdoor', x: p.x, y: p.y, pid: p.id }); return; } // arrived: into the city
+  const bus = s.world.busAt, k = Object.values(s.players).filter((q) => q !== p && !q.bus && !q.inRaid).length, home = p.bus.dir === 'back';
+  p.bus = null; p.boarded = false; p.x = bus.x - 70 - k * 26; p.y = bus.y; p.ang = Math.PI; // out at the yard
+  ev(s, { type: 'alight', pid: p.id, x: p.x, y: p.y }); ev(s, { type: 'busdoor', x: p.x, y: p.y, pid: p.id });
+  if (home) msg(s, 'Back at the outpost. Put your haul in the Stash.', '#9fe09f', p.id);
+}
+
 // ---------- players ----------
 export function getInteract(s, p) {
   const w = s.world;
+  if (p.bus) return busDoorOpen(p) && nearDoor(p) ? { kind: 'busdoor', label: p.bus.go ? 'Step off the bus' : 'Get off the bus' } : null;
   if (p.downed) return null;
   const ax = p.x + Math.cos(p.ang) * 18, ay = p.y + Math.sin(p.ang) * 18;
   for (const q of Object.values(s.players)) if (q !== p && q.downed && !q.dead && dist(p, q) < 46) return { kind: 'revive', pid: q.id, label: 'Hold to revive your partner' };
@@ -340,7 +372,7 @@ const VAULT_LABEL = {
 };
 function contAction(s, c, p) {
   const name = contLabel(c);
-  if (c.type === 'bus') return s.raid ? (p && !p.inRaid ? 'Ride back out to the raid' : 'The bus') : p && p.boarded ? 'Get off the bus' : 'Board the bus (deploy)';
+  if (c.type === 'bus') return s.raid ? (p && !p.inRaid ? 'Board the bus (back to the raid)' : 'The bus') : 'Board the bus';
   if (c.type === 'lever') return 'Pull the lever';
   if (c.type === 'board') return 'Read the Raid Board';
   if (c.type === 'gunrack') return 'Open Gun Display';
@@ -453,8 +485,8 @@ function doInteract(s, p) {
   }
   const c = getCont(s, it.cid);
   if (c.type === 'bus') {
-    if (s.raid && !p.inRaid) { deploy(s, p); msg(s, 'The bus drops you back at the edge of town.', '#ffd27a', p.id); }
-    else if (!s.raid) { p.boarded = !p.boarded; ev(s, { type: 'click', x: p.x, y: p.y }); const wait = Object.values(s.players).some((q) => q !== p && !q.boarded); if (p.boarded && wait) msg(s, 'On the bus. It leaves when your partner boards too.', '#ffd27a'); else if (!p.boarded) msg(s, 'You stepped off the bus.', '#aaa', p.id); }
+    if (s.raid && !p.inRaid) { p.bus = { dir: 'out', t: 0, go: true }; boardAt(p); ev(s, { type: 'busdoor', x: p.x, y: p.y, pid: p.id }); msg(s, 'The bus pulls out for the city.', '#ffd27a', p.id); }
+    else if (!s.raid) { p.boarded = true; p.bus = { dir: 'out', t: 0, go: false }; boardAt(p); ev(s, { type: 'busdoor', x: p.x, y: p.y, pid: p.id }); const wait = Object.values(s.players).some((q) => q !== p && !q.boarded); msg(s, wait ? 'On the bus. It leaves when your partner boards too. Walk around, or step off at the door.' : 'Engine starting…', '#ffd27a', p.id); }
     return;
   }
   if (c.type === 'lever') { pullLever(s, p, c); return; }
@@ -524,6 +556,7 @@ export const rolling = (p) => !!p.roll && p.roll.t < ROLL_DUR * ROLL_IFRAMES;
 
 export function predictMove(s, p, inp, dt) {
   if (inp.ang !== undefined) p.ang = inp.ang;
+  if (p.bus || p.cine) return; // inside the bus, or watching it leave: the host decides where you stand
   const [mx, my] = moveIntent(p, inp);
   if (inp.roll && !p.downed) startRoll(p, mx, my);
   if (p.roll) stepRoll(s, p, dt); else if (!p.climb) applyMove(s, p, mx, my, dt);
@@ -531,6 +564,8 @@ export function predictMove(s, p, inp, dt) {
 
 function updatePlayer(s, p, inp, dt) {
   if (p.dead) return;
+  if (p.bus) { updateBus(s, p, inp, dt); return; }
+  if (p.cine) { const cb = s.cityBus; if (!cb || cb.gone || cb.t > 5.5) p.cine = false; else { p.invuln = 1; p.moving = false; p.sprinting = false; p.hurt -= dt; return; } } // watching the bus leave: no moving yet
   const w = s.world;
   p.atkCd -= dt; p.swing -= dt; p.invuln -= dt; p.hurt -= dt; p.muzzle -= dt; p.rollCd = (p.rollCd || 0) - dt;
   p.bloom = Math.max(0, (p.bloom || 0) - dt * 1.6);
@@ -597,6 +632,7 @@ function updatePlayer(s, p, inp, dt) {
   vis *= gs.stealth; if (hasPerk(p, 'headlamp') && daylight(s) <= 0.35) vis *= 1.25;
   if (!p.moving) vis *= 0.75; else if (p.sprinting) vis *= 1.3;
   if (tHere === T.BUSH) vis *= 0.4;
+  { const hid = tHere === T.BUSH; if (hid !== !!p.hid) { p.hid = hid; ev(s, { type: hid ? 'bushIn' : 'bushOut', x: p.x, y: p.y, pid: p.id }); } } // a bush is a hiding place
   if (s.weather.rain > 0.4) vis *= 0.85;
   p.vis = vis;
   // channel (applying meds)
@@ -1081,12 +1117,13 @@ function updateZombies(s, dt) {
       let sight = zt.sight * TILE * (o.vis ?? 1);
       // peripheral vision: unaware zombies barely see behind them
       if (z.state !== 'chase' && angDiff(z.ang, Math.atan2(o.y - z.y, o.x - z.x)) > 1.4) sight *= 0.35;
+      if (o.hid) sight = Math.min(sight, 0.75 * TILE); // hidden in a bush: only something right on top of you notices
       z.seen = !pSafe && od < sight && los(w, z.x, z.y, o.x, o.y);
       if (z.state !== 'chase') {
         // suspicion builds faster when the player is close; fades when out of sight
         if (z.seen) z.sus = (z.sus || 0) + 0.2 * (0.5 + 2.5 * (1 - od / sight)) * (z.type === 'runner' ? 1.4 : 1);
         else z.sus = Math.max(0, (z.sus || 0) - 0.05);
-        if (od < 1.2 * TILE && !pSafe && !o.sneak) z.sus = 1;
+        if (od < 1.2 * TILE && !pSafe && !o.sneak && !o.hid) z.sus = 1;
         if (z.sus >= 1) { z.state = 'chase'; z.pid = o.id; z.lx = o.x; z.ly = o.y; z.lost = 0; ev(s, { type: 'alert', x: z.x, y: z.y, zid: z.id, ztype: z.type }); }
         else if (z.seen && z.sus > 0.35 && z.state === 'idle') { z.state = 'investigate'; z.tx = o.x; z.ty = o.y; z.stuck = 0; }
       }
@@ -1114,10 +1151,11 @@ function updateZombies(s, dt) {
     let gx = z.x, gy = z.y, spd = zt.spd * (dark ? 1.2 : 1) * rage;
     if (z.state === 'chase') {
       const tp = s.players[z.pid] || p;
-      z.lost += z.seen ? 0 : dt;
+      z.lost += z.seen ? 0 : dt * (tp.hid ? 2.5 : 1); // lose track of someone in a bush much faster
       if (z.lost > 7) { z.state = 'investigate'; z.tx = z.lx; z.ty = z.ly; z.sus = 0.5; }
       const dd = dist(z, tp);
       if (z.seen && dd < 8 * TILE) { gx = tp.x; gy = tp.y; }
+      else if (tp.hid) { gx = z.lx; gy = z.ly; } // it only knows where it last saw you, not that you're in the bush
       else {
         const f = s.flows[tp.id];
         const tx = Math.floor(z.x / TILE), ty = Math.floor(z.y / TILE);
