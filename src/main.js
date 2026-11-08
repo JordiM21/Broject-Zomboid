@@ -9,6 +9,7 @@ window.__sprites = { playerFrame, zombieFrame, P_ANIMS, Z_ANIMS };
 import { los } from './world/world.js';
 import { TILE } from './config.js';
 import { Sfx } from './audio.js';
+import { Music } from './music.js';
 import { drawHUD, Minimap } from './ui/hud.js';
 import { Panels } from './ui/panels.js';
 import { ITEMS } from './data/items.js';
@@ -27,6 +28,7 @@ const inCoop = () => !!(host || guest);
 const $ = (id) => document.getElementById(id);
 const rend = new Renderer($('game'));
 const sfx = new Sfx();
+const music = new Music(sfx);
 let s = null, mm = null, running = false, paused = false;
 const keys = new Set(), pressed = new Set();
 const mouse = { x: innerWidth / 2, y: innerHeight / 2, down: false, aim: false };
@@ -336,7 +338,29 @@ $('coopCode').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.ke
 $('btnInvite').onclick = () => { if (host) { if (host.code) copyInvite(host.code); } else startHosting(); togglePause(); };
 $('btnQuit').onclick = () => { save(true); leaveCoop(); running = false; paused = false; $('pause').classList.add('hidden'); panels.close(); showMenu(); };
 $('btnRespawn').onclick = () => { doCmd({ t: 'respawn' }); $('death').classList.add('hidden'); const p = s.players[LOCAL]; rend.cam.x = p.x; rend.cam.y = p.y; addMsg('You wake up at the outpost.', '#ffd27a'); save(); };
-$('vol').oninput = (e) => sfx.setVolume(+e.target.value);
+// Sound options live on both the main menu and the pause menu; the sliders mirror each other and are remembered.
+const VOL_KEY = 'lasthaul_volume';
+try { const v = parseFloat(localStorage.getItem(VOL_KEY)); if (v >= 0 && v <= 1) sfx.volume = v; } catch { /* private mode */ }
+const volSliders = { sfx: [...document.querySelectorAll('.sfxVol')], music: [...document.querySelectorAll('.musicVol')] };
+volSliders.sfx.forEach((el) => { el.value = sfx.volume; el.oninput = () => { sfx.setVolume(+el.value); volSliders.sfx.forEach((o) => { o.value = el.value; }); try { localStorage.setItem(VOL_KEY, el.value); } catch { /* ignore */ } }; });
+volSliders.music.forEach((el) => { el.value = music.vol; el.oninput = () => { music.setVolume(+el.value); volSliders.music.forEach((o) => { o.value = el.value; }); }; });
+// what the soundtrack should be doing right now (checked a few times a second, not every frame)
+let moodT = 0, moodNow = 'menu';
+function wantMood(dt) {
+  if (!running || !s) return 'menu'; // the password screen and main menu play the main theme
+  const p = s.players[LOCAL]; if (p.dead) return 'none';
+  if (!p.inRaid) return 'home'; // the outpost
+  if ((moodT -= dt) > 0) return moodNow;
+  moodT = 0.25;
+  let chase = 0, near = 0;
+  for (const z of s.zombies) {
+    if (z.state === 'idle') continue;
+    const d = Math.hypot(z.x - p.x, z.y - p.y);
+    if (z.state === 'chase' && d < TILE * 13) chase += z.type === 'runner' || z.type === 'brute' ? 2 : 1; else if (d < TILE * 22) near++;
+  }
+  const late = s.raid && s.raid.len - s.raid.t < 120;
+  return (moodNow = chase >= 2 ? 'action' : chase || near || late || p.hp < 35 || p.downed ? 'tension' : 'explore');
+}
 function showMenu() { $('who').value = LOCAL === 'p1' ? '' : LOCAL; $('menu').classList.remove('hidden'); showViewSetting(); }
 
 // ---------- loop ----------
@@ -376,6 +400,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
   if (guest && guest.inbox.length && guest.s) guest.receive(); // includes the partner's first world, before they've started playing
+  music.set(wantMood(dt), dt);
   if (!running) return;
   const live = !paused || inCoop(); // a shared world keeps running behind a pause menu
   ui.dt = live ? dt : 0;
@@ -449,4 +474,4 @@ rend.resize();
 keepWarm();
 openGate();
 requestAnimationFrame(frame);
-window.__game = { spawn: (x, y, t) => spawnZombie(s, x, y, t), revealAll: () => { mm.explored.fill(1); for (let i = 0; i < mm.n; i++) mm.paint(i); mm.g.putImageData(mm.img, 0, 0); }, sfx, get state() { return s; }, newGame, command: doCmd, get host() { return host; }, get guest() { return guest; } };
+window.__game = { music, spawn: (x, y, t) => spawnZombie(s, x, y, t), revealAll: () => { mm.explored.fill(1); for (let i = 0; i < mm.n; i++) mm.paint(i); mm.g.putImageData(mm.img, 0, 0); }, sfx, get state() { return s; }, newGame, command: doCmd, get host() { return host; }, get guest() { return guest; } };
