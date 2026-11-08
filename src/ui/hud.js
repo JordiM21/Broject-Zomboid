@@ -210,7 +210,7 @@ export function drawHUD(ctx, s, p, ui, rend, mm) {
   const k = Math.min(1, ui.dt * 10);
   D.hp += (p.hp - D.hp) * k; D.hunger += (p.hunger - D.hunger) * k; D.thirst += (p.thirst - D.thirst) * k; D.st += (p.stamina - D.st) * k;
   D.trail = D.trail > D.hp ? Math.max(D.hp, D.trail - ui.dt * 25) : D.hp;
-  const lowSt = p.stamina < 15 && performance.now() % 500 < 250;
+  const lowSt = (p.tired || p.stamina < 15) && performance.now() % 500 < 250;
   bar(ctx, bx + 20, by, 176, D.hp, p.hp < 30 ? '#e03a3a' : '#c94a4a', '', D.trail);
   bar(ctx, bx + 20, by + 16, 176, D.hunger, '#d08a3a', '');
   bar(ctx, bx + 20, by + 32, 176, D.thirst, '#3a8ad0', '');

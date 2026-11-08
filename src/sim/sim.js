@@ -521,12 +521,13 @@ function moveIntent(p, inp) {
     mx = fwd * c - side * n; my = fwd * n + side * c;
   }
   p.moving = ml > 0;
-  p.sprinting = !!inp.sprint && p.moving && p.stamina > 3 && !p.channel && !p.sneak && !p.downed;
+  if (p.stamina <= 3) p.tired = true; else if (p.stamina >= 50) p.tired = false; // winded until half the bar is back
+  p.sprinting = !!inp.sprint && p.moving && !p.tired && !p.channel && !p.sneak && !p.downed;
   return [mx, my];
 }
 function applyMove(s, p, mx, my, dt) {
   const w = s.world, over = carried(p) / capacity(p), slow = over > 1 ? Math.max(0.4, 1 - (over - 1) * 1.2) : 1;
-  let speed = p.downed ? 34 : p.sneak ? 62 : p.sprinting ? (hasPerk(p, 'sprinter') ? 192 : 172) : 112;
+  let speed = p.downed ? 34 : p.sneak ? 62 : p.tired ? 90 : p.sprinting ? (hasPerk(p, 'sprinter') ? 192 : 172) : 112;
   speed *= slow * gearStats(p).slow; if (p.buffs && p.buffs.adrenaline) speed *= 1.3; if (p.channel) speed *= 0.4; if (p.reload > 0) speed *= 0.9; if (p.peek) speed *= 0.5;
   if (w.tiles[Math.floor(p.y / TILE) * w.w + Math.floor(p.x / TILE)] === T.BUSH) speed *= 0.6;
   const bx = p.x, by = p.y;
@@ -1155,20 +1156,21 @@ function updateZombies(s, dt) {
     }
 
     let gx = z.x, gy = z.y, spd = zt.spd * (dark ? 1.2 : 1) * rage;
+    z.seenT = z.seen ? 0.5 : Math.max(0, (z.seenT || 0) - dt); // a flickering line of sight must not flip between 'straight at them' and 'follow the path'
     if (z.state === 'chase') {
       const tp = s.players[z.pid] || p;
       z.lost += z.seen ? 0 : dt * (tp.hid ? 2.5 : 1); // lose track of someone in a bush much faster
       if (z.lost > 7) { z.state = 'investigate'; z.tx = z.lx; z.ty = z.ly; z.sus = 0.5; }
       const dd = dist(z, tp);
-      if (z.seen && dd < 8 * TILE) { gx = tp.x; gy = tp.y; }
+      if (z.seenT > 0 && dd < 8 * TILE) { gx = tp.x; gy = tp.y; }
       else if (tp.hid) { gx = z.lx; gy = z.ly; } // it only knows where it last saw you, not that you're in the bush
       else {
         const f = s.flows[tp.id];
         const tx = Math.floor(z.x / TILE), ty = Math.floor(z.y / TILE);
         const v = f ? f.get(tx, ty) : -1;
         if (v > 0) {
-          let best = null;
-          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nv = f.get(tx + dx, ty + dy); if (nv >= 0 && nv < v) { best = [tx + dx, ty + dy]; break; } }
+          let best = null, bv = v;
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nv = f.get(tx + dx, ty + dy); if (nv >= 0 && nv < bv) { best = [tx + dx, ty + dy]; bv = nv; } } // the steepest way down, not just the first one
           if (best) { gx = (best[0] + 0.5) * TILE; gy = (best[1] + 0.5) * TILE; }
         } else { gx = z.lx; gy = z.ly; }
       }
@@ -1192,6 +1194,9 @@ function updateZombies(s, dt) {
     let dx = gx - z.x, dy = gy - z.y; const dl = Math.hypot(dx, dy);
     if (dl > 1 && spd > 0) {
       dx /= dl; dy /= dl;
+      if (z.sx === undefined) { z.sx = dx; z.sy = dy; } // ease the heading so a changed goal bends the path instead of snapping it
+      const sk = Math.min(1, dt * 9); z.sx += (dx - z.sx) * sk; z.sy += (dy - z.sy) * sk;
+      const sl = Math.hypot(z.sx, z.sy) || 1; dx = z.sx / sl; dy = z.sy / sl;
       const ox = z.x, oy = z.y;
       if (w.tiles[Math.floor(z.y / TILE) * w.w + Math.floor(z.x / TILE)] === T.WINDOW) spd *= 0.3; // climbing through
       const step = Math.min(dl, spd * dt);
@@ -1224,7 +1229,7 @@ function updateZombies(s, dt) {
       if (d < 30 * TILE) trample(s, z, zt.r * 0.8, false);
       const moved = Math.hypot(z.x - ox, z.y - oy);
       z.stuck = moved < step * 0.3 ? z.stuck + dt : Math.max(0, z.stuck - dt);
-    } else collide(z, zt.r, block);
+    } else { z.sx = undefined; collide(z, zt.r, block); }
     // separation
     const cx = (z.x / 64) | 0, cy = (z.y / 64) | 0;
     for (let oy2 = -1; oy2 <= 1; oy2++) for (let ox2 = -1; ox2 <= 1; ox2++) {
